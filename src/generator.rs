@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use crate::poi::{POI, Coordinate};
 use crate::constants::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GeneratorType {
     // Wind variations
     OnshoreWind,
@@ -24,11 +24,29 @@ pub enum GeneratorType {
     // Hydro variations
     HydroDam,
     PumpedStorage,
+    BatteryStorage,  // New type for battery storage
     TidalGenerator,
     WaveEnergy,
 }
 
 impl GeneratorType {
+    pub fn is_intermittent(&self) -> bool {
+        matches!(self,
+            GeneratorType::OnshoreWind |
+            GeneratorType::OffshoreWind |
+            GeneratorType::DomesticSolar |
+            GeneratorType::CommercialSolar |
+            GeneratorType::UtilitySolar
+        )
+    }
+
+    pub fn is_storage(&self) -> bool {
+        matches!(self,
+            GeneratorType::PumpedStorage |
+            GeneratorType::BatteryStorage
+        )
+    }
+
     pub fn get_size_constraints(&self) -> (f64, f64) {
         match self {
             // Wind constraints
@@ -172,9 +190,13 @@ pub struct Generator {
     size: f64, // Between 0.1 and 1.0
     co2_out: f64,
     efficiency: f64,
+    decommission_cost: f64,
+    commissioning_year: u32,
+    is_active: bool,
     operation_percentage: f64,
     is_active: bool,
     upgrade_history: Vec<(u32, f64)>, // Year -> New efficiency pairs
+    storage: Option<PowerStorageSystem>,  // New field for storage capabilities
 }
 
 impl Generator {
@@ -188,8 +210,10 @@ impl Generator {
         eol: u32,
         size: f64,
         co2_out: f64,
+        decommission_cost: f64,
     ) -> Self {
         let size = size.clamp(MIN_GENERATOR_SIZE, MAX_GENERATOR_SIZE);
+        let storage = get_storage_capacity(&generator_type);
         Self {
             id,
             coordinate,
@@ -201,10 +225,54 @@ impl Generator {
             size,
             co2_out,
             efficiency: 0.35, // Starting efficiency
+            decommission_cost,
+            commissioning_year: 0,
             operation_percentage: 1.0,
+            storage,
             is_active: true,
             upgrade_history: Vec::new(),
         }
+    }
+
+    pub fn get_current_power_output(&self, hour: Option<u8>) -> f64 {
+        if !self.is_active {
+            return 0.0;
+        }
+
+        let base_output = self.power_out * self.efficiency * self.operation_percentage;
+
+        if let Some(hour) = hour {
+            if self.generator_type.is_intermittent() {
+                calculate_intermittent_output(self, hour)
+            } else {
+                base_output
+            }
+        } else {
+            // When no hour is provided, use average output
+            if self.generator_type.is_intermittent() {
+                match self.generator_type {
+                    GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => {
+                        base_output * 0.35  // Average wind capacity factor
+                    },
+                    GeneratorType::UtilitySolar |
+                    GeneratorType::CommercialSolar |
+                    GeneratorType::DomesticSolar => {
+                        base_output * 0.20  // Average solar capacity factor
+                    },
+                    _ => base_output,
+                }
+            } else {
+                base_output
+            }
+        }
+    }
+
+    pub fn get_storage_system(&mut self) -> Option<&mut PowerStorageSystem> {
+        self.storage.as_mut()
+    }
+
+    pub fn get_storage_capacity(&self) -> f64 {
+        self.storage.as_ref().map_or(0.0, |s| s.capacity)
     }
 
     pub fn get_current_cost(&self, year: u32) -> f64 {
@@ -233,18 +301,11 @@ impl Generator {
             (0..years).map(|y| self.get_current_operating_cost(2025 + y)).sum::<f64>()
     }
 
-    pub fn get_current_power_output(&self) -> f64 {
-        if !self.is_active {
-            return 0.0;
-        }
-        self.power_out * self.efficiency * self.operation_percentage
-    }
-
     pub fn get_current_co2_output(&self) -> f64 {
         if !self.is_active {
             return 0.0;
         }
-        self.co2_out * self.operation_percentage * (1.0 - self.efficiency)
+        self.power_out * self.efficiency * self.operation_percentage * (1.0 - self.efficiency)
     }
 
     pub fn can_upgrade_efficiency(&self, year: u32, constraints: &GeneratorConstraints) -> bool {
@@ -271,17 +332,22 @@ impl Generator {
         upgrade_cost
     }
 
-    pub fn adjust_operation(&mut self, new_percentage: f64, constraints: &GeneratorConstraints) -> bool {
-        let clamped_percentage = new_percentage.clamp(
-            constraints.min_operation_percentage,
-            1.0
-        );
+    pub fn adjust_operation(&mut self, new_percentage: u8, constraints: &GeneratorConstraints) -> bool {
+        let min_percentage = match self.generator_type {
+            GeneratorType::Nuclear => 60, // Nuclear needs high base load
+            GeneratorType::HydroDam | GeneratorType::PumpedStorage => 20, // Flexible operation
+            GeneratorType::OnshoreWind | GeneratorType::OffshoreWind |
+            GeneratorType::UtilitySolar => 0, // Can be fully curtailed
+            _ => 30, // Default minimum for other types
+        };
+        
+        let clamped_percentage = new_percentage.clamp(min_percentage, 100);
         
         if !self.is_active {
             return false;
         }
 
-        self.operation_percentage = clamped_percentage;
+        self.operation_percentage = clamped_percentage as f64 / 100.0;
         true
     }
 
@@ -307,8 +373,18 @@ impl Generator {
         self.efficiency
     }
 
-    pub fn get_operation_percentage(&self) -> f64 {
-        self.operation_percentage
+    pub fn get_operation_percentage(&self) -> u8 {
+        (self.operation_percentage * 100.0) as u8
+    }
+
+    pub fn get_min_operation_percentage(&self) -> u8 {
+        match self.generator_type {
+            GeneratorType::Nuclear => 60, // Nuclear needs high base load
+            GeneratorType::HydroDam | GeneratorType::PumpedStorage => 20, // Flexible operation
+            GeneratorType::OnshoreWind | GeneratorType::OffshoreWind |
+            GeneratorType::UtilitySolar => 0, // Can be fully curtailed
+            _ => 30, // Default minimum for other types
+        }
     }
 }
 

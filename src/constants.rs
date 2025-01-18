@@ -135,3 +135,112 @@ pub const COST_EFFICIENCY_FACTOR: f64 = 0.15; // Maximum additional efficiency f
 
 // Output Configuration
 pub const CSV_HEADER: &str = "Year,Total Population,Total Power Usage (MW),Total Power Generation (MW),Power Balance (MW),Average Public Opinion"; 
+
+// Power Output Reference Values (in MW)
+pub const MAX_ONSHORE_WIND_POWER: f64 = 400.0;
+pub const MAX_OFFSHORE_WIND_POWER: f64 = 800.0;
+
+pub const MAX_DOMESTIC_SOLAR_POWER: f64 = 0.01;  // 10kW
+pub const MAX_COMMERCIAL_SOLAR_POWER: f64 = 1.0;  // 1MW
+pub const MAX_UTILITY_SOLAR_POWER: f64 = 300.0;
+
+pub const MAX_NUCLEAR_POWER: f64 = 1500.0;
+
+pub const MAX_COAL_POWER: f64 = 1000.0;
+pub const MAX_GAS_CC_POWER: f64 = 800.0;
+pub const MAX_GAS_PEAKER_POWER: f64 = 200.0;
+
+pub const MAX_HYDRO_DAM_POWER: f64 = 400.0;
+pub const MAX_PUMPED_STORAGE_POWER: f64 = 300.0;
+pub const MAX_TIDAL_POWER: f64 = 100.0;
+pub const MAX_WAVE_POWER: f64 = 50.0;
+
+// Base Costs (in euros)
+pub const BASE_ONSHORE_WIND_COST: f64 = 2_000_000.0;  // Per MW
+pub const BASE_OFFSHORE_WIND_COST: f64 = 4_000_000.0;  // Per MW
+
+pub const BASE_DOMESTIC_SOLAR_COST: f64 = 10_000.0;    // Per installation
+pub const BASE_COMMERCIAL_SOLAR_COST: f64 = 800_000.0; // Per MW
+pub const BASE_UTILITY_SOLAR_COST: f64 = 600_000.0;    // Per MW
+
+pub const BASE_NUCLEAR_COST: f64 = 6_000_000.0;        // Per MW
+
+pub const BASE_COAL_COST: f64 = 2_000_000.0;          // Per MW
+pub const BASE_GAS_CC_COST: f64 = 1_000_000.0;        // Per MW
+pub const BASE_GAS_PEAKER_COST: f64 = 500_000.0;      // Per MW
+
+pub const BASE_HYDRO_DAM_COST: f64 = 5_000_000.0;     // Per MW
+pub const BASE_PUMPED_STORAGE_COST: f64 = 2_500_000.0; // Per MW
+pub const BASE_TIDAL_COST: f64 = 8_000_000.0;         // Per MW (initially very expensive)
+pub const BASE_WAVE_COST: f64 = 10_000_000.0;         // Per MW (initially extremely expensive)
+
+// Operating Costs (per MW per year)
+pub const ONSHORE_WIND_OPERATING_COST: f64 = 50_000.0;
+pub const OFFSHORE_WIND_OPERATING_COST: f64 = 100_000.0;
+
+pub const DOMESTIC_SOLAR_OPERATING_COST: f64 = 200.0;
+pub const COMMERCIAL_SOLAR_OPERATING_COST: f64 = 20_000.0;
+pub const UTILITY_SOLAR_OPERATING_COST: f64 = 15_000.0;
+
+pub const NUCLEAR_OPERATING_COST: f64 = 250_000.0;
+
+pub const COAL_OPERATING_COST: f64 = 150_000.0;
+pub const GAS_CC_OPERATING_COST: f64 = 100_000.0;
+pub const GAS_PEAKER_OPERATING_COST: f64 = 80_000.0;
+
+pub const HYDRO_DAM_OPERATING_COST: f64 = 60_000.0;
+pub const PUMPED_STORAGE_OPERATING_COST: f64 = 40_000.0;
+pub const TIDAL_OPERATING_COST: f64 = 200_000.0;
+pub const WAVE_OPERATING_COST: f64 = 250_000.0;
+
+// Technology Maturity Factors (affects cost reduction and efficiency gains)
+pub const MATURE_TECH_IMPROVEMENT_RATE: f64 = 0.98;     // 2% improvement per year
+pub const DEVELOPING_TECH_IMPROVEMENT_RATE: f64 = 0.95; // 5% improvement per year
+pub const EMERGING_TECH_IMPROVEMENT_RATE: f64 = 0.90;   // 10% improvement per year
+
+// Urban Placement Factors
+pub const URBAN_SOLAR_BONUS: f64 = 1.2;        // 20% bonus for urban solar
+pub const URBAN_PEAKER_PENALTY: f64 = 0.9;     // 10% penalty for urban gas peakers
+
+// Water Requirement Factors
+pub const COASTAL_BONUS: f64 = 1.15;           // 15% bonus for water-based generators in coastal areas
+pub const RIVER_BONUS: f64 = 1.10;             // 10% bonus for water-based generators near rivers 
+
+// Power Storage Constants
+pub const MAX_INTERMITTENT_PERCENTAGE: f64 = 0.30;  // Maximum 30% intermittent without storage
+pub const STORAGE_CAPACITY_FACTOR: f64 = 0.5;      // Each MW of storage allows 0.5 MW more intermittent
+
+// Pumped Storage Parameters
+pub const PUMPED_STORAGE_CAPACITY: f64 = 8000.0;      // MWh of storage
+pub const PUMPED_STORAGE_CHARGE_RATE: f64 = 300.0;    // MW charging rate
+pub const PUMPED_STORAGE_DISCHARGE_RATE: f64 = 300.0;  // MW discharge rate
+pub const PUMPED_STORAGE_EFFICIENCY: f64 = 0.75;       // 75% round-trip efficiency
+
+// Battery Storage Parameters
+pub const BATTERY_STORAGE_CAPACITY: f64 = 500.0;      // MWh of storage
+pub const BATTERY_STORAGE_CHARGE_RATE: f64 = 100.0;   // MW charging rate
+pub const BATTERY_STORAGE_DISCHARGE_RATE: f64 = 100.0; // MW discharge rate
+pub const BATTERY_STORAGE_EFFICIENCY: f64 = 0.85;      // 85% round-trip efficiency
+
+// Time-based Generation Factors
+pub const SOLAR_PEAK_HOURS: u8 = 5;  // Number of peak solar hours per day
+pub const WIND_PEAK_HOURS: u8 = 8;   // Number of peak wind hours per day
+
+// Weather Impact Factors
+pub const CLOUDY_DAY_FACTOR: f64 = 0.3;  // Solar output on cloudy days
+pub const CALM_DAY_FACTOR: f64 = 0.2;    // Wind output on calm days
+
+// Storage Cost Parameters
+pub const BATTERY_STORAGE_COST_PER_MWH: f64 = 500_000.0;  // Cost per MWh of battery storage
+pub const PUMPED_STORAGE_COST_PER_MWH: f64 = 200_000.0;   // Cost per MWh of pumped storage 
+
+// Marine and Battery Storage Power Outputs
+pub const MAX_BATTERY_STORAGE_POWER: f64 = 500.0;  // 500 MW max battery storage
+pub const MARINE_EFFICIENCY_GAIN: f64 = 0.93;      // 7% annual efficiency gain for marine tech
+pub const BATTERY_EFFICIENCY_GAIN: f64 = 0.95;     // 5% annual efficiency gain for batteries
+
+// Marine and Battery Storage Opinions
+pub const MARINE_BASE_OPINION: f64 = 0.75;         // Initial public opinion of marine tech
+pub const MARINE_OPINION_CHANGE: f64 = 0.005;      // Annual change in marine tech opinion
+pub const BATTERY_BASE_OPINION: f64 = 0.85;        // Initial public opinion of batteries
+pub const BATTERY_OPINION_CHANGE: f64 = 0.003;     // Annual change in battery opinion 

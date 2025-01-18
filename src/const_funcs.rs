@@ -1,7 +1,7 @@
 use crate::generator::GeneratorType;
 use crate::constants::*;
 use crate::settlement::Settlement;
-use crate::poi::Coordinate;
+use crate::poi::{Coordinate, POI};
 use std::collections::HashMap;
 
 // Helper function to calculate size-based efficiency bonus
@@ -18,12 +18,20 @@ fn calc_cost_efficiency_bonus(cost: f64) -> f64 {
 // Helper function to get max power output for generator type
 fn get_max_power_output(gen_type: &GeneratorType) -> f64 {
     match gen_type {
-        GeneratorType::Wind => MAX_WIND_POWER,
-        GeneratorType::Solar => MAX_SOLAR_POWER,
+        GeneratorType::OnshoreWind => MAX_ONSHORE_WIND_POWER,
+        GeneratorType::OffshoreWind => MAX_OFFSHORE_WIND_POWER,
+        GeneratorType::DomesticSolar => MAX_DOMESTIC_SOLAR_POWER,
+        GeneratorType::CommercialSolar => MAX_COMMERCIAL_SOLAR_POWER,
+        GeneratorType::UtilitySolar => MAX_UTILITY_SOLAR_POWER,
         GeneratorType::Nuclear => MAX_NUCLEAR_POWER,
-        GeneratorType::Coal => MAX_COAL_POWER,
-        GeneratorType::Gas => MAX_GAS_POWER,
-        GeneratorType::Hydro => MAX_HYDRO_POWER,
+        GeneratorType::CoalPlant => MAX_COAL_POWER,
+        GeneratorType::GasCombinedCycle => MAX_GAS_CC_POWER,
+        GeneratorType::GasPeaker => MAX_GAS_PEAKER_POWER,
+        GeneratorType::HydroDam => MAX_HYDRO_DAM_POWER,
+        GeneratorType::PumpedStorage => MAX_PUMPED_STORAGE_POWER,
+        GeneratorType::TidalGenerator => MAX_TIDAL_POWER,
+        GeneratorType::WaveEnergy => MAX_WAVE_POWER,
+        GeneratorType::BatteryStorage => MAX_BATTERY_STORAGE_POWER,
     }
 }
 
@@ -91,40 +99,77 @@ pub fn calc_power_usage_per_capita(base_usage: f64, year: u32) -> f64 {
         electrification_factor
 }
 
-pub fn calc_generator_cost(gen_type: &GeneratorType, base_cost: f64, year: u32) -> f64 {
+pub fn calc_generator_cost(gen_type: &GeneratorType, base_cost: f64, year: u32, is_urban: bool, is_coastal: bool, is_river: bool) -> f64 {
     let inflation = calc_inflation_factor(year);
     let years_from_base = (year - BASE_YEAR) as f64;
     
-    let technology_factor = match gen_type {
-        GeneratorType::Wind => WIND_COST_REDUCTION.powf(years_from_base),
-        GeneratorType::Solar => SOLAR_COST_REDUCTION.powf(years_from_base),
-        GeneratorType::Nuclear => NUCLEAR_COST_INCREASE.powf(years_from_base),
-        GeneratorType::Coal => COAL_COST_INCREASE.powf(years_from_base),
-        GeneratorType::Gas => GAS_COST_INCREASE.powf(years_from_base),
-        GeneratorType::Hydro => HYDRO_COST_INCREASE.powf(years_from_base),
-    };
+    // Get technology-specific cost evolution rate
+    let cost_evolution_rate = gen_type.get_cost_evolution_rate();
+    let technology_factor = cost_evolution_rate.powf(years_from_base);
     
-    base_cost * inflation * technology_factor
+    // Apply location-specific modifiers
+    let mut location_modifier = 1.0;
+    
+    if is_urban {
+        location_modifier *= match gen_type {
+            GeneratorType::DomesticSolar |
+            GeneratorType::CommercialSolar => URBAN_SOLAR_BONUS,
+            GeneratorType::GasPeaker => URBAN_PEAKER_PENALTY,
+            _ => 1.0,
+        };
+    }
+    
+    if gen_type.requires_water() {
+        if is_coastal {
+            location_modifier *= COASTAL_BONUS;
+        } else if is_river {
+            location_modifier *= RIVER_BONUS;
+        }
+    }
+    
+    base_cost * inflation * technology_factor * location_modifier
 }
 
-pub fn calc_generator_efficiency(gen_type: &GeneratorType, size: f64, base_cost: f64, year: u32) -> f64 {
-    let years_from_base = (year - BASE_YEAR) as f64;
+pub fn calc_generator_efficiency(
+    gen_type: &GeneratorType,
+    size: f64,
+    base_cost: f64,
+    year: u32,
+    is_urban: bool,
+    is_coastal: bool,
+) -> f64 {
+    let base_efficiency = gen_type.get_base_efficiency(year);
     
-    let base_efficiency = BASE_EFFICIENCY;
-    let size_bonus = calc_size_efficiency_bonus(size);
+    // Size bonus only applies to non-fixed size generators
+    let size_bonus = if matches!(gen_type, GeneratorType::DomesticSolar) {
+        0.0
+    } else {
+        calc_size_efficiency_bonus(size)
+    };
+    
     let cost_bonus = calc_cost_efficiency_bonus(base_cost);
     
-    let technology_evolution = match gen_type {
-        GeneratorType::Wind => WIND_EFFICIENCY_GAIN.powf(years_from_base),
-        GeneratorType::Solar => SOLAR_EFFICIENCY_GAIN.powf(years_from_base),
-        GeneratorType::Nuclear => NUCLEAR_EFFICIENCY_GAIN.powf(years_from_base),
-        GeneratorType::Coal => COAL_EFFICIENCY_LOSS.powf(years_from_base),
-        GeneratorType::Gas => GAS_EFFICIENCY_LOSS.powf(years_from_base),
-        GeneratorType::Hydro => HYDRO_EFFICIENCY_GAIN.powf(years_from_base),
-    };
-
-    (base_efficiency + size_bonus + cost_bonus)
-        .min(MAX_EFFICIENCY) * technology_evolution
+    // Location bonuses
+    let mut location_bonus = 0.0;
+    
+    // Urban bonus for solar
+    if is_urban && matches!(gen_type, 
+        GeneratorType::DomesticSolar | 
+        GeneratorType::CommercialSolar
+    ) {
+        location_bonus += 0.05; // 5% bonus for urban solar
+    }
+    
+    // Coastal bonus for offshore wind and marine generators
+    if is_coastal && matches!(gen_type,
+        GeneratorType::OffshoreWind |
+        GeneratorType::TidalGenerator |
+        GeneratorType::WaveEnergy
+    ) {
+        location_bonus += 0.08; // 8% bonus for coastal placement
+    }
+    
+    (base_efficiency + size_bonus + cost_bonus + location_bonus).min(MAX_EFFICIENCY)
 }
 
 pub fn calc_power_output(gen_type: &GeneratorType, size: f64) -> f64 {
@@ -137,12 +182,14 @@ pub fn calc_operating_cost(gen_type: &GeneratorType, base_operating_cost: f64, y
     let years_from_base = (year - BASE_YEAR) as f64;
     
     let efficiency_factor = match gen_type {
-        GeneratorType::Wind => WIND_EFFICIENCY_GAIN.powf(years_from_base),
-        GeneratorType::Solar => SOLAR_EFFICIENCY_GAIN.powf(years_from_base),
+        GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => WIND_EFFICIENCY_GAIN.powf(years_from_base),
+        GeneratorType::DomesticSolar | GeneratorType::CommercialSolar | GeneratorType::UtilitySolar => SOLAR_EFFICIENCY_GAIN.powf(years_from_base),
         GeneratorType::Nuclear => NUCLEAR_EFFICIENCY_GAIN.powf(years_from_base),
-        GeneratorType::Coal => COAL_EFFICIENCY_LOSS.powf(years_from_base),
-        GeneratorType::Gas => GAS_EFFICIENCY_LOSS.powf(years_from_base),
-        GeneratorType::Hydro => HYDRO_EFFICIENCY_GAIN.powf(years_from_base),
+        GeneratorType::CoalPlant => COAL_EFFICIENCY_LOSS.powf(years_from_base),
+        GeneratorType::GasCombinedCycle | GeneratorType::GasPeaker => GAS_EFFICIENCY_LOSS.powf(years_from_base),
+        GeneratorType::HydroDam | GeneratorType::PumpedStorage => HYDRO_EFFICIENCY_GAIN.powf(years_from_base),
+        GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => MARINE_EFFICIENCY_GAIN.powf(years_from_base),
+        GeneratorType::BatteryStorage => BATTERY_EFFICIENCY_GAIN.powf(years_from_base),
     };
     
     base_operating_cost * inflation * efficiency_factor
@@ -152,12 +199,14 @@ pub fn calc_type_opinion(gen_type: &GeneratorType, year: u32) -> f64 {
     let years_passed = (year - BASE_YEAR) as f64;
     
     let (base_opinion, annual_change) = match gen_type {
-        GeneratorType::Wind => (WIND_BASE_OPINION, WIND_OPINION_CHANGE),
-        GeneratorType::Solar => (SOLAR_BASE_OPINION, SOLAR_OPINION_CHANGE),
+        GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => (WIND_BASE_OPINION, WIND_OPINION_CHANGE),
+        GeneratorType::DomesticSolar | GeneratorType::CommercialSolar | GeneratorType::UtilitySolar => (SOLAR_BASE_OPINION, SOLAR_OPINION_CHANGE),
         GeneratorType::Nuclear => (NUCLEAR_BASE_OPINION, NUCLEAR_OPINION_CHANGE),
-        GeneratorType::Coal => (COAL_BASE_OPINION, COAL_OPINION_CHANGE),
-        GeneratorType::Gas => (GAS_BASE_OPINION, GAS_OPINION_CHANGE),
-        GeneratorType::Hydro => (HYDRO_BASE_OPINION, HYDRO_OPINION_CHANGE),
+        GeneratorType::CoalPlant => (COAL_BASE_OPINION, COAL_OPINION_CHANGE),
+        GeneratorType::GasCombinedCycle | GeneratorType::GasPeaker => (GAS_BASE_OPINION, GAS_OPINION_CHANGE),
+        GeneratorType::HydroDam | GeneratorType::PumpedStorage => (HYDRO_BASE_OPINION, HYDRO_OPINION_CHANGE),
+        GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => (MARINE_BASE_OPINION, MARINE_OPINION_CHANGE),
+        GeneratorType::BatteryStorage => (BATTERY_BASE_OPINION, BATTERY_OPINION_CHANGE),
     };
     
     (base_opinion + annual_change * years_passed).clamp(0.0, 1.0)
@@ -214,8 +263,8 @@ pub fn calc_transmission_loss(
 }
 
 pub fn calc_settlement_power_distribution(settlement: &Settlement, year: u32) -> (f64, f64, f64) {
-    let total_power = settlement.current_power_usage;
-    let population = settlement.current_pop;
+    let total_power = settlement.get_power_usage();
+    let population = settlement.get_population();
     
     let mut residential = total_power * RESIDENTIAL_POWER_RATIO;
     let mut commercial = total_power * COMMERCIAL_POWER_RATIO;
@@ -311,11 +360,14 @@ pub fn evaluate_generator_location(
     
     // Add environmental component
     let environmental_score = match gen_type {
-        GeneratorType::Wind | GeneratorType::Solar => 0.9,
-        GeneratorType::Hydro => 0.7,
+        GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => 0.9,
+        GeneratorType::DomesticSolar | GeneratorType::CommercialSolar | GeneratorType::UtilitySolar => 0.9,
+        GeneratorType::HydroDam | GeneratorType::PumpedStorage => 0.7,
         GeneratorType::Nuclear => 0.5,
-        GeneratorType::Gas => 0.3,
-        GeneratorType::Coal => 0.1,
+        GeneratorType::GasCombinedCycle | GeneratorType::GasPeaker => 0.3,
+        GeneratorType::CoalPlant => 0.1,
+        GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => 0.8,
+        GeneratorType::BatteryStorage => 0.95,
     };
     total_score += environmental_score * ENVIRONMENTAL_WEIGHT;
     total_weight += ENVIRONMENTAL_WEIGHT;

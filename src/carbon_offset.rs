@@ -52,10 +52,10 @@ impl CarbonOffset {
     pub fn get_current_cost(&self, year: u32) -> f64 {
         let inflation = calc_inflation_factor(year);
         let technology_factor = match self.offset_type {
-            CarbonOffsetType::ActiveCapture => 0.95, // 5% cost reduction per year
-            CarbonOffsetType::Forest => 1.0,        // Stable costs
-            CarbonOffsetType::CarbonCredit => 1.03, // 3% increase as credits become scarcer
-            CarbonOffsetType::Wetland => 1.01,      // 1% increase due to land costs
+            CarbonOffsetType::ActiveCapture => 0.95f64, // 5% cost reduction per year
+            CarbonOffsetType::Forest => 1.0f64,        // Stable costs
+            CarbonOffsetType::CarbonCredit => 1.03f64, // 3% increase as credits become scarcer
+            CarbonOffsetType::Wetland => 1.01f64,      // 1% increase due to land costs
         };
         
         let years_from_base = (year - 2025) as f64;
@@ -65,10 +65,10 @@ impl CarbonOffset {
     pub fn get_current_operating_cost(&self, year: u32) -> f64 {
         let inflation = calc_inflation_factor(year);
         let efficiency_factor = match self.offset_type {
-            CarbonOffsetType::ActiveCapture => 0.97, // 3% efficiency improvement
-            CarbonOffsetType::Forest => 1.0,        // Stable maintenance costs
-            CarbonOffsetType::CarbonCredit => 1.02, // 2% increase in verification costs
-            CarbonOffsetType::Wetland => 1.01,      // 1% increase in maintenance
+            CarbonOffsetType::ActiveCapture => 0.97f64, // 3% efficiency improvement
+            CarbonOffsetType::Forest => 1.0f64,        // Stable maintenance costs
+            CarbonOffsetType::CarbonCredit => 1.02f64, // 2% increase in verification costs
+            CarbonOffsetType::Wetland => 1.01f64,      // 1% increase in maintenance
         };
         
         let years_from_base = (year - 2025) as f64;

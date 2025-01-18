@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use crate::poi::{POI, Coordinate};
 use crate::const_funcs::{calc_population_growth, calc_power_usage_per_capita};
+use crate::constants::{MAP_MAX_X, MAP_MAX_Y};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settlement {
@@ -45,6 +46,14 @@ impl Settlement {
             year
         );
         self.current_power_usage = per_capita_usage * self.current_pop as f64;
+    }
+
+    pub fn get_power_usage(&self) -> f64 {
+        self.current_power_usage
+    }
+
+    pub fn get_population(&self) -> u32 {
+        self.current_pop
     }
 }
 
