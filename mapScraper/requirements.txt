@@ -1,0 +1,4 @@
+requests==2.31.0
+shapely==2.0.2
+numpy==1.26.3
+geojson==3.1.0 

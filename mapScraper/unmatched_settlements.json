@@ -1,0 +1,55 @@
+[
+  {
+    "name": "Royal Exchange B, Dublin City",
+    "population": 2213,
+    "constituent_settlements": [
+      "Royal Exchange B, Dublin City"
+    ]
+  },
+  {
+    "name": "Tantallon, Donegal",
+    "population": 1745,
+    "constituent_settlements": [
+      "Tantallon, Donegal"
+    ]
+  },
+  {
+    "name": "Dysartmoon, Kilkenny",
+    "population": 1018,
+    "constituent_settlements": [
+      "Dysartmoon, Kilkenny",
+      "Clogharinka, Kilkenny",
+      "Tullahought, Kilkenny",
+      "Ballyconra, Kilkenny"
+    ]
+  },
+  {
+    "name": "Toberadosh, Galway County",
+    "population": 1194,
+    "constituent_settlements": [
+      "Toberadosh, Galway County",
+      "Ballymoe, Galway County",
+      "Laurencetown, Galway County"
+    ]
+  },
+  {
+    "name": "Urney West, Donegal",
+    "population": 1261,
+    "constituent_settlements": [
+      "Urney West, Donegal",
+      "Cloghard, Donegal"
+    ]
+  },
+  {
+    "name": "Moneenalassa, Laois",
+    "population": 778,
+    "constituent_settlements": [
+      "Moneenalassa, Laois",
+      "Marymount, Laois",
+      "Kilcoke, Laois",
+      "Moneymore, Laois",
+      "Caher, Laois",
+      "Nealstown, Laois"
+    ]
+  }
+]
