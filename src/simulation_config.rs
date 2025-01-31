@@ -39,12 +39,17 @@ impl Default for SimulationConfig {
             allow_operation_adjustment: true,
             generator_constraints: GeneratorConstraints {
                 allowed_types: vec![
-                    GeneratorType::Wind,
-                    GeneratorType::Solar,
+                    GeneratorType::OnshoreWind,
+                    GeneratorType::OffshoreWind,
+                    GeneratorType::DomesticSolar,
+                    GeneratorType::CommercialSolar,
+                    GeneratorType::UtilitySolar,
                     GeneratorType::Nuclear,
-                    GeneratorType::Coal,
-                    GeneratorType::Gas,
-                    GeneratorType::Hydro,
+                    GeneratorType::CoalPlant,
+                    GeneratorType::GasCombinedCycle,
+                    GeneratorType::GasPeaker,
+                    GeneratorType::HydroDam,
+                    GeneratorType::PumpedStorage,
                 ],
                 max_efficiency_by_year: vec![
                     (2025, 0.40), // Base year

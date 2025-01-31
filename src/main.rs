@@ -7,11 +7,17 @@ mod const_funcs;
 mod carbon_offset;
 mod simulation_config;
 mod action_weights;
+mod power_storage;
 
 use std::fs::File;
 use std::io::Write;
 use chrono::Local;
 use rand::Rng;
+use crate::action_weights::{SimulationMetrics, score_metrics};
+use std::error::Error;
+use crate::const_funcs::calc_inflation_factor;
+use std::str::FromStr;
+use rayon::prelude::*;
 
 pub use poi::{POI, Coordinate};
 pub use generator::{Generator, GeneratorType};
@@ -49,8 +55,8 @@ struct YearlyMetrics {
 
 fn run_simulation(
     map: &mut Map,
-    action_weights: Option<&mut ActionWeights>,
-) -> Result<String, std::io::Error> {
+    mut action_weights: Option<&mut ActionWeights>,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
     let mut output = String::new();
     output.push_str("Year,Total Population,Total Power Usage (MW),Total Power Generation (MW),\
                     Power Balance (MW),Average Public Opinion,Total Operating Cost (€),\
@@ -61,8 +67,11 @@ fn run_simulation(
     let mut total_upgrade_costs = 0.0;
     let mut total_closure_costs = 0.0;
     
-    // Use provided weights or create new ones
-    let mut local_weights = action_weights.cloned().unwrap_or_else(ActionWeights::new);
+    // Create new weights instance and handle the mutable reference properly
+    let mut local_weights = match action_weights.as_deref() {
+        Some(weights) => weights.clone(),
+        None => ActionWeights::new(),
+    };
 
     for year in SIMULATION_START_YEAR..=SIMULATION_END_YEAR {
         if action_weights.is_none() {
@@ -75,10 +84,15 @@ fn run_simulation(
         }
         
         // Calculate current state
-        let current_state = ActionResult {
-            net_emissions: map.calc_net_co2_emissions(year),
-            public_opinion: calculate_average_opinion(map, year),
-            power_balance: map.calc_total_power_generation() - map.calc_total_power_usage(year),
+        let current_state = {
+            let net_emissions = map.calc_net_co2_emissions(year);
+            let public_opinion = calculate_average_opinion(map, year);
+            let power_balance = map.calc_total_power_generation(year, None) - map.calc_total_power_usage(year);
+            ActionResult {
+                net_emissions,
+                public_opinion,
+                power_balance,
+            }
         };
 
         // Handle power deficit first
@@ -94,10 +108,15 @@ fn run_simulation(
             let best_action = find_best_action(map, year, &local_weights)?;
             apply_action(map, &best_action, year)?;
             
-            let new_state = ActionResult {
-                net_emissions: map.calc_net_co2_emissions(year),
-                public_opinion: calculate_average_opinion(map, year),
-                power_balance: map.calc_total_power_generation() - map.calc_total_power_usage(year),
+            let new_state = {
+                let net_emissions = map.calc_net_co2_emissions(year);
+                let public_opinion = calculate_average_opinion(map, year);
+                let power_balance = map.calc_total_power_generation(year, None) - map.calc_total_power_usage(year);
+                ActionResult {
+                    net_emissions,
+                    public_opinion,
+                    power_balance,
+                }
             };
             
             let improvement = evaluate_action_impact(&current_state, &new_state, year);
@@ -137,8 +156,8 @@ fn run_simulation(
             print_generator_details(&metrics);
         }
         
-        // Update provided weights if they exist
-        if let Some(weights) = action_weights {
+        // Update provided weights if they exist by copying state back
+        if let Some(weights) = action_weights.as_deref_mut() {
             weights.update_weights_from(&local_weights);
         }
     }
@@ -146,15 +165,20 @@ fn run_simulation(
     Ok(output)
 }
 
-fn find_best_action(map: &Map, year: u32, action_weights: &ActionWeights) -> Result<GridAction, std::io::Error> {
+fn find_best_action(map: &Map, year: u32, action_weights: &ActionWeights) -> Result<GridAction, Box<dyn Error + Send + Sync>> {
     let mut best_action = None;
     let mut best_improvement = f64::NEG_INFINITY;
     let mut best_state = None;
     
-    let current_state = ActionResult {
-        net_emissions: map.calc_net_co2_emissions(year),
-        public_opinion: calculate_average_opinion(map, year),
-        power_balance: map.calc_total_power_generation() - map.calc_total_power_usage(year),
+    let current_state = {
+        let net_emissions = map.calc_net_co2_emissions(year);
+        let public_opinion = calculate_average_opinion(map, year);
+        let power_balance = map.calc_total_power_generation(year, None) - map.calc_total_power_usage(year);
+        ActionResult {
+            net_emissions,
+            public_opinion,
+            power_balance,
+        }
     };
     
     // Try multiple random actions and pick the best one
@@ -163,10 +187,15 @@ fn find_best_action(map: &Map, year: u32, action_weights: &ActionWeights) -> Res
         let mut map_clone = map.clone();
         
         if apply_action(&mut map_clone, &action, year).is_ok() {
-            let new_state = ActionResult {
-                net_emissions: map_clone.calc_net_co2_emissions(year),
-                public_opinion: calculate_average_opinion(&map_clone, year),
-                power_balance: map_clone.calc_total_power_generation() - map_clone.calc_total_power_usage(year),
+            let new_state = {
+                let net_emissions = map_clone.calc_net_co2_emissions(year);
+                let public_opinion = calculate_average_opinion(&map_clone, year);
+                let power_balance = map_clone.calc_total_power_generation(year, None) - map_clone.calc_total_power_usage(year);
+                ActionResult {
+                    net_emissions,
+                    public_opinion,
+                    power_balance,
+                }
             };
             
             let improvement = evaluate_action_impact(&current_state, &new_state, year);
@@ -194,24 +223,34 @@ fn handle_power_deficit(
     deficit: f64,
     year: u32,
     action_weights: &mut ActionWeights,
-) -> Result<(), std::io::Error> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut remaining_deficit = deficit;
     
     while remaining_deficit > 0.0 {
         let action = action_weights.sample_action(year);
-        let current_state = ActionResult {
-            net_emissions: map.calc_net_co2_emissions(year),
-            public_opinion: calculate_average_opinion(map, year),
-            power_balance: map.calc_total_power_generation() - map.calc_total_power_usage(year),
+        let current_state = {
+            let net_emissions = map.calc_net_co2_emissions(year);
+            let public_opinion = calculate_average_opinion(map, year);
+            let power_balance = map.calc_total_power_generation(year, None) - map.calc_total_power_usage(year);
+            ActionResult {
+                net_emissions,
+                public_opinion,
+                power_balance,
+            }
         };
         
         if let GridAction::AddGenerator(_) = action {
             apply_action(map, &action, year)?;
             
-            let new_state = ActionResult {
-                net_emissions: map.calc_net_co2_emissions(year),
-                public_opinion: calculate_average_opinion(map, year),
-                power_balance: map.calc_total_power_generation() - map.calc_total_power_usage(year),
+            let new_state = {
+                let net_emissions = map.calc_net_co2_emissions(year);
+                let public_opinion = calculate_average_opinion(map, year);
+                let power_balance = map.calc_total_power_generation(year, None) - map.calc_total_power_usage(year);
+                ActionResult {
+                    net_emissions,
+                    public_opinion,
+                    power_balance,
+                }
             };
             
             let improvement = evaluate_action_impact(&current_state, &new_state, year);
@@ -224,32 +263,66 @@ fn handle_power_deficit(
     Ok(())
 }
 
-fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), std::io::Error> {
+fn find_best_generator_location(map: &Map, gen_type: &GeneratorType, gen_size: u8, year: u32) -> Option<Coordinate> {
+    // Implementation to find best location based on public opinion
+    // Sample a few locations and find the one with best opinion
+    let mut best_location = None;
+    let mut best_opinion = f64::NEG_INFINITY;
+    
+    // Sample grid points
+    for x in (0..100000).step_by(10000) {
+        for y in (0..100000).step_by(10000) {
+            let location = Coordinate::new(x as f64, y as f64);
+            let test_generator = Generator::new(
+                "test".to_string(),
+                location.clone(),
+                gen_type.clone(),
+                0.0, // Cost will be calculated later
+                0.0, // Power will be calculated later
+                0.0, // Operating cost will be calculated later
+                30,  // Default lifespan
+                gen_size as f64 / 100.0, // Convert percentage to 0-1 range
+                0.0, // CO2 output will be calculated later
+                gen_type.get_base_efficiency(year),
+            );
+            
+            let opinion = map.calc_new_generator_opinion(&location, &test_generator, year);
+            if opinion > best_opinion {
+                best_opinion = opinion;
+                best_location = Some(location);
+            }
+        }
+    }
+    
+    best_location
+}
+
+fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), Box<dyn Error + Send + Sync>> {
     match action {
         GridAction::AddGenerator(gen_type) => {
-            // Find best location based on public opinion
-            let best_location = find_best_generator_location(map, gen_type, year);
-            if let Some(location) = best_location {
-                let generator = Generator::new(
-                    format!("Gen_{}_{}_{}", gen_type.to_string(), year, map.generators.len()),
-                    location,
-                    *gen_type,
-                    gen_type.get_base_cost(),
-                    gen_type.get_base_power(),
-                    gen_type.get_operating_cost(),
-                    gen_type.get_lifespan(),
-                    gen_type.get_base_efficiency(),
-                    gen_type.get_decommission_cost(),
-                );
-                map.add_generator(generator);
-            }
+            let gen_size = 100; // Default to full size for now
+            let best_location = find_best_generator_location(map, gen_type, gen_size, year)
+                .ok_or("Could not find suitable location")?;
+            
+            let base_efficiency = gen_type.get_base_efficiency(year);
+            let generator = Generator::new(
+                format!("Gen_{}_{}_{}", gen_type.to_string(), year, map.get_generator_count()),
+                best_location,
+                gen_type.clone(),
+                gen_type.get_base_cost(year),
+                gen_type.get_base_power(year),
+                gen_type.get_operating_cost(year),
+                gen_type.get_lifespan(),
+                gen_size as f64 / 100.0,
+                gen_type.get_co2_output(),
+                base_efficiency,
+            );
+            map.add_generator(generator);
         },
         GridAction::UpgradeEfficiency(id) => {
-            // Find the generator and upgrade its efficiency
-            if let Some(generator) = map.generators.iter_mut().find(|g| g.get_id() == id) {
+            if let Some(generator) = map.get_generator_mut(id) {
                 if generator.is_active() {
-                    // Calculate max efficiency based on year and generator type
-                    let base_max = match generator.get_type() {
+                    let base_max = match generator.get_generator_type() {
                         GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => 0.45,
                         GeneratorType::UtilitySolar => 0.40,
                         GeneratorType::Nuclear => 0.50,
@@ -259,52 +332,50 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), std
                         _ => 0.40,
                     };
                     
-                    // Apply year-based improvement
-                    let years_passed = year - BASE_YEAR;
-                    let tech_improvement = match generator.get_type() {
+                    let tech_improvement = match generator.get_generator_type() {
                         GeneratorType::OnshoreWind | GeneratorType::OffshoreWind | 
                         GeneratorType::UtilitySolar => DEVELOPING_TECH_IMPROVEMENT_RATE,
                         GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => EMERGING_TECH_IMPROVEMENT_RATE,
                         _ => MATURE_TECH_IMPROVEMENT_RATE,
-                    }.powi(years_passed as i32);
+                    }.powi((year - BASE_YEAR) as i32);
                     
                     let max_efficiency = base_max * (1.0 + (1.0 - tech_improvement));
-                    generator.upgrade_efficiency(max_efficiency);
+                    generator.upgrade_efficiency(year, max_efficiency);
                 }
             }
         },
         GridAction::AdjustOperation(id, percentage) => {
-            // Find the generator and adjust its operation percentage
-            if let Some(generator) = map.generators.iter_mut().find(|g| g.get_id() == id) {
+            let constraints = map.get_generator_constraints().clone();
+            if let Some(generator) = map.get_generator_mut(id) {
                 if generator.is_active() {
-                    generator.adjust_operation(percentage, &map.config.generator_constraints);
+                    generator.adjust_operation(*percentage, &constraints);
                 }
             }
         },
         GridAction::AddCarbonOffset(offset_type) => {
-            // Create and add a new carbon offset project
-            let offset_size = rand::thread_rng().gen_range(100.0..1000.0); // Size in hectares or capture capacity
+            let offset_size = rand::thread_rng().gen_range(100.0..1000.0);
             let base_efficiency = rand::thread_rng().gen_range(0.7..0.95);
             
-            // Find a suitable location (for now, random within map bounds)
             let location = Coordinate::new(
                 rand::thread_rng().gen_range(0.0..MAP_MAX_X),
                 rand::thread_rng().gen_range(0.0..MAP_MAX_Y),
             );
             
             let offset = CarbonOffset::new(
-                format!("Offset_{}_{}_{}", offset_type, year, map.carbon_offsets.len()),
+                format!("Offset_{}_{}_{}", offset_type, year, map.get_carbon_offset_count()),
                 location,
-                offset_type.parse().unwrap_or(CarbonOffsetType::Forest),
-                match offset_type.parse().unwrap_or(CarbonOffsetType::Forest) {
+                CarbonOffsetType::from_str(offset_type)?,
+                match CarbonOffsetType::from_str(offset_type)? {
                     CarbonOffsetType::Forest => 10_000_000.0,
                     CarbonOffsetType::Wetland => 15_000_000.0,
                     CarbonOffsetType::ActiveCapture => 100_000_000.0,
+                    CarbonOffsetType::CarbonCredit => 5_000_000.0,
                 },
-                match offset_type.parse().unwrap_or(CarbonOffsetType::Forest) {
+                match CarbonOffsetType::from_str(offset_type)? {
                     CarbonOffsetType::Forest => 500_000.0,
                     CarbonOffsetType::Wetland => 750_000.0,
                     CarbonOffsetType::ActiveCapture => 5_000_000.0,
+                    CarbonOffsetType::CarbonCredit => 250_000.0,
                 },
                 offset_size,
                 base_efficiency,
@@ -313,17 +384,15 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), std
             map.add_carbon_offset(offset);
         },
         GridAction::CloseGenerator(id) => {
-            // Find the generator and close it
-            if let Some(generator) = map.generators.iter_mut().find(|g| g.get_id() == id) {
+            if let Some(generator) = map.get_generator_mut(id) {
                 if generator.is_active() {
-                    // Check if it's appropriate to close based on age and type
-                    let age = year - generator.get_commissioning_year();
-                    let min_age = match generator.get_type() {
-                        GeneratorType::Nuclear => 30, // Nuclear plants have long lifespans
-                        GeneratorType::HydroDam => 40, // Hydro dams are very long-term
-                        GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => 15, // Wind farms have shorter lifespans
-                        GeneratorType::UtilitySolar => 20, // Solar farms medium lifespan
-                        _ => 25, // Default minimum age
+                    let age = year - generator.commissioning_year;
+                    let min_age = match generator.get_generator_type() {
+                        GeneratorType::Nuclear => 30,
+                        GeneratorType::HydroDam => 40,
+                        GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => 15,
+                        GeneratorType::UtilitySolar => 20,
+                        _ => 25,
                     };
                     
                     if age >= min_age {
@@ -336,19 +405,11 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), std
     Ok(())
 }
 
-fn find_best_generator_location(map: &Map, gen_type: &GeneratorType, gen_size: u8, year: u32) -> Option<Coordinate> {
-    // Implementation to find best location based on public opinion
-    // This would need to sample various locations and evaluate public opinion
-    // For now, return a simple location
-    
-    Some(Coordinate::new(50000.0, 50000.0))
-}
-
 fn calculate_average_opinion(map: &Map, year: u32) -> f64 {
     let mut total_opinion = 0.0;
     let mut count = 0;
     
-    for generator in &map.generators {
+    for generator in map.get_generators() {
         if generator.is_active() {
             total_opinion += map.calc_new_generator_opinion(
                 generator.get_coordinate(),
@@ -366,10 +427,10 @@ fn calculate_average_opinion(map: &Map, year: u32) -> f64 {
     }
 }
 
-fn calculate_yearly_metrics(map: &mut Map, year: u32, total_upgrade_costs: f64, total_closure_costs: f64) -> YearlyMetrics {
+fn calculate_yearly_metrics(map: &Map, year: u32, total_upgrade_costs: f64, total_closure_costs: f64) -> YearlyMetrics {
     let total_pop = map.calc_total_population(year);
     let total_power_usage = map.calc_total_power_usage(year);
-    let total_power_gen = map.calc_total_power_generation();
+    let total_power_gen = map.calc_total_power_generation(year, None);
     let power_balance = total_power_gen - total_power_usage;
     let total_co2_emissions = map.calc_total_co2_emissions();
     let total_carbon_offset = map.calc_total_carbon_offset(year);
@@ -382,7 +443,7 @@ fn calculate_yearly_metrics(map: &mut Map, year: u32, total_upgrade_costs: f64, 
     let mut generator_operations = Vec::new();
     let mut active_count = 0;
     
-    for generator in &map.generators {
+    for generator in map.get_generators() {
         if generator.is_active() {
             total_opinion += map.calc_new_generator_opinion(
                 generator.get_coordinate(),
@@ -393,13 +454,13 @@ fn calculate_yearly_metrics(map: &mut Map, year: u32, total_upgrade_costs: f64, 
             active_count += 1;
 
             generator_efficiencies.push((generator.get_id().to_string(), generator.get_efficiency()));
-            generator_operations.push((generator.get_id().to_string(), generator.get_operation_percentage()));
+            generator_operations.push((generator.get_id().to_string(), generator.get_operation_percentage() as f64));
         }
     }
 
     let total_operating_cost = map.calc_total_operating_cost(year);
     let total_capital_cost = map.calc_total_capital_cost(year);
-    let inflation_factor = const_funcs::calc_inflation_factor(year);
+    let inflation_factor = calc_inflation_factor(year);
 
     YearlyMetrics {
         year,
@@ -407,7 +468,7 @@ fn calculate_yearly_metrics(map: &mut Map, year: u32, total_upgrade_costs: f64, 
         total_power_usage,
         total_power_generation: total_power_gen,
         power_balance,
-        average_public_opinion: avg_opinion,
+        average_public_opinion: if opinion_count > 0 { total_opinion / opinion_count as f64 } else { 1.0 },
         total_operating_cost,
         total_capital_cost,
         inflation_factor,
@@ -467,44 +528,16 @@ fn run_multi_simulation(
     base_map: &Map,
     num_iterations: usize,
     parallel: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut action_weights = ActionWeights::new();
     let mut best_result: Option<SimulationResult> = None;
     
     println!("Starting multi-simulation optimization with {} iterations", num_iterations);
     
-    let run_iteration = |iteration: usize, mut map: Map, mut weights: ActionWeights| -> Result<SimulationResult, Box<dyn std::error::Error>> {
-        println!("\nStarting iteration {}/{}", iteration + 1, num_iterations);
-        weights.start_new_iteration();
-        
-        let mut total_opinion = 0.0;
-        let mut total_cost = 0.0;
-        let mut power_deficits = 0.0;
-        let mut measurements = 0;
-        
-        let simulation_output = run_simulation(&mut map, Some(&mut weights))?;
-        
-        // Calculate final metrics
-        let final_metrics = SimulationMetrics {
-            final_net_emissions: map.calc_net_co2_emissions(2050),
-            average_public_opinion: total_opinion / measurements as f64,
-            total_cost,
-            power_reliability: 1.0 - (power_deficits / measurements as f64),
-        };
-        
-        weights.update_best_strategy(final_metrics.clone());
-        
-        Ok(SimulationResult {
-            metrics: final_metrics,
-            output: simulation_output,
-        })
-    };
-    
     if parallel {
-        use rayon::prelude::*;
         let results: Vec<_> = (0..num_iterations)
             .into_par_iter()
-            .map(|i| {
+            .map(|i| -> Result<SimulationResult, Box<dyn Error + Send + Sync>> {
                 let map_clone = base_map.clone();
                 let weights_clone = action_weights.clone();
                 run_iteration(i, map_clone, weights_clone)
@@ -521,8 +554,9 @@ fn run_multi_simulation(
         }
     } else {
         for i in 0..num_iterations {
-            let mut map_clone = base_map.clone();
-            let result = run_iteration(i, map_clone, action_weights.clone())?;
+            let map_clone = base_map.clone();
+            let weights_clone = action_weights.clone();
+            let result = run_iteration(i, map_clone, weights_clone)?;
             
             if best_result.as_ref().map_or(true, |best| {
                 score_metrics(&result.metrics) > score_metrics(&best.metrics)
@@ -553,7 +587,38 @@ fn run_multi_simulation(
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn run_iteration(
+    iteration: usize,
+    mut map: Map,
+    mut weights: ActionWeights,
+) -> Result<SimulationResult, Box<dyn Error + Send + Sync>> {
+    println!("\nStarting iteration {}", iteration + 1);
+    weights.start_new_iteration();
+    
+    let mut total_opinion = 0.0;
+    let mut total_cost = 0.0;
+    let mut power_deficits = 0.0;
+    let mut measurements = 0;
+    
+    let simulation_output = run_simulation(&mut map, Some(&mut weights))?;
+    
+    // Calculate final metrics
+    let final_metrics = SimulationMetrics {
+        final_net_emissions: map.calc_net_co2_emissions(2050),
+        average_public_opinion: total_opinion / measurements as f64,
+        total_cost,
+        power_reliability: 1.0 - (power_deficits / measurements as f64),
+    };
+    
+    weights.update_best_strategy(final_metrics.clone());
+    
+    Ok(SimulationResult {
+        metrics: final_metrics,
+        output: simulation_output,
+    })
+}
+
+fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     println!("EirGrid Power System Simulator (2025-2050)");
     
     // Create simulation configuration
@@ -608,24 +673,26 @@ fn initialize_map(map: &mut Map) {
     map.add_generator(Generator::new(
         "Moneypoint".to_string(),
         Coordinate::new(30000.0, 50000.0),
-        GeneratorType::Coal,
+        GeneratorType::CoalPlant,
         800_000_000.0,
         915.0,
         50_000_000.0,
         40,
         1.0,
         2_000_000.0,
+        0.37, // Initial efficiency
     ));
 
     map.add_generator(Generator::new(
         "Dublin Bay".to_string(),
         Coordinate::new(72000.0, 72000.0),
-        GeneratorType::Gas,
+        GeneratorType::GasCombinedCycle,
         400_000_000.0,
         415.0,
         20_000_000.0,
         30,
         0.8,
         800_000.0,
+        0.45, // Initial efficiency
     ));
 } 

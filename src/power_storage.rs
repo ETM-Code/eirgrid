@@ -1,4 +1,5 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use rand::Rng;
 use crate::generator::{Generator, GeneratorType};
 use crate::constants::*;
 
@@ -12,38 +13,34 @@ pub struct PowerStorageSystem {
 }
 
 impl PowerStorageSystem {
-    pub fn new(capacity: f64, charge_rate: f64, discharge_rate: f64, efficiency: f64) -> Self {
+    pub fn new(capacity: f64) -> Self {
         Self {
             capacity,
             current_charge: 0.0,
-            charge_rate,
-            discharge_rate,
-            efficiency,
+            charge_rate: capacity * 0.25,      // Typical charge rate is 25% of capacity per hour
+            discharge_rate: capacity * 0.25,    // Typical discharge rate is 25% of capacity per hour
+            efficiency: 0.85, // Default efficiency for storage systems
         }
     }
 
-    pub fn charge(&mut self, available_power: f64) -> f64 {
+    pub fn charge(&mut self, amount: f64) -> f64 {
         let space_available = self.capacity - self.current_charge;
-        let max_charge = self.charge_rate.min(space_available);
-        let actual_charge = available_power.min(max_charge);
-        
-        self.current_charge += actual_charge * self.efficiency.sqrt(); // Square root because efficiency is round-trip
+        let actual_charge = amount.min(space_available) * self.efficiency;
+        self.current_charge += actual_charge;
         actual_charge
     }
 
-    pub fn discharge(&mut self, power_needed: f64) -> f64 {
-        let max_discharge = self.discharge_rate.min(self.current_charge);
-        let actual_discharge = power_needed.min(max_discharge);
-        
-        self.current_charge -= actual_discharge / self.efficiency.sqrt();
-        actual_discharge
+    pub fn discharge(&mut self, amount: f64) -> f64 {
+        let actual_discharge = amount.min(self.current_charge);
+        self.current_charge -= actual_discharge;
+        actual_discharge * self.efficiency
     }
 }
 
 pub fn calculate_intermittent_output(generator: &Generator, hour: u8) -> f64 {
-    let base_output = generator.get_current_power_output();
+    let base_output = generator.get_current_power_output(Some(hour));
     
-    match generator.get_type() {
+    match generator.get_generator_type() {
         GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => {
             // Wind tends to be stronger at night
             let time_factor = match hour {
@@ -55,7 +52,7 @@ pub fn calculate_intermittent_output(generator: &Generator, hour: u8) -> f64 {
             };
             
             // Add some randomness to simulate wind variability
-            let variability = rand::thread_rng().gen_range(0.4..1.2);
+            let variability = rand::thread_rng().gen_range(0.4..=1.2);
             base_output * time_factor * variability
         },
         
@@ -72,7 +69,7 @@ pub fn calculate_intermittent_output(generator: &Generator, hour: u8) -> f64 {
             };
             
             // Add weather variability
-            let weather_factor = rand::thread_rng().gen_range(0.6..1.0);
+            let weather_factor = rand::thread_rng().gen_range(0.6..=1.0);
             base_output * time_factor * weather_factor
         },
         
@@ -84,15 +81,9 @@ pub fn get_storage_capacity(gen_type: &GeneratorType) -> Option<PowerStorageSyst
     match gen_type {
         GeneratorType::PumpedStorage => Some(PowerStorageSystem::new(
             PUMPED_STORAGE_CAPACITY,
-            PUMPED_STORAGE_CHARGE_RATE,
-            PUMPED_STORAGE_DISCHARGE_RATE,
-            PUMPED_STORAGE_EFFICIENCY,
         )),
         GeneratorType::BatteryStorage => Some(PowerStorageSystem::new(
             BATTERY_STORAGE_CAPACITY,
-            BATTERY_STORAGE_CHARGE_RATE,
-            BATTERY_STORAGE_DISCHARGE_RATE,
-            BATTERY_STORAGE_EFFICIENCY,
         )),
         _ => None,
     }

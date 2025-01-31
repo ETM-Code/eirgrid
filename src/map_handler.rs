@@ -7,11 +7,12 @@ use crate::settlement::Settlement;
 use crate::carbon_offset::CarbonOffset;
 use crate::poi::{POI, Coordinate};
 use crate::constants::{
-    DISTANCE_OPINION_WEIGHT,
-    TYPE_OPINION_WEIGHT,
-    COST_OPINION_WEIGHT,
+    TRANSMISSION_LOSS_WEIGHT,
+    PUBLIC_OPINION_WEIGHT,
+    CONSTRUCTION_COST_WEIGHT,
 };
 use crate::simulation_config::{SimulationConfig, GeneratorConstraints};
+use crate::power_storage::calculate_max_intermittent_capacity;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Map {
@@ -55,21 +56,17 @@ impl Map {
         self.carbon_offsets.push(offset);
     }
 
-    pub fn calc_total_population(&mut self, year: u32) -> u32 {
-        for settlement in &mut self.settlements {
-            settlement.calc_pop(year);
-        }
-        self.settlements.iter().map(|s| s.current_pop).sum()
+    pub fn calc_total_population(&self, year: u32) -> u32 {
+        self.settlements.iter()
+            .map(|s| s.get_population())
+            .sum()
     }
 
-    pub fn calc_total_power_usage(&mut self, year: u32) -> f64 {
+    pub fn calc_total_power_usage(&self, year: u32) -> f64 {
         // Base power usage from settlements
-        let settlement_usage = {
-            for settlement in &mut self.settlements {
-                settlement.calc_power_usage(year);
-            }
-            self.settlements.iter().map(|s| s.current_power_usage).sum::<f64>()
-        };
+        let settlement_usage = self.settlements.iter()
+            .map(|s| s.get_power_usage())
+            .sum::<f64>();
 
         // Additional power usage from active carbon capture
         let carbon_capture_usage = self.carbon_offsets.iter()
@@ -79,14 +76,26 @@ impl Map {
         settlement_usage + carbon_capture_usage
     }
 
-    pub fn calc_total_power_generation(&self, hour: Option<u8>) -> f64 {
+    pub fn get_storage_generators(&mut self) -> Vec<&mut Generator> {
+        self.generators.iter_mut()
+            .filter(|g| g.get_generator_type().is_storage())
+            .collect()
+    }
+
+    pub fn get_storage_generators_mut(&mut self) -> Vec<&mut Generator> {
+        self.generators.iter_mut()
+            .filter(|g| g.get_generator_type().is_storage())
+            .collect()
+    }
+
+    pub fn calc_total_power_generation(&self, year: u32, hour: Option<u8>) -> f64 {
         let mut total_generation = 0.0;
         let mut excess_intermittent = 0.0;
         let mut storage_capacity = 0.0;
         
         // First, calculate total storage capacity
         for generator in &self.generators {
-            if generator.get_type().is_storage() {
+            if generator.get_generator_type().is_storage() {
                 storage_capacity += generator.get_storage_capacity();
             }
         }
@@ -102,30 +111,16 @@ impl Map {
         for generator in &self.generators {
             let output = generator.get_current_power_output(hour);
             
-            if generator.get_type().is_intermittent() {
+            if generator.get_generator_type().is_intermittent() {
                 intermittent_generation += output;
                 if intermittent_generation > max_intermittent {
                     excess_intermittent += output;
                 }
-            } else if generator.get_type().is_storage() {
+            } else if generator.get_generator_type().is_storage() {
                 storage_generation += output;
             } else {
                 total_generation += output;
             }
-        }
-        
-        // Handle excess intermittent power with storage
-        if excess_intermittent > 0.0 {
-            let mut stored_power = 0.0;
-            for generator in &mut self.generators {
-                if generator.get_type().is_storage() {
-                    if let Some(storage) = generator.get_storage_system() {
-                        stored_power += storage.charge(excess_intermittent);
-                    }
-                }
-            }
-            // Only count intermittent power that's either within limits or can be stored
-            intermittent_generation = max_intermittent + stored_power;
         }
         
         total_generation + intermittent_generation + storage_generation
@@ -136,14 +131,16 @@ impl Map {
         
         // First try to use stored power
         for generator in &mut self.generators {
-            if generator.get_type().is_storage() {
-                if let Some(storage) = generator.get_storage_system() {
-                    let discharged = storage.discharge(remaining_deficit);
-                    remaining_deficit -= discharged;
-                    
-                    if remaining_deficit <= 0.0 {
-                        break;
-                    }
+            if !generator.get_generator_type().is_storage() {
+                continue;
+            }
+            
+            if let Some(storage) = &mut generator.storage {
+                let discharged = storage.discharge(remaining_deficit);
+                remaining_deficit -= discharged;
+                
+                if remaining_deficit <= 0.0 {
+                    break;
                 }
             }
         }
@@ -153,15 +150,15 @@ impl Map {
 
     pub fn get_total_storage_capacity(&self) -> f64 {
         self.generators.iter()
-            .filter(|g| g.get_type().is_storage())
+            .filter(|g| g.get_generator_type().is_storage())
             .map(|g| g.get_storage_capacity())
             .sum()
     }
 
     pub fn get_current_storage_level(&self) -> f64 {
         self.generators.iter()
-            .filter(|g| g.get_type().is_storage())
-            .filter_map(|g| g.get_storage_system())
+            .filter(|g| g.get_generator_type().is_storage())
+            .filter_map(|g| g.storage.as_ref())
             .map(|s| s.current_charge)
             .sum()
     }
@@ -203,9 +200,9 @@ impl Map {
         let type_opinion = generator.calc_type_opinion(year);
         let cost_opinion = generator.calc_cost_opinion(year);
 
-        DISTANCE_OPINION_WEIGHT * avg_settlement_opinion +
-        TYPE_OPINION_WEIGHT * type_opinion +
-        COST_OPINION_WEIGHT * cost_opinion
+        TRANSMISSION_LOSS_WEIGHT * avg_settlement_opinion +
+        PUBLIC_OPINION_WEIGHT * type_opinion +
+        CONSTRUCTION_COST_WEIGHT * cost_opinion
     }
 
     pub fn calc_total_operating_cost(&self, year: u32) -> f64 {
@@ -231,138 +228,32 @@ impl Map {
 
         generator_costs + offset_costs
     }
+
+    pub fn get_generators(&self) -> &[Generator] {
+        &self.generators
+    }
+
+    pub fn get_generator_mut(&mut self, id: &str) -> Option<&mut Generator> {
+        self.generators.iter_mut().find(|g| g.get_id() == id)
+    }
+
+    pub fn get_generator_count(&self) -> usize {
+        self.generators.len()
+    }
+
+    pub fn get_carbon_offset_count(&self) -> usize {
+        self.carbon_offsets.len()
+    }
+
+    pub fn get_generator_constraints(&self) -> &GeneratorConstraints {
+        &self.config.generator_constraints
+    }
+
+    pub fn get_settlements(&self) -> &[Settlement] {
+        &self.settlements
+    }
+
+    pub fn get_carbon_offsets(&self) -> &[CarbonOffset] {
+        &self.carbon_offsets
+    }
 }
-
-//     pub fn balance_power_generation(&mut self, year: u32) -> Result<(f64, f64)> {
-//         let required_power = self.calc_total_power_usage(year);
-//         let current_generation = self.calc_total_power_generation();
-//         let power_deficit = required_power - current_generation;
-
-//         if power_deficit > 0.0 {
-//             // Need to increase generation
-//             self.increase_generation(power_deficit, year)?;
-//         } else if power_deficit < 0.0 {
-//             // Need to decrease generation
-//             self.decrease_generation(-power_deficit, year)?;
-//         }
-
-//         Ok((required_power, self.calc_total_power_generation()))
-//     }
-
-//     fn increase_generation(&mut self, deficit: f64, year: u32) -> Result<()> {
-//         // First, try to increase operation percentage of existing generators
-//         let mut remaining_deficit = deficit;
-        
-//         for generator in &mut self.generators {
-//             if generator.is_active() && generator.get_operation_percentage() < 1.0 {
-//                 let current_output = generator.get_current_power_output();
-//                 let max_additional = generator.power_out - current_output;
-                
-//                 if max_additional > 0.0 {
-//                     let increase = remaining_deficit.min(max_additional);
-//                     let new_percentage = (current_output + increase) / generator.power_out;
-//                     generator.adjust_operation(new_percentage, &self.config.generator_constraints);
-//                     remaining_deficit -= increase;
-//                 }
-//             }
-//         }
-
-//         Ok(())
-//     }
-
-//     fn decrease_generation(&mut self, surplus: f64, year: u32) -> Result<()> {
-//         // Reduce operation of fossil fuel plants first
-//         let mut remaining_surplus = surplus;
-        
-//         // Sort generators by CO2 output per MW
-//         let mut generator_indices: Vec<usize> = (0..self.generators.len()).collect();
-//         generator_indices.sort_by(|&a, &b| {
-//             let gen_a = &self.generators[a];
-//             let gen_b = &self.generators[b];
-//             let co2_per_mw_a = gen_a.get_current_co2_output() / gen_a.get_current_power_output();
-//             let co2_per_mw_b = gen_b.get_current_co2_output() / gen_b.get_current_power_output();
-//             co2_per_mw_b.partial_cmp(&co2_per_mw_a).unwrap()
-//         });
-
-//         for &idx in &generator_indices {
-//             if remaining_surplus <= 0.0 {
-//                 break;
-//             }
-
-//             let generator = &mut self.generators[idx];
-//             if generator.is_active() {
-//                 let current_output = generator.get_current_power_output();
-//                 let min_output = generator.power_out * self.config.generator_constraints.min_operation_percentage;
-//                 let reducible_output = (current_output - min_output).max(0.0);
-                
-//                 if reducible_output > 0.0 {
-//                     let reduction = remaining_surplus.min(reducible_output);
-//                     let new_percentage = (current_output - reduction) / generator.power_out;
-//                     generator.adjust_operation(new_percentage, &self.config.generator_constraints);
-//                     remaining_surplus -= reduction;
-//                 }
-//             }
-//         }
-
-//         Ok(())
-//     }
-
-
-
-//     pub fn optimize_for_net_zero(&mut self, year: u32) -> Result<()> {
-//         if !self.config.target_net_zero_2050 || year != 2050 {
-//             return Ok(());
-//         }
-
-//         let net_emissions = self.calc_net_co2_emissions(year);
-//         if net_emissions <= 0.0 {
-//             return Ok(());
-//         }
-
-//         // Try efficiency upgrades first
-//         for generator in &mut self.generators {
-//             if generator.is_active() && generator.can_upgrade_efficiency(year, &self.config.generator_constraints) {
-//                 let current_max = self.config.generator_constraints.max_efficiency_by_year
-//                     .iter()
-//                     .filter(|(y, _)| *y <= year)
-//                     .map(|(_, e)| *e)
-//                     .max_by(|a, b| a.partial_cmp(b).unwrap())
-//                     .unwrap_or(0.4);
-                
-//                 generator.upgrade_efficiency(year, current_max);
-//             }
-//         }
-
-//         // If still not at net zero, reduce operation of highest CO2 emitters
-//         if self.calc_net_co2_emissions(year) > 0.0 {
-//             let mut generator_indices: Vec<usize> = (0..self.generators.len()).collect();
-//             generator_indices.sort_by(|&a, &b| {
-//                 let gen_a = &self.generators[a];
-//                 let gen_b = &self.generators[b];
-//                 let co2_per_mw_a = gen_a.get_current_co2_output() / gen_a.get_current_power_output();
-//                 let co2_per_mw_b = gen_b.get_current_co2_output() / gen_b.get_current_power_output();
-//                 co2_per_mw_b.partial_cmp(&co2_per_mw_a).unwrap()
-//             });
-
-//             for &idx in &generator_indices {
-//                 if self.calc_net_co2_emissions(year) <= 0.0 {
-//                     break;
-//                 }
-
-//                 let generator = &mut self.generators[idx];
-//                 if generator.is_active() && generator.get_current_co2_output() > 0.0 {
-//                     if self.config.allow_generator_closure {
-//                         generator.close_generator(year);
-//                     } else if self.config.allow_operation_adjustment {
-//                         generator.adjust_operation(
-//                             self.config.generator_constraints.min_operation_percentage,
-//                             &self.config.generator_constraints
-//                         );
-//                     }
-//                 }
-//             }
-//         }
-
-//         Ok(())
-//     }
-// } 

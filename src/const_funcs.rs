@@ -74,29 +74,15 @@ pub fn calc_population_growth(initial_pop: u32, year: u32) -> u32 {
     (initial_pop as f64 * (1.0 + growth_rate).powi(years_passed as i32)) as u32
 }
 
-pub fn calc_power_usage_per_capita(base_usage: f64, year: u32) -> f64 {
-    let years_passed = year - BASE_YEAR;
+pub fn calc_power_usage_per_capita(year: u32) -> f64 {
+    // Base power usage per capita in 2025 (in MW)
+    const BASE_USAGE: f64 = 0.001;  // 1 kW per person
     
-    let economic_growth = match year {
-        year if year <= MEDIUM_TERM_YEAR => SHORT_TERM_ECONOMIC_GROWTH,
-        year if year <= LONG_TERM_YEAR => MEDIUM_TERM_ECONOMIC_GROWTH,
-        _ => LONG_TERM_ECONOMIC_GROWTH,
-    };
-
-    let efficiency_improvement = match year {
-        year if year <= MEDIUM_TERM_YEAR => SHORT_TERM_EFFICIENCY_GAIN,
-        year if year <= LONG_TERM_YEAR => MEDIUM_TERM_EFFICIENCY_GAIN,
-        _ => LONG_TERM_EFFICIENCY_GAIN,
-    };
-
-    let data_center_factor = 1.0 + (DATA_CENTER_GROWTH * (years_passed as f64).min(MAX_DATA_CENTER_YEARS));
-    let electrification_factor = 1.0 + (ELECTRIFICATION_GROWTH * (years_passed as f64).min(MAX_ELECTRIFICATION_YEARS));
-
-    base_usage * 
-        (1.0 + economic_growth).powi(years_passed as i32) * 
-        (1.0 - efficiency_improvement).powi(years_passed as i32) *
-        data_center_factor *
-        electrification_factor
+    // Annual increase in power usage (e.g., due to increased electrification)
+    const ANNUAL_INCREASE: f64 = 0.02;  // 2% increase per year
+    
+    let years_from_base = (year - BASE_YEAR) as f64;
+    BASE_USAGE * (1.0 + ANNUAL_INCREASE).powf(years_from_base)
 }
 
 pub fn calc_generator_cost(gen_type: &GeneratorType, base_cost: f64, year: u32, is_urban: bool, is_coastal: bool, is_river: bool) -> f64 {
@@ -322,7 +308,7 @@ pub fn evaluate_generator_location(
             coordinate,
             settlement.get_coordinate(),
             year,
-            settlement.current_pop >= URBAN_POPULATION_THRESHOLD,
+            settlement.get_population() >= URBAN_POPULATION_THRESHOLD,
             false, // Would need terrain data for these
             false,
         );
