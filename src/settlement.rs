@@ -30,30 +30,20 @@ impl Settlement {
         }
     }
 
-    pub fn calc_pop(&mut self, year: u32) {
-        self.current_pop = calc_population_growth(self.initial_pop, year);
+    pub fn get_population(&self) -> u32 {
+        calc_population_growth(self.initial_pop, 2025)
+    }
+
+    pub fn get_power_usage(&self) -> f64 {
+        let pop = self.get_population();
+        let usage_per_capita = calc_power_usage_per_capita(2025);
+        pop as f64 * usage_per_capita
     }
 
     pub fn calc_range_opinion(&self, coordinate: &Coordinate) -> f64 {
         let distance = self.coordinate.distance_to(coordinate);
         let max_distance = (MAP_MAX_X.powi(2) + MAP_MAX_Y.powi(2)).sqrt();
         (1.0 - distance / max_distance).max(0.0)
-    }
-
-    pub fn calc_power_usage(&mut self, year: u32) {
-        let per_capita_usage = calc_power_usage_per_capita(
-            self.initial_power_usage / self.initial_pop as f64,
-            year
-        );
-        self.current_power_usage = per_capita_usage * self.current_pop as f64;
-    }
-
-    pub fn get_power_usage(&self) -> f64 {
-        self.current_power_usage
-    }
-
-    pub fn get_population(&self) -> u32 {
-        self.current_pop
     }
 }
 

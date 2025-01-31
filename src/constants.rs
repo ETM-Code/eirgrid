@@ -5,8 +5,8 @@ pub const MEDIUM_TERM_YEAR: u32 = 2030;
 pub const LONG_TERM_YEAR: u32 = 2040;
 
 // Map and Grid Constants
-pub const MAP_MAX_X: f64 = 100_000.0;
-pub const MAP_MAX_Y: f64 = 100_000.0;
+pub const MAP_MAX_X: f64 = 50_000.0;
+pub const MAP_MAX_Y: f64 = 50_000.0;
 pub const GRID_CELL_SIZE: f64 = 1000.0; // 1km grid cells
 pub const MAX_CUMULATIVE_GENERATOR_SIZE: f64 = 1.0;
 
@@ -122,12 +122,23 @@ pub const REFERENCE_LARGE_GENERATOR_COST: f64 = 1_000_000_000.0; // 1 billion eu
 pub const MIN_GENERATOR_COST: f64 = 10_000_000.0;  // 10 million euros
 
 // Power Output Reference Values (in MW)
-pub const MAX_WIND_POWER: f64 = 500.0;
-pub const MAX_SOLAR_POWER: f64 = 300.0;
+pub const MAX_ONSHORE_WIND_POWER: f64 = 500.0;
+pub const MAX_OFFSHORE_WIND_POWER: f64 = 800.0;
+
+pub const MAX_DOMESTIC_SOLAR_POWER: f64 = 10.0;
+pub const MAX_COMMERCIAL_SOLAR_POWER: f64 = 50.0;
+pub const MAX_UTILITY_SOLAR_POWER: f64 = 300.0;
+
 pub const MAX_NUCLEAR_POWER: f64 = 1500.0;
 pub const MAX_COAL_POWER: f64 = 1000.0;
-pub const MAX_GAS_POWER: f64 = 800.0;
-pub const MAX_HYDRO_POWER: f64 = 400.0;
+pub const MAX_GAS_CC_POWER: f64 = 800.0;
+pub const MAX_GAS_PEAKER_POWER: f64 = 400.0;
+
+pub const MAX_HYDRO_DAM_POWER: f64 = 1200.0;
+pub const MAX_PUMPED_STORAGE_POWER: f64 = 600.0;
+pub const MAX_TIDAL_POWER: f64 = 200.0;
+pub const MAX_WAVE_POWER: f64 = 100.0;
+pub const MAX_BATTERY_STORAGE_POWER: f64 = 500.0;
 
 // Size-Efficiency Relationships
 pub const SIZE_EFFICIENCY_FACTOR: f64 = 0.25; // Maximum additional efficiency from size
@@ -135,25 +146,6 @@ pub const COST_EFFICIENCY_FACTOR: f64 = 0.15; // Maximum additional efficiency f
 
 // Output Configuration
 pub const CSV_HEADER: &str = "Year,Total Population,Total Power Usage (MW),Total Power Generation (MW),Power Balance (MW),Average Public Opinion"; 
-
-// Power Output Reference Values (in MW)
-pub const MAX_ONSHORE_WIND_POWER: f64 = 400.0;
-pub const MAX_OFFSHORE_WIND_POWER: f64 = 800.0;
-
-pub const MAX_DOMESTIC_SOLAR_POWER: f64 = 0.01;  // 10kW
-pub const MAX_COMMERCIAL_SOLAR_POWER: f64 = 1.0;  // 1MW
-pub const MAX_UTILITY_SOLAR_POWER: f64 = 300.0;
-
-pub const MAX_NUCLEAR_POWER: f64 = 1500.0;
-
-pub const MAX_COAL_POWER: f64 = 1000.0;
-pub const MAX_GAS_CC_POWER: f64 = 800.0;
-pub const MAX_GAS_PEAKER_POWER: f64 = 200.0;
-
-pub const MAX_HYDRO_DAM_POWER: f64 = 400.0;
-pub const MAX_PUMPED_STORAGE_POWER: f64 = 300.0;
-pub const MAX_TIDAL_POWER: f64 = 100.0;
-pub const MAX_WAVE_POWER: f64 = 50.0;
 
 // Base Costs (in euros)
 pub const BASE_ONSHORE_WIND_COST: f64 = 2_000_000.0;  // Per MW
@@ -235,7 +227,6 @@ pub const BATTERY_STORAGE_COST_PER_MWH: f64 = 500_000.0;  // Cost per MWh of bat
 pub const PUMPED_STORAGE_COST_PER_MWH: f64 = 200_000.0;   // Cost per MWh of pumped storage 
 
 // Marine and Battery Storage Power Outputs
-pub const MAX_BATTERY_STORAGE_POWER: f64 = 500.0;  // 500 MW max battery storage
 pub const MARINE_EFFICIENCY_GAIN: f64 = 0.93;      // 7% annual efficiency gain for marine tech
 pub const BATTERY_EFFICIENCY_GAIN: f64 = 0.95;     // 5% annual efficiency gain for batteries
 
@@ -244,3 +235,7 @@ pub const MARINE_BASE_OPINION: f64 = 0.75;         // Initial public opinion of 
 pub const MARINE_OPINION_CHANGE: f64 = 0.005;      // Annual change in marine tech opinion
 pub const BATTERY_BASE_OPINION: f64 = 0.85;        // Initial public opinion of batteries
 pub const BATTERY_OPINION_CHANGE: f64 = 0.003;     // Annual change in battery opinion 
+
+// Scoring constants
+pub const MAX_ACCEPTABLE_EMISSIONS: f64 = 10_000_000.0;  // 10 million tons CO2
+pub const MAX_ACCEPTABLE_COST: f64 = 100_000_000_000.0;  // 100 billion euros 

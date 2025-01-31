@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use rand::Rng;
 use serde::{Serialize, Deserialize};
 use crate::generator::GeneratorType;
+use crate::constants::{MAX_ACCEPTABLE_EMISSIONS, MAX_ACCEPTABLE_COST};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GridAction {
@@ -205,18 +206,18 @@ impl ActionWeights {
     }
 }
 
-fn score_metrics(metrics: &SimulationMetrics) -> f64 {
-    // Scoring function that balances different objectives
-    let emissions_score = 1.0 / (1.0 + metrics.final_net_emissions.abs());
+pub fn score_metrics(metrics: &SimulationMetrics) -> f64 {
+    // Normalize each metric to a 0-1 scale and weight them
+    let emissions_score = 1.0 - (metrics.final_net_emissions / MAX_ACCEPTABLE_EMISSIONS).min(1.0);
     let opinion_score = metrics.average_public_opinion;
-    let cost_score = 1.0 / (1.0 + metrics.total_cost / 1_000_000_000.0); // Normalize by billion
+    let cost_score = 1.0 - (metrics.total_cost / MAX_ACCEPTABLE_COST).min(1.0);
     let reliability_score = metrics.power_reliability;
-
-    // Weighted sum of different factors
-    0.4 * emissions_score +
-    0.2 * opinion_score +
-    0.2 * cost_score +
-    0.2 * reliability_score
+    
+    // Weight the scores (adjust weights as needed)
+    emissions_score * 0.4 +
+    opinion_score * 0.2 +
+    cost_score * 0.2 +
+    reliability_score * 0.2
 }
 
 #[derive(Debug)]

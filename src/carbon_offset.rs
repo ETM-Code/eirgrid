@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use crate::poi::{POI, Coordinate};
 use crate::const_funcs::calc_inflation_factor;
+use std::str::FromStr;
+use std::fmt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CarbonOffsetType {
@@ -8,6 +10,31 @@ pub enum CarbonOffsetType {
     ActiveCapture,       // Mechanical carbon capture
     CarbonCredit,       // Carbon credit purchases
     Wetland,            // Wetland restoration
+}
+
+impl FromStr for CarbonOffsetType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Forest" => Ok(CarbonOffsetType::Forest),
+            "ActiveCapture" => Ok(CarbonOffsetType::ActiveCapture),
+            "CarbonCredit" => Ok(CarbonOffsetType::CarbonCredit),
+            "Wetland" => Ok(CarbonOffsetType::Wetland),
+            _ => Err(format!("Unknown carbon offset type: {}", s)),
+        }
+    }
+}
+
+impl fmt::Display for CarbonOffsetType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CarbonOffsetType::Forest => write!(f, "Forest"),
+            CarbonOffsetType::ActiveCapture => write!(f, "ActiveCapture"),
+            CarbonOffsetType::CarbonCredit => write!(f, "CarbonCredit"),
+            CarbonOffsetType::Wetland => write!(f, "Wetland"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

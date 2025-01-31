@@ -1,1 +1,4 @@
 /target
+mapScraper/__pycache__
+mapScraper/venv
+mapData/sourceData
