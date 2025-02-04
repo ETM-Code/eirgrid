@@ -88,7 +88,7 @@ fn run_simulation(
 
         // Perform random additional actions
         let mut rng = rand::thread_rng();
-        let num_additional_actions = rng.gen_range(0..=10);
+        let num_additional_actions = rng.gen_range(0..=10); //NOTE ensure the action num is subject to learning (allow growth past 10?)
         
         for action_num in 0..num_additional_actions {
             let best_action = find_best_action(map, year, &local_weights)?;
@@ -100,7 +100,7 @@ fn run_simulation(
                 power_balance: map.calc_total_power_generation() - map.calc_total_power_usage(year),
             };
             
-            let improvement = evaluate_action_impact(&current_state, &new_state, year);
+            let improvement = evaluate_action_impact(&current_state, &new_state, year); //NOTE modify so evaluation happens at the end
             local_weights.update_weights(&best_action, year, improvement);
             
             if action_weights.is_none() && action_num % 5 == 0 {
@@ -128,7 +128,7 @@ fn run_simulation(
             metrics.net_co2_emissions,
             metrics.active_generators,
             metrics.upgrade_costs,
-            metrics.closure_costs
+            metrics.closure_costs //NOTE add total costs
         ));
 
         if action_weights.is_none() {
@@ -146,7 +146,7 @@ fn run_simulation(
     Ok(output)
 }
 
-fn find_best_action(map: &Map, year: u32, action_weights: &ActionWeights) -> Result<GridAction, std::io::Error> {
+fn find_best_action(map: &Map, year: u32, action_weights: &ActionWeights) -> Result<GridAction, std::io::Error> { //NOTE oho we dont want this, we're learning not assuming
     let mut best_action = None;
     let mut best_improvement = f64::NEG_INFINITY;
     let mut best_state = None;
@@ -205,7 +205,7 @@ fn handle_power_deficit(
             power_balance: map.calc_total_power_generation() - map.calc_total_power_usage(year),
         };
         
-        if let GridAction::AddGenerator(_) = action {
+        if let GridAction::AddGenerator(_) = action { //add upgrade and conditionslly allow power storage
             apply_action(map, &action, year)?;
             
             let new_state = ActionResult {
@@ -273,7 +273,7 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), std
                 }
             }
         },
-        GridAction::AdjustOperation(id, percentage) => {
+        GridAction::AdjustOperation(id, percentage) => { //NOTE we should do this for the highest CO2 generstor when surpassing usage
             // Find the generator and adjust its operation percentage
             if let Some(generator) = map.generators.iter_mut().find(|g| g.get_id() == id) {
                 if generator.is_active() {
@@ -281,7 +281,7 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), std
                 }
             }
         },
-        GridAction::AddCarbonOffset(offset_type) => {
+        GridAction::AddCarbonOffset(offset_type) => { //NOTE Add carbon credit purchase
             // Create and add a new carbon offset project
             let offset_size = rand::thread_rng().gen_range(100.0..1000.0); // Size in hectares or capture capacity
             let base_efficiency = rand::thread_rng().gen_range(0.7..0.95);
@@ -312,7 +312,7 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), std
             
             map.add_carbon_offset(offset);
         },
-        GridAction::CloseGenerator(id) => {
+        GridAction::CloseGenerator(id) => { //NOTE allow closing fossil fuel plants
             // Find the generator and close it
             if let Some(generator) = map.generators.iter_mut().find(|g| g.get_id() == id) {
                 if generator.is_active() {
@@ -340,6 +340,8 @@ fn find_best_generator_location(map: &Map, gen_type: &GeneratorType, gen_size: u
     // Implementation to find best location based on public opinion
     // This would need to sample various locations and evaluate public opinion
     // For now, return a simple location
+    
+    //NOTE for this sample 100 locations and take the best (cant really add this to the learning idk)
     
     Some(Coordinate::new(50000.0, 50000.0))
 }
@@ -463,7 +465,7 @@ struct SimulationResult {
     output: String,
 }
 
-fn run_multi_simulation(
+fn run_multi_simulation( //NOTE can we do this on GPU?
     base_map: &Map,
     num_iterations: usize,
     parallel: bool,
@@ -560,7 +562,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = SimulationConfig::default();
     
     // Create example map with some initial data
-    let mut map = Map::new(config);
+    let mut map = Map::new(config); //NOTE use json data
     
     // Add settlements and initial generators
     initialize_map(&mut map);
@@ -574,7 +576,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn initialize_map(map: &mut Map) {
+fn initialize_map(map: &mut Map) { // NOTE use json data
     // Add major settlements
     map.add_settlement(Settlement::new(
         "Dublin".to_string(),
