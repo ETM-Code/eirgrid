@@ -85,10 +85,10 @@ pub const HYDRO_COST_INCREASE: f64 = 1.005;  // 0.5% increase per year
 pub const WIND_EFFICIENCY_GAIN: f64 = 0.98;   // 2% improvement per year
 pub const SOLAR_EFFICIENCY_GAIN: f64 = 0.97;  // 3% improvement per year
 pub const NUCLEAR_EFFICIENCY_GAIN: f64 = 0.995; // 0.5% improvement per year
-pub const COAL_EFFICIENCY_LOSS: f64 = 1.04;    // 4% degradation per year
-pub const GAS_EFFICIENCY_LOSS: f64 = 1.02;     // 2% degradation per year
+pub const COAL_EFFICIENCY_LOSS: f64 = 0.99;    // 4% improvement per year
+pub const GAS_EFFICIENCY_LOSS: f64 = 0.99;     // 2% improvement per year
 pub const HYDRO_EFFICIENCY_GAIN: f64 = 0.99;   // 1% improvement per year
-
+pub const BIOMASS_EFFICIENCY_GAIN: f64 = 0.99;   // 1% improvement per year
 // Public Opinion Base Values
 pub const WIND_BASE_OPINION: f64 = 0.85;
 pub const SOLAR_BASE_OPINION: f64 = 0.90;
@@ -139,6 +139,8 @@ pub const MAX_PUMPED_STORAGE_POWER: f64 = 600.0;
 pub const MAX_TIDAL_POWER: f64 = 200.0;
 pub const MAX_WAVE_POWER: f64 = 100.0;
 pub const MAX_BATTERY_STORAGE_POWER: f64 = 500.0;
+
+pub const MAX_BIOMASS_POWER: f64 = 50.0;
 
 // Size-Efficiency Relationships
 pub const SIZE_EFFICIENCY_FACTOR: f64 = 0.25; // Maximum additional efficiency from size

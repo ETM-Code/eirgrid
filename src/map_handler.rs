@@ -165,7 +165,8 @@ impl Map {
 
     pub fn calc_total_co2_emissions(&self) -> f64 {
         self.generators.iter()
-            .map(|g| g.get_current_co2_output())
+            .filter(|g| g.is_active())
+            .map(|g| g.get_co2_output())
             .sum()
     }
 

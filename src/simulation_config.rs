@@ -51,7 +51,7 @@ impl Default for SimulationConfig {
                     GeneratorType::HydroDam,
                     GeneratorType::PumpedStorage,
                 ],
-                max_efficiency_by_year: vec![
+                max_efficiency_by_year: vec![ //NOTE: Review later
                     (2025, 0.40), // Base year
                     (2030, 0.45),
                     (2035, 0.48),
