@@ -204,6 +204,13 @@ impl ActionWeights {
             }
         }
     }
+
+    // New method to sample additional actions based on reinforcement learning parameters
+    pub fn sample_additional_actions(&self, _year: u32) -> u32 {
+        let mut rng = rand::thread_rng();
+        let extra = self.iteration_count / 50;
+        rng.gen_range(0..=20 + extra)
+    }
 }
 
 pub fn score_metrics(metrics: &SimulationMetrics) -> f64 {

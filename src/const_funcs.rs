@@ -27,6 +27,7 @@ fn get_max_power_output(gen_type: &GeneratorType) -> f64 {
         GeneratorType::CoalPlant => MAX_COAL_POWER,
         GeneratorType::GasCombinedCycle => MAX_GAS_CC_POWER,
         GeneratorType::GasPeaker => MAX_GAS_PEAKER_POWER,
+        GeneratorType::Biomass => MAX_BIOMASS_POWER,
         GeneratorType::HydroDam => MAX_HYDRO_DAM_POWER,
         GeneratorType::PumpedStorage => MAX_PUMPED_STORAGE_POWER,
         GeneratorType::TidalGenerator => MAX_TIDAL_POWER,
@@ -176,14 +177,14 @@ pub fn calc_operating_cost(gen_type: &GeneratorType, base_operating_cost: f64, y
         GeneratorType::HydroDam | GeneratorType::PumpedStorage => HYDRO_EFFICIENCY_GAIN.powf(years_from_base),
         GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => MARINE_EFFICIENCY_GAIN.powf(years_from_base),
         GeneratorType::BatteryStorage => BATTERY_EFFICIENCY_GAIN.powf(years_from_base),
+        GeneratorType::Biomass => BIOMASS_EFFICIENCY_GAIN.powf(years_from_base),
     };
     
     base_operating_cost * inflation * efficiency_factor
 }
 
 pub fn calc_type_opinion(gen_type: &GeneratorType, year: u32) -> f64 {
-    let years_passed = (year - BASE_YEAR) as f64;
-    
+    let _years_passed = (year - BASE_YEAR) as f64;
     let (base_opinion, annual_change) = match gen_type {
         GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => (WIND_BASE_OPINION, WIND_OPINION_CHANGE),
         GeneratorType::DomesticSolar | GeneratorType::CommercialSolar | GeneratorType::UtilitySolar => (SOLAR_BASE_OPINION, SOLAR_OPINION_CHANGE),
@@ -193,9 +194,10 @@ pub fn calc_type_opinion(gen_type: &GeneratorType, year: u32) -> f64 {
         GeneratorType::HydroDam | GeneratorType::PumpedStorage => (HYDRO_BASE_OPINION, HYDRO_OPINION_CHANGE),
         GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => (MARINE_BASE_OPINION, MARINE_OPINION_CHANGE),
         GeneratorType::BatteryStorage => (BATTERY_BASE_OPINION, BATTERY_OPINION_CHANGE),
+        GeneratorType::Biomass => (0.60, 0.001),
     };
     
-    (base_opinion + annual_change * years_passed).clamp(0.0, 1.0)
+    (base_opinion + annual_change * _years_passed).clamp(0.0, 1.0)
 }
 
 pub fn calc_cost_opinion(cost: f64, year: u32) -> f64 {
@@ -354,6 +356,7 @@ pub fn evaluate_generator_location(
         GeneratorType::CoalPlant => 0.1,
         GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => 0.8,
         GeneratorType::BatteryStorage => 0.95,
+        GeneratorType::Biomass => 0.6,
     };
     total_score += environmental_score * ENVIRONMENTAL_WEIGHT;
     total_weight += ENVIRONMENTAL_WEIGHT;
