@@ -2,7 +2,19 @@ use std::collections::HashMap;
 use rand::Rng;
 use serde::{Serialize, Deserialize};
 use crate::generator::GeneratorType;
-use crate::constants::{MAX_ACCEPTABLE_EMISSIONS, MAX_ACCEPTABLE_COST};
+use crate::constants::MAX_ACCEPTABLE_EMISSIONS;
+use std::fs;
+use std::sync::Mutex;
+use std::path::Path;
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref FILE_MUTEX: Mutex<()> = Mutex::new(());
+}
+
+const DEFAULT_WEIGHT: f64 = 0.5;
+const MIN_WEIGHT: f64 = 0.001;  // Ensure weight doesn't go too close to zero
+const MAX_WEIGHT: f64 = 0.95;  // Ensure weight doesn't dominate completely
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GridAction {
@@ -21,12 +33,73 @@ pub struct SimulationMetrics {
     pub power_reliability: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// Helper struct for serialization
+#[derive(Serialize, Deserialize)]
+struct SerializableAction {
+    action_type: String,
+    generator_type: Option<String>,
+    generator_id: Option<String>,
+    operation_percentage: Option<u8>,
+    offset_type: Option<String>,
+}
+
+impl From<&GridAction> for SerializableAction {
+    fn from(action: &GridAction) -> Self {
+        match action {
+            GridAction::AddGenerator(gen_type) => SerializableAction {
+                action_type: "AddGenerator".to_string(),
+                generator_type: Some(format!("{:?}", gen_type)),
+                generator_id: None,
+                operation_percentage: None,
+                offset_type: None,
+            },
+            GridAction::UpgradeEfficiency(id) => SerializableAction {
+                action_type: "UpgradeEfficiency".to_string(),
+                generator_type: None,
+                generator_id: Some(id.clone()),
+                operation_percentage: None,
+                offset_type: None,
+            },
+            GridAction::AdjustOperation(id, percentage) => SerializableAction {
+                action_type: "AdjustOperation".to_string(),
+                generator_type: None,
+                generator_id: Some(id.clone()),
+                operation_percentage: Some(*percentage),
+                offset_type: None,
+            },
+            GridAction::AddCarbonOffset(offset_type) => SerializableAction {
+                action_type: "AddCarbonOffset".to_string(),
+                generator_type: None,
+                generator_id: None,
+                operation_percentage: None,
+                offset_type: Some(offset_type.clone()),
+            },
+            GridAction::CloseGenerator(id) => SerializableAction {
+                action_type: "CloseGenerator".to_string(),
+                generator_type: None,
+                generator_id: Some(id.clone()),
+                operation_percentage: None,
+                offset_type: None,
+            },
+        }
+    }
+}
+
+// Helper struct for serializing the entire weights map
+#[derive(Serialize, Deserialize)]
+struct SerializableWeights {
+    weights: HashMap<u32, Vec<(SerializableAction, f64)>>,
+    learning_rate: f64,
+    best_metrics: Option<SimulationMetrics>,
+    best_weights: Option<HashMap<u32, Vec<(SerializableAction, f64)>>>,
+    iteration_count: u32,
+    exploration_rate: f64,
+}
+
+#[derive(Debug, Clone)]
 pub struct ActionWeights {
-    // Map of year to action weights
     weights: HashMap<u32, HashMap<GridAction, f64>>,
     learning_rate: f64,
-    // New fields for optimization
     best_metrics: Option<SimulationMetrics>,
     best_weights: Option<HashMap<u32, HashMap<GridAction, f64>>>,
     iteration_count: u32,
@@ -41,22 +114,42 @@ impl ActionWeights {
         for year in 2025..=2050 {
             let mut year_weights = HashMap::new();
             
-            // Initialize generator addition weights
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), 0.1);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), 0.1);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), 0.1);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), 0.1);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), 0.1);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), 0.1);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), 0.1);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator), 0.1);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy), 0.1);
+            // Initialize wind generator weights
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), 0.08);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), 0.08);
+            
+            // Initialize solar generator weights
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar), 0.05);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar), 0.05);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), 0.08);
+            
+            // Initialize nuclear and fossil fuel generator weights
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), 0.03);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::CoalPlant), 0.04);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), 0.06);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), 0.02);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), 0.04);
+            
+            // Initialize hydro and storage generator weights
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), 0.06);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), 0.06);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), 0.07);
+            
+            // Initialize marine generator weights
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator), 0.05);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy), 0.05);
             
             // Initialize other action weights
-            year_weights.insert(GridAction::UpgradeEfficiency(String::new()), 0.05);
-            year_weights.insert(GridAction::AdjustOperation(String::new(), 0), 0.05);
-            year_weights.insert(GridAction::AddCarbonOffset(String::new()), 0.05);
-            year_weights.insert(GridAction::CloseGenerator(String::new()), 0.05);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::new()), 0.04);
+            year_weights.insert(GridAction::AdjustOperation(String::new(), 0), 0.04);
+            
+            // Initialize carbon offset weights
+            year_weights.insert(GridAction::AddCarbonOffset("Forest".to_string()), 0.02);
+            year_weights.insert(GridAction::AddCarbonOffset("Wetland".to_string()), 0.02);
+            year_weights.insert(GridAction::AddCarbonOffset("ActiveCapture".to_string()), 0.02);
+            year_weights.insert(GridAction::AddCarbonOffset("CarbonCredit".to_string()), 0.02);
+            
+            year_weights.insert(GridAction::CloseGenerator(String::new()), 0.02);
             
             // Add year's weights to the map
             weights.insert(year, year_weights);
@@ -86,12 +179,21 @@ impl ActionWeights {
         if rng.gen::<f64>() < self.exploration_rate {
             // Random exploration
             let actions: Vec<_> = year_weights.keys().collect();
+            if actions.is_empty() {
+                // Fallback to a safe default action if no actions are available
+                return GridAction::AddGenerator(GeneratorType::GasPeaker);
+            }
             let random_idx = rng.gen_range(0..actions.len());
             return actions[random_idx].clone();
         }
 
         // Exploitation - weighted selection
         let total_weight: f64 = year_weights.values().sum();
+        if total_weight <= 0.0 {
+            // If all weights are zero or negative, fall back to a safe default
+            return GridAction::AddGenerator(GeneratorType::GasPeaker);
+        }
+
         let mut random_val = rng.gen::<f64>() * total_weight;
         
         for (action, weight) in year_weights {
@@ -101,44 +203,140 @@ impl ActionWeights {
             }
         }
         
-        // Fallback to first action (shouldn't happen with proper weights)
-        year_weights.keys().next().unwrap().clone()
+        // Fallback to a safe default if no action was selected
+        GridAction::AddGenerator(GeneratorType::GasPeaker)
     }
     
+    // Initialize weights for a single year
+    fn initialize_weights(&self) -> HashMap<GridAction, f64> {
+        let mut year_weights = HashMap::new();
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), 0.08);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), 0.08);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar), 0.05);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar), 0.05);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), 0.08);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), 0.03);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::CoalPlant), 0.04);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), 0.06);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), 0.02);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), 0.04);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), 0.06);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), 0.06);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), 0.07);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator), 0.05);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy), 0.05);
+        year_weights.insert(GridAction::UpgradeEfficiency(String::new()), 0.04);
+        year_weights.insert(GridAction::AdjustOperation(String::new(), 0), 0.04);
+        year_weights.insert(GridAction::AddCarbonOffset("Forest".to_string()), 0.02);
+        year_weights.insert(GridAction::AddCarbonOffset("Wetland".to_string()), 0.02);
+        year_weights.insert(GridAction::AddCarbonOffset("ActiveCapture".to_string()), 0.02);
+        year_weights.insert(GridAction::AddCarbonOffset("CarbonCredit".to_string()), 0.02);
+        year_weights.insert(GridAction::CloseGenerator(String::new()), 0.02);
+        year_weights
+    }
+
     pub fn update_weights(&mut self, action: &GridAction, year: u32, improvement: f64) {
-        let year_weights = self.weights.get_mut(&year).expect("Year weights not found");
-        let current_weight = year_weights.get(action).unwrap();
+        // Ensure we have weights for this year
+        if !self.weights.contains_key(&year) {
+            self.weights.insert(year, self.initialize_weights());
+        }
         
-        // Apply learning rate with momentum
-        let momentum = 0.9;
-        let new_weight = (current_weight * momentum + 
-            self.learning_rate * improvement * (1.0 - momentum))
-            .max(0.01)  // Ensure weight doesn't go too close to zero
-            .min(0.85);  // Ensure weight doesn't dominate completely
+        let year_weights = self.weights.get_mut(&year).expect("Year weights not found");
+        
+        // If the action doesn't exist in weights, initialize it
+        if !year_weights.contains_key(action) {
+            year_weights.insert(action.clone(), DEFAULT_WEIGHT);
+        }
+        
+        let current_weight = year_weights.get(action).expect("Weight should exist");
+        
+        // Get the final 2050 impact score from best metrics if available
+        let final_impact_score = self.best_metrics.as_ref().map_or(0.0, |metrics| score_metrics(metrics));
+        
+        // Calculate the relative improvement compared to the best score
+        let relative_improvement = if let Some(best) = &self.best_metrics {
+            let best_score = score_metrics(best);
+            if best_score > 0.0 {
+                (final_impact_score - best_score) / best_score
+            } else {
+                final_impact_score
+            }
+        } else {
+            final_impact_score
+        };
+
+        // Combine immediate and final impacts with adaptive weighting
+        // If we're doing better than our best, weight immediate impact more
+        // If we're doing worse, weight final impact more to encourage exploration
+        let immediate_weight = if relative_improvement > 0.0 { 0.7 } else { 0.3 };
+        let combined_improvement = immediate_weight * improvement + (1.0 - immediate_weight) * relative_improvement;
+        
+        // Calculate weight adjustment
+        let adjustment_factor = if combined_improvement > 0.0 {
+            // For improvements, increase weight proportionally to the improvement
+            1.0 + (self.learning_rate * combined_improvement)
+        } else {
+            // For deteriorations, decrease weight proportionally to how bad it was
+            1.0 / (1.0 + (self.learning_rate * combined_improvement.abs()))
+        };
+        
+        // Apply the adjustment with bounds
+        let new_weight = (current_weight * adjustment_factor)
+            .max(MIN_WEIGHT)
+            .min(MAX_WEIGHT);
         
         year_weights.insert(action.clone(), new_weight);
         
-        // Normalize weights to sum to 1 for this year
-        let total: f64 = year_weights.values().sum();
-        for weight in year_weights.values_mut() {
-            *weight /= total;
+        // If this was a bad outcome, slightly increase weights of other actions
+        if combined_improvement < 0.0 {
+            let boost_factor = 1.0 + (self.learning_rate * 0.1); // Small boost to alternatives
+            for (other_action, weight) in year_weights.iter_mut() {
+                if other_action != action {
+                    *weight = (*weight * boost_factor).min(MAX_WEIGHT);
+                }
+            }
         }
     }
 
     pub fn update_best_strategy(&mut self, metrics: SimulationMetrics) {
+        let current_score = score_metrics(&metrics);
+        
         let should_update = match &self.best_metrics {
             None => true,
             Some(best) => {
-                // Complex scoring function considering multiple factors
-                let current_score = score_metrics(&metrics);
                 let best_score = score_metrics(best);
                 current_score > best_score
             }
         };
 
         if should_update {
+            // Only print improvement message if we actually had a previous best
+            if let Some(best) = &self.best_metrics {
+                println!("\nNew best strategy found! Score improved from {:.4} to {:.4}", 
+                        score_metrics(best),
+                        current_score);
+            }
             self.best_metrics = Some(metrics);
             self.best_weights = Some(self.weights.clone());
+        } else if let Some(best) = &self.best_metrics {
+            // If this was significantly worse than our best, print a warning
+            let best_score = score_metrics(best);
+            let deterioration = (best_score - current_score) / best_score;
+            if deterioration > 0.1 { // More than 10% worse
+                println!("\nWarning: Current strategy performing poorly. Score: {:.4} (Best: {:.4})", 
+                        current_score, best_score);
+            }
+        }
+    }
+
+    pub fn clone_with_best(&self) -> Self {
+        Self {
+            weights: self.weights.clone(),
+            learning_rate: self.learning_rate,
+            best_metrics: self.best_metrics.clone(),
+            best_weights: self.best_weights.clone(),
+            iteration_count: self.iteration_count,
+            exploration_rate: self.exploration_rate,
         }
     }
 
@@ -149,14 +347,115 @@ impl ActionWeights {
     }
     
     pub fn save_to_file(&self, path: &str) -> std::io::Result<()> {
-        let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, json)
+        // Acquire lock for file operations
+        let _lock = FILE_MUTEX.lock().unwrap();
+        
+        // Create parent directory if it doesn't exist
+        if let Some(parent) = Path::new(path).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // Convert to serializable format
+        let serializable = SerializableWeights {
+            weights: self.weights.iter().map(|(year, weights)| {
+                (*year, weights.iter().map(|(action, weight)| {
+                    (SerializableAction::from(action), *weight)
+                }).collect())
+            }).collect(),
+            learning_rate: self.learning_rate,
+            best_metrics: self.best_metrics.clone(),
+            best_weights: self.best_weights.as_ref().map(|weights| {
+                weights.iter().map(|(year, weights)| {
+                    (*year, weights.iter().map(|(action, weight)| {
+                        (SerializableAction::from(action), *weight)
+                    }).collect())
+                }).collect()
+            }),
+            iteration_count: self.iteration_count,
+            exploration_rate: self.exploration_rate,
+        };
+
+        let json = serde_json::to_string_pretty(&serializable)?;
+        std::fs::write(path, json)?;
+        Ok(())
     }
     
     pub fn load_from_file(path: &str) -> std::io::Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        let weights: ActionWeights = serde_json::from_str(&content)?;
-        Ok(weights)
+        println!("Attempting to load weights from: {}", path);
+        // Acquire lock for file operations
+        let _lock = FILE_MUTEX.lock().unwrap();
+        
+        let content = match std::fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(e) => {
+                println!("Error reading file: {}", e);
+                return Err(e);
+            }
+        };
+        
+        let serializable: SerializableWeights = match serde_json::from_str(&content) {
+            Ok(weights) => weights,
+            Err(e) => {
+                println!("Error parsing weights JSON: {}", e);
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+            }
+        };
+        
+        // Convert back to internal format
+        let weights = serializable.weights.into_iter().map(|(year, actions)| {
+            let mut year_weights = HashMap::new();
+            for (action, weight) in actions {
+                let grid_action = match action.action_type.as_str() {
+                    "AddGenerator" => {
+                        let gen_type = action.generator_type.unwrap();
+                        GridAction::AddGenerator(serde_json::from_str(&gen_type).unwrap())
+                    },
+                    "UpgradeEfficiency" => GridAction::UpgradeEfficiency(action.generator_id.unwrap()),
+                    "AdjustOperation" => GridAction::AdjustOperation(
+                        action.generator_id.unwrap(),
+                        action.operation_percentage.unwrap()
+                    ),
+                    "AddCarbonOffset" => GridAction::AddCarbonOffset(action.offset_type.unwrap()),
+                    "CloseGenerator" => GridAction::CloseGenerator(action.generator_id.unwrap()),
+                    _ => continue,
+                };
+                year_weights.insert(grid_action, weight);
+            }
+            (year, year_weights)
+        }).collect();
+
+        let best_weights = serializable.best_weights.map(|weights| {
+            weights.into_iter().map(|(year, actions)| {
+                let mut year_weights = HashMap::new();
+                for (action, weight) in actions {
+                    let grid_action = match action.action_type.as_str() {
+                        "AddGenerator" => {
+                            let gen_type = action.generator_type.unwrap();
+                            GridAction::AddGenerator(serde_json::from_str(&gen_type).unwrap())
+                        },
+                        "UpgradeEfficiency" => GridAction::UpgradeEfficiency(action.generator_id.unwrap()),
+                        "AdjustOperation" => GridAction::AdjustOperation(
+                            action.generator_id.unwrap(),
+                            action.operation_percentage.unwrap()
+                        ),
+                        "AddCarbonOffset" => GridAction::AddCarbonOffset(action.offset_type.unwrap()),
+                        "CloseGenerator" => GridAction::CloseGenerator(action.generator_id.unwrap()),
+                        _ => continue,
+                    };
+                    year_weights.insert(grid_action, weight);
+                }
+                (year, year_weights)
+            }).collect()
+        });
+
+        Ok(Self {
+            weights,
+            learning_rate: serializable.learning_rate,
+            best_metrics: serializable.best_metrics,
+            best_weights,
+            iteration_count: serializable.iteration_count,
+            exploration_rate: serializable.exploration_rate,
+        })
     }
     
     // Get a reference to the weights for a specific year
@@ -211,20 +510,27 @@ impl ActionWeights {
         let extra = self.iteration_count / 50;
         rng.gen_range(0..=20 + extra)
     }
+
+    pub fn get_best_metrics(&self) -> Option<(f64, bool)> {
+        self.best_metrics.as_ref().map(|metrics| {
+            (score_metrics(metrics), metrics.final_net_emissions <= 0.0)
+        })
+    }
+
+    pub fn get_simulation_metrics(&self) -> Option<&SimulationMetrics> {
+        self.best_metrics.as_ref()
+    }
 }
 
 pub fn score_metrics(metrics: &SimulationMetrics) -> f64 {
-    // Normalize each metric to a 0-1 scale and weight them
-    let emissions_score = 1.0 - (metrics.final_net_emissions / MAX_ACCEPTABLE_EMISSIONS).min(1.0);
-    let opinion_score = metrics.average_public_opinion;
-    let cost_score = 1.0 - (metrics.total_cost / MAX_ACCEPTABLE_COST).min(1.0);
-    let reliability_score = metrics.power_reliability;
-    
-    // Weight the scores (adjust weights as needed)
-    emissions_score * 0.4 +
-    opinion_score * 0.2 +
-    cost_score * 0.2 +
-    reliability_score * 0.2
+    // If we haven't achieved net zero emissions, only consider emissions
+    if metrics.final_net_emissions > 0.0 {
+        // Normalize emissions to 0-1 scale and invert (0 emissions = 1.0 score)
+        1.0 - (metrics.final_net_emissions / MAX_ACCEPTABLE_EMISSIONS).min(1.0)
+    } else {
+        // After achieving net zero, only consider public opinion
+        metrics.average_public_opinion
+    }
 }
 
 #[derive(Debug)]
@@ -237,23 +543,22 @@ pub struct ActionResult {
 pub fn evaluate_action_impact(
     current_state: &ActionResult,
     new_state: &ActionResult,
-    year: u32,
 ) -> f64 {
-    let emissions_weight = if year >= 2045 { 0.5 } else { 0.3 };
-    let opinion_weight = 0.3;
-    let power_weight = if year >= 2045 { 0.2 } else { 0.4 };
-    
-    let emissions_improvement = (current_state.net_emissions - new_state.net_emissions) / 
-                              current_state.net_emissions.abs().max(1.0);
-    let opinion_improvement = (new_state.public_opinion - current_state.public_opinion) /
-                            current_state.public_opinion.abs().max(1.0);
-    let power_improvement = if new_state.power_balance >= 0.0 {
-        1.0
+    // Calculate immediate impact score
+    let immediate_score = if current_state.net_emissions > 0.0 {
+        // If we haven't achieved net zero, only consider emissions
+        let emissions_improvement = (current_state.net_emissions - new_state.net_emissions) / 
+                                  current_state.net_emissions.abs().max(1.0);
+        emissions_improvement
     } else {
-        -1.0
+        // If we've achieved net zero, only consider opinion
+        (new_state.public_opinion - current_state.public_opinion) /
+        current_state.public_opinion.abs().max(1.0)
     };
+
+    // The final 2050 impact is handled through the SimulationMetrics scoring
+    // in update_best_strategy, which affects 70% of the weight updates
     
-    emissions_weight * emissions_improvement +
-    opinion_weight * opinion_improvement +
-    power_weight * power_improvement
+    // Return immediate score which affects 30% of weight updates
+    immediate_score
 } 

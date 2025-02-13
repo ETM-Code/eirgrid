@@ -30,10 +30,10 @@ pub const SMART_GRID_FACTOR: f64 = 0.85;      // 15% reduction in losses with sm
 pub const SMART_GRID_ADOPTION_YEAR: u32 = 2035;
 
 // Generator Placement Weights
-pub const TRANSMISSION_LOSS_WEIGHT: f64 = 0.3;    // Weight for transmission losses in placement
-pub const PUBLIC_OPINION_WEIGHT: f64 = 0.3;       // Weight for public opinion in placement
-pub const CONSTRUCTION_COST_WEIGHT: f64 = 0.2;    // Weight for construction costs in placement
-pub const ENVIRONMENTAL_WEIGHT: f64 = 0.2;        // Weight for environmental factors
+pub const TRANSMISSION_LOSS_WEIGHT: f64 = 0.05;    // Weight for transmission losses in placement
+pub const PUBLIC_OPINION_WEIGHT: f64 = 0.2;       // Weight for public opinion in placement
+pub const CONSTRUCTION_COST_WEIGHT: f64 = 0.7;    // Weight for construction costs in placement
+pub const ENVIRONMENTAL_WEIGHT: f64 = 0.05;        // Weight for environmental factors
 
 // Settlement Power Distribution
 pub const RESIDENTIAL_POWER_RATIO: f64 = 0.35;    // 35% of power for residential use
@@ -118,8 +118,8 @@ pub const BASE_EFFICIENCY: f64 = 0.35;
 pub const MAX_EFFICIENCY: f64 = 0.60;
 
 // Cost Reference Values (in euros)
-pub const REFERENCE_LARGE_GENERATOR_COST: f64 = 1_000_000_000.0; // 1 billion euros
-pub const MIN_GENERATOR_COST: f64 = 10_000_000.0;  // 10 million euros
+pub const REFERENCE_ANNUAL_EXPENDITURE: f64 = 10_000_000_000.0; // 10 billion euros per year
+pub const MIN_ANNUAL_EXPENDITURE: f64 = 1_000_000_000.0;  // 1 billion euros per year
 
 // Power Output Reference Values (in MW)
 pub const MAX_ONSHORE_WIND_POWER: f64 = 500.0;
@@ -241,3 +241,26 @@ pub const BATTERY_OPINION_CHANGE: f64 = 0.003;     // Annual change in battery o
 // Scoring constants
 pub const MAX_ACCEPTABLE_EMISSIONS: f64 = 10_000_000.0;  // 10 million tons CO2
 pub const MAX_ACCEPTABLE_COST: f64 = 100_000_000_000.0;  // 100 billion euros 
+
+// Decommissioning Costs
+pub const DECOMMISSION_COST_RATIO: f64 = 0.25; // 25% of base cost for decommissioning
+
+// CO2 Emission Rates (tons per MW)
+pub const COAL_CO2_RATE: f64 = 1000.0;
+pub const GAS_CC_CO2_RATE: f64 = 500.0;
+pub const GAS_PEAKER_CO2_RATE: f64 = 700.0;
+pub const BIOMASS_CO2_RATE: f64 = 50.0;
+
+// Geographic Constants
+pub const IRELAND_MIN_LAT: f64 = 51.4;
+pub const IRELAND_MAX_LAT: f64 = 55.4;
+pub const IRELAND_MIN_LON: f64 = -10.5;
+pub const IRELAND_MAX_LON: f64 = -5.4;
+
+// Geographic Features
+pub const COASTAL_THRESHOLD: f64 = 0.1; // Proportion of map width to consider coastal 
+
+// Power Distribution Evolution Rates
+pub const RESIDENTIAL_EFFICIENCY_GAIN: f64 = 0.02;  // 2% annual efficiency improvement
+pub const COMMERCIAL_GROWTH_RATE: f64 = 0.015;      // 1.5% annual growth in commercial power usage
+pub const INDUSTRIAL_EVOLUTION_RATE: f64 = -0.01;   // 1% annual reduction due to efficiency improvements 

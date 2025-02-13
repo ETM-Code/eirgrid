@@ -5,6 +5,7 @@ use crate::constants::*;
 use crate::const_funcs::{calc_generator_cost, calc_operating_cost, calc_cost_opinion, calc_type_opinion};
 use crate::simulation_config::GeneratorConstraints;
 use crate::power_storage::PowerStorageSystem;
+use crate::map_handler::Map;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GeneratorType {
@@ -549,6 +550,10 @@ impl Generator {
 
     pub fn get_generator_type(&self) -> &GeneratorType {
         &self.generator_type
+    }
+
+    pub fn get_size(&self) -> f64 {
+        self.size
     }
 }
 

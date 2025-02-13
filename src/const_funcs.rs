@@ -3,6 +3,9 @@ use crate::constants::*;
 use crate::settlement::Settlement;
 use crate::poi::{Coordinate, POI};
 use std::collections::HashMap;
+use serde_json;
+#[macro_use]
+use lazy_static::lazy_static;
 
 // Helper function to calculate size-based efficiency bonus
 fn calc_size_efficiency_bonus(size: f64) -> f64 {
@@ -11,8 +14,8 @@ fn calc_size_efficiency_bonus(size: f64) -> f64 {
 
 // Helper function to calculate cost-based efficiency bonus
 fn calc_cost_efficiency_bonus(cost: f64) -> f64 {
-    ((cost - MIN_GENERATOR_COST) / (REFERENCE_LARGE_GENERATOR_COST - MIN_GENERATOR_COST))
-        .clamp(0.0, 1.0) * COST_EFFICIENCY_FACTOR
+    ((cost - MIN_ANNUAL_EXPENDITURE) / (REFERENCE_ANNUAL_EXPENDITURE - MIN_ANNUAL_EXPENDITURE))
+        .clamp(0.0_f64, 1.0_f64) * COST_EFFICIENCY_FACTOR
 }
 
 // Helper function to get max power output for generator type
@@ -129,7 +132,7 @@ pub fn calc_generator_efficiency(
     
     // Size bonus only applies to non-fixed size generators
     let size_bonus = if matches!(gen_type, GeneratorType::DomesticSolar) {
-        0.0
+        0.0_f64
     } else {
         calc_size_efficiency_bonus(size)
     };
@@ -137,14 +140,15 @@ pub fn calc_generator_efficiency(
     let cost_bonus = calc_cost_efficiency_bonus(base_cost);
     
     // Location bonuses
-    let mut location_bonus = 0.0;
+    let mut location_bonus = 0.0_f64;
     
     // Urban bonus for solar
     if is_urban && matches!(gen_type, 
         GeneratorType::DomesticSolar | 
-        GeneratorType::CommercialSolar
+        GeneratorType::CommercialSolar |
+        GeneratorType::UtilitySolar
     ) {
-        location_bonus += 0.05; // 5% bonus for urban solar
+        location_bonus += URBAN_SOLAR_BONUS;
     }
     
     // Coastal bonus for offshore wind and marine generators
@@ -153,16 +157,36 @@ pub fn calc_generator_efficiency(
         GeneratorType::TidalGenerator |
         GeneratorType::WaveEnergy
     ) {
-        location_bonus += 0.08; // 8% bonus for coastal placement
+        location_bonus += COASTAL_BONUS;
     }
     
-    (base_efficiency + size_bonus + cost_bonus + location_bonus).min(MAX_EFFICIENCY)
+    // Technology improvement over time
+    let years_from_base = (year - BASE_YEAR) as f64;
+    let tech_improvement = match gen_type {
+        GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => 
+            WIND_EFFICIENCY_GAIN.powf(years_from_base),
+        GeneratorType::DomesticSolar | GeneratorType::CommercialSolar | 
+        GeneratorType::UtilitySolar => 
+            SOLAR_EFFICIENCY_GAIN.powf(years_from_base),
+        GeneratorType::Nuclear => 
+            NUCLEAR_EFFICIENCY_GAIN.powf(years_from_base),
+        GeneratorType::CoalPlant => 
+            COAL_EFFICIENCY_LOSS.powf(years_from_base),
+        GeneratorType::GasCombinedCycle | GeneratorType::GasPeaker => 
+            GAS_EFFICIENCY_LOSS.powf(years_from_base),
+        GeneratorType::HydroDam | GeneratorType::PumpedStorage => 
+            HYDRO_EFFICIENCY_GAIN.powf(years_from_base),
+        GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => 
+            MARINE_EFFICIENCY_GAIN.powf(years_from_base),
+        GeneratorType::BatteryStorage => 
+            BATTERY_EFFICIENCY_GAIN.powf(years_from_base),
+        GeneratorType::Biomass => 
+            BIOMASS_EFFICIENCY_GAIN.powf(years_from_base),
+    };
+    
+    ((base_efficiency + size_bonus + cost_bonus + location_bonus) * tech_improvement).min(MAX_EFFICIENCY)
 }
 
-pub fn calc_power_output(gen_type: &GeneratorType, size: f64) -> f64 {
-    let max_power = get_max_power_output(gen_type);
-    max_power * size
-}
 
 pub fn calc_operating_cost(gen_type: &GeneratorType, base_operating_cost: f64, year: u32) -> f64 {
     let inflation = calc_inflation_factor(year);
@@ -201,9 +225,9 @@ pub fn calc_type_opinion(gen_type: &GeneratorType, year: u32) -> f64 {
 }
 
 pub fn calc_cost_opinion(cost: f64, year: u32) -> f64 {
-    let inflation_adjusted_max = REFERENCE_LARGE_GENERATOR_COST * calc_inflation_factor(year);
-    let normalized_cost = (cost / inflation_adjusted_max).min(1.0);
-    1.0 - normalized_cost
+    let inflation_adjusted_max = REFERENCE_ANNUAL_EXPENDITURE * calc_inflation_factor(year);
+    let normalized_cost = (cost / inflation_adjusted_max).min(1.0_f64);
+    1.0_f64 - normalized_cost
 }
 
 pub fn calc_transmission_loss(
@@ -239,7 +263,7 @@ pub fn calc_transmission_loss(
     
     // Apply technological improvements
     let years_passed = year - BASE_YEAR;
-    let improvement_factor = (1.0 - GRID_IMPROVEMENT_RATE).powi(years_passed as i32);
+    let improvement_factor = (1.0_f64 - GRID_IMPROVEMENT_RATE).powi(years_passed as i32);
     loss_rate *= improvement_factor;
     
     // Apply smart grid benefits if after adoption year
@@ -247,35 +271,71 @@ pub fn calc_transmission_loss(
         loss_rate *= SMART_GRID_FACTOR;
     }
     
-    loss_rate.clamp(0.0, 1.0)
+    loss_rate.clamp(0.0_f64, 1.0_f64)
 }
 
 pub fn calc_settlement_power_distribution(settlement: &Settlement, year: u32) -> (f64, f64, f64) {
     let total_power = settlement.get_power_usage();
     let population = settlement.get_population();
     
+    // Base distribution ratios
     let mut residential = total_power * RESIDENTIAL_POWER_RATIO;
     let mut commercial = total_power * COMMERCIAL_POWER_RATIO;
     let mut industrial = total_power * INDUSTRIAL_POWER_RATIO;
     
-    // Adjust for settlement size
+    // Adjust for settlement size and type
     if population >= INDUSTRY_THRESHOLD_POP {
+        // Large settlements have more industry
         industrial *= INDUSTRY_POWER_FACTOR;
+        
+        // Reduce residential and commercial proportionally to maintain total
+        let total_reduction = industrial * (INDUSTRY_POWER_FACTOR - 1.0_f64);
+        let reduction_ratio = total_reduction / (residential + commercial);
+        residential *= (1.0_f64 - reduction_ratio);
+        commercial *= (1.0_f64 - reduction_ratio);
     }
     
-    // Adjust for data centers in larger cities
+    // Adjust for data centers and commercial districts in urban areas
     if population >= URBAN_POPULATION_THRESHOLD {
-        commercial *= DATA_CENTER_POWER_FACTOR;
+        commercial *= COMMERCIAL_POWER_FACTOR;
+        
+        // If it's a major urban center, add data center load
+        if population >= URBAN_POPULATION_THRESHOLD * 2 {
+            commercial *= DATA_CENTER_POWER_FACTOR;
+        }
+        
+        // Reduce residential and industrial proportionally
+        let total_commercial_increase = commercial * 
+            ((COMMERCIAL_POWER_FACTOR * (if population >= URBAN_POPULATION_THRESHOLD * 2 { 
+                DATA_CENTER_POWER_FACTOR 
+            } else { 
+                1.0_f64 
+            })) - 1.0_f64);
+        let reduction_ratio = total_commercial_increase / (residential + industrial);
+        residential *= (1.0_f64 - reduction_ratio);
+        industrial *= (1.0_f64 - reduction_ratio);
     }
     
-    // Normalize to maintain total
-    let total = residential + commercial + industrial;
-    let scale = total_power / total;
+    // Technology evolution impact over time
+    let years_from_base = (year - BASE_YEAR) as f64;
+    
+    // Residential becomes more efficient over time (smart homes, better appliances)
+    residential *= (1.0_f64 - RESIDENTIAL_EFFICIENCY_GAIN).powf(years_from_base);
+    
+    // Commercial increases due to digitalization
+    commercial *= (1.0_f64 + COMMERCIAL_GROWTH_RATE).powf(years_from_base);
+    
+    // Industrial varies based on automation and efficiency
+    industrial *= (1.0_f64 + INDUSTRIAL_EVOLUTION_RATE).powf(years_from_base);
+    
+    // Normalize to maintain total power usage
+    let current_total = residential + commercial + industrial;
+    let scale_factor = total_power / current_total;
     
     (
-        residential * scale,
-        commercial * scale,
-        industrial * scale
+        residential * scale_factor,
+        commercial * scale_factor,
+        industrial * scale_factor
     )
 }
 
@@ -363,4 +423,104 @@ pub fn evaluate_generator_location(
     
     // Normalize final score
     Some(total_score / total_weight)
+}
+
+pub fn calc_decommission_cost(base_cost: f64) -> f64 {
+    base_cost * DECOMMISSION_COST_RATIO
+}
+
+pub fn calc_initial_co2_output(gen_type: &GeneratorType, size: f64) -> f64 {
+    let base_rate = match gen_type {
+        GeneratorType::CoalPlant => COAL_CO2_RATE,
+        GeneratorType::GasCombinedCycle => GAS_CC_CO2_RATE,
+        GeneratorType::GasPeaker => GAS_PEAKER_CO2_RATE,
+        GeneratorType::Biomass => BIOMASS_CO2_RATE,
+        _ => 0.0,
+    };
+    base_rate * size
+}
+
+pub fn transform_lat_lon_to_grid(lat: f64, lon: f64) -> Option<Coordinate> {
+    if lat < IRELAND_MIN_LAT || lat > IRELAND_MAX_LAT || 
+       lon < IRELAND_MIN_LON || lon > IRELAND_MAX_LON {
+        return None;
+    }
+
+    // Normalize to our coordinate system
+    let x = ((lon - IRELAND_MIN_LON) / (IRELAND_MAX_LON - IRELAND_MIN_LON)) * MAP_MAX_X;
+    let y = ((lat - IRELAND_MIN_LAT) / (IRELAND_MAX_LAT - IRELAND_MIN_LAT)) * MAP_MAX_Y;
+
+    Some(Coordinate::new(x, y))
+}
+
+pub fn is_coastal_location(coordinate: &Coordinate) -> bool {
+    coordinate.x < MAP_MAX_X * COASTAL_THRESHOLD
+}
+
+// Point in polygon check using ray casting algorithm
+pub fn is_point_inside_polygon(point: &Coordinate, polygon: &Vec<Coordinate>) -> bool {
+    let mut inside = false;
+    let mut j = polygon.len() - 1;
+    
+    for i in 0..polygon.len() {
+        if ((polygon[i].y > point.y) != (polygon[j].y > point.y)) &&
+            (point.x < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y) / 
+                      (polygon[j].y - polygon[i].y) + polygon[i].x)
+        {
+            inside = !inside;
+        }
+        j = i;
+    }
+    
+    inside
+}
+
+lazy_static! {
+    static ref IRELAND_COASTLINE: Vec<Coordinate> = {
+        let coastline_file = include_str!("coastline_points.json");
+        let coastline_data: serde_json::Value = serde_json::from_str(coastline_file)
+            .expect("Failed to parse coastline data");
+        
+        coastline_data["grid_coords"]
+            .as_array()
+            .expect("Invalid coastline format")
+            .iter()
+            .map(|point| {
+                let coords = point.as_array().expect("Invalid point format");
+                Coordinate::new(
+                    coords[0].as_f64().expect("Invalid x coordinate"),
+                    coords[1].as_f64().expect("Invalid y coordinate")
+                )
+            })
+            .collect()
+    };
+}
+
+pub fn is_location_on_land(coordinate: &Coordinate) -> bool {
+    is_point_inside_polygon(coordinate, &IRELAND_COASTLINE)
+}
+
+pub fn is_valid_generator_location(gen_type: &GeneratorType, coordinate: &Coordinate) -> bool {
+    let on_land = is_location_on_land(coordinate);
+    
+    match gen_type {
+        // These types must be on land
+        GeneratorType::CoalPlant |
+        GeneratorType::GasCombinedCycle |
+        GeneratorType::GasPeaker |
+        GeneratorType::Biomass |
+        GeneratorType::OnshoreWind |
+        GeneratorType::DomesticSolar |
+        GeneratorType::CommercialSolar |
+        GeneratorType::UtilitySolar |
+        GeneratorType::HydroDam |
+        GeneratorType::PumpedStorage |
+        GeneratorType::Nuclear |
+        GeneratorType::BatteryStorage => on_land,
+        
+        // These types must be offshore
+        GeneratorType::OffshoreWind |
+        GeneratorType::TidalGenerator |
+        GeneratorType::WaveEnergy => !on_land,
+    }
 } 
