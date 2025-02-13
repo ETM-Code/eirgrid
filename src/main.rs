@@ -9,6 +9,8 @@ mod simulation_config;
 mod action_weights;
 mod power_storage;
 mod settlements_loader;
+mod generators_loader;
+mod spatial_index;
 
 use std::fs::File;
 use std::io::Write;
@@ -16,9 +18,17 @@ use chrono::Local;
 use rand::Rng;
 use crate::action_weights::{SimulationMetrics, score_metrics};
 use std::error::Error;
-use crate::const_funcs::calc_inflation_factor;
+use crate::const_funcs::{calc_inflation_factor, is_valid_generator_location, evaluate_generator_location};
 use std::str::FromStr;
 use rayon::prelude::*;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
+use crate::map_handler::MapStaticData;
+use crate::spatial_index::GeneratorSuitabilityType;
+use std::path::Path;
+use clap::{Parser, ArgAction};
+use parking_lot::RwLock;
 
 pub use poi::{POI, Coordinate};
 pub use generator::{Generator, GeneratorType};
@@ -95,7 +105,7 @@ fn run_simulation(
                 public_opinion,
                 power_balance,
             }
-        };
+        }; //NOTE: ANALYSE LATER
 
         if current_state.power_balance < 0.0 {
             handle_power_deficit(map, -current_state.power_balance, year, &mut local_weights)?;
@@ -222,7 +232,7 @@ fn handle_power_deficit(
                 }
             };
             
-            let improvement = evaluate_action_impact(&current_state, &new_state, year);
+            let improvement = evaluate_action_impact(&current_state, &new_state);
             action_weights.update_weights(&action, year, improvement);
             
             remaining_deficit = -new_state.power_balance.min(0.0);
@@ -233,65 +243,111 @@ fn handle_power_deficit(
 }
 
 fn find_best_generator_location(map: &Map, gen_type: &GeneratorType, gen_size: u8, year: u32) -> Option<Coordinate> {
-    let mut best_location = None;
-    let mut best_opinion = f64::NEG_INFINITY;
-    
-    for x in (0..100000).step_by(10000) {
-        for y in (0..100000).step_by(10000) {
-            let location = Coordinate::new(x as f64, y as f64);
-            let test_generator = Generator::new(
-                "test".to_string(),
-                location.clone(),
-                gen_type.clone(),
-                0.0,
-                0.0,
-                0.0,
-                30,
-                gen_size as f64 / 100.0,
-                0.0,
-                gen_type.get_base_efficiency(year),
-            );
-            
-            let opinion = map.calc_new_generator_opinion(&location, &test_generator, year);
-            if opinion > best_opinion {
-                best_opinion = opinion;
-                best_location = Some(location);
+    let suitability_type = match gen_type {
+        GeneratorType::OnshoreWind => GeneratorSuitabilityType::Onshore,
+        GeneratorType::OffshoreWind => GeneratorSuitabilityType::Offshore,
+        GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => GeneratorSuitabilityType::Coastal,
+        GeneratorType::Nuclear => {
+            // Try multiple times with gradually reduced requirements
+            for min_score in [0.5, 0.4, 0.3].iter() {
+                for min_distance in [12000.0, 10000.0, 8000.0].iter() {
+                    if let Some(location) = map.spatial_index.find_best_location(GeneratorSuitabilityType::Coastal, *min_score) {
+                        if map.get_settlements().iter()
+                            .filter(|s| s.get_population() > 100_000)
+                            .all(|s| s.get_coordinate().distance_to(&location) >= *min_distance) {
+                            println!("Found suitable location for Nuclear plant with score {} and min distance {}", min_score, min_distance);
+                            return Some(location);
+                        }
+                    }
+                }
             }
-        }
-    }
+            println!("Could not find suitable location for Nuclear plant even with reduced requirements");
+            return None;
+        },
+        GeneratorType::DomesticSolar | GeneratorType::CommercialSolar => GeneratorSuitabilityType::Urban,
+        GeneratorType::HydroDam | GeneratorType::PumpedStorage => GeneratorSuitabilityType::Rural,
+        _ => GeneratorSuitabilityType::Rural,
+    };
+
+    // Initial minimum scores
+    let initial_min_score = match gen_type {
+        GeneratorType::OnshoreWind => 0.15,  // Further reduced from 0.3
+        GeneratorType::OffshoreWind => 0.3,  // Reduced from 0.35
+        GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => 0.3,
+        GeneratorType::Nuclear => 0.4,
+        GeneratorType::DomesticSolar | GeneratorType::CommercialSolar => 0.2,
+        GeneratorType::UtilitySolar => 0.25,
+        GeneratorType::HydroDam | GeneratorType::PumpedStorage => 0.3,
+        _ => 0.15,
+    };
+
+    // Try multiple times with gradually reduced requirements
+    let size_factor = gen_size as f64 / 100.0;
+    let reduction_steps = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3]; // Added more steps
     
-    best_location
+    for reduction in reduction_steps.iter() {
+        let adjusted_min_score = (initial_min_score * reduction) * (1.0 + size_factor * 0.02); // Further reduced size penalty
+        
+        if let Some(location) = map.spatial_index.find_best_location(suitability_type, adjusted_min_score) {
+            if reduction < &1.0 {
+                println!("Found location for {:?} generator with {:.1}% of original requirements (score: {:.2}, size factor: {:.2})", 
+                    gen_type, reduction * 100.0, adjusted_min_score, size_factor);
+            }
+            return Some(location);
+        }
+        
+        println!("Failed to find location for {:?} at {:.1}% requirements (min score: {:.3})", 
+            gen_type, reduction * 100.0, adjusted_min_score);
+    }
+
+    println!("Could not find suitable location for {:?} generator after trying all reduction steps", gen_type);
+    None
 }
 
 fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), Box<dyn Error + Send + Sync>> {
     match action {
         GridAction::AddGenerator(gen_type) => {
             let gen_size = 100;
-            let best_location = find_best_generator_location(map, gen_type, gen_size, year)
-                .ok_or("Could not find suitable location")?;
-            
-            let base_efficiency = gen_type.get_base_efficiency(year);
-            let initial_co2_output = match gen_type {
-                GeneratorType::CoalPlant => 1000.0,
-                GeneratorType::GasCombinedCycle => 500.0,
-                GeneratorType::GasPeaker => 700.0,
-                GeneratorType::Biomass => 50.0,
-                _ => 0.0,  // All other types have zero direct CO2 emissions
-            } * (gen_size as f64 / 100.0);  // Scale by size
-            
-            let generator = Generator::new(
-                format!("Gen_{}_{}_{}", gen_type.to_string(), year, map.get_generator_count()),
-                best_location,
-                gen_type.clone(),
-                gen_type.get_base_cost(year),
-                gen_type.get_base_power(year),
-                gen_type.get_operating_cost(year),
-                gen_type.get_lifespan(),
-                gen_size as f64 / 100.0,
-                initial_co2_output,  // Use our calculated initial CO2 output
-                base_efficiency,
-            );
-            map.add_generator(generator);
+            match map.find_best_generator_location(gen_type, gen_size as f64 / 100.0) {
+                Some(location) => {
+                    let base_efficiency = gen_type.get_base_efficiency(year);
+                    let initial_co2_output = match gen_type {
+                        GeneratorType::CoalPlant => 1000.0,
+                        GeneratorType::GasCombinedCycle => 500.0,
+                        GeneratorType::GasPeaker => 700.0,
+                        GeneratorType::Biomass => 50.0,
+                        _ => 0.0,  // All other types have zero direct CO2 emissions
+                    } * (gen_size as f64 / 100.0);  // Scale by size
+                    
+                    let generator = Generator::new(
+                        format!("Gen_{}_{}_{}", gen_type.to_string(), year, map.get_generator_count()),
+                        location,
+                        gen_type.clone(),
+                        gen_type.get_base_cost(year),
+                        gen_type.get_base_power(year),
+                        gen_type.get_operating_cost(year),
+                        gen_type.get_lifespan(),
+                        gen_size as f64 / 100.0,
+                        initial_co2_output,
+                        base_efficiency,
+                    );
+                    map.add_generator(generator);
+                    Ok(())
+                },
+                None => {
+                    // Fallback: Try a different generator type
+                    let fallback_type = match gen_type {
+                        GeneratorType::Nuclear => GeneratorType::GasCombinedCycle,
+                        GeneratorType::HydroDam | GeneratorType::PumpedStorage => GeneratorType::GasPeaker,
+                        GeneratorType::OffshoreWind => GeneratorType::OnshoreWind,
+                        GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => GeneratorType::OffshoreWind,
+                        _ => GeneratorType::GasPeaker, // Default fallback
+                    };
+                    
+                    println!("Falling back to {:?} generator instead of {:?}", fallback_type, gen_type);
+                    apply_action(map, &GridAction::AddGenerator(fallback_type), year)
+                }
+            }
         },
         GridAction::UpgradeEfficiency(id) => {
             if let Some(generator) = map.get_generator_mut(id) {
@@ -317,6 +373,8 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), Box
                     generator.upgrade_efficiency(year, max_efficiency);
                 }
             }
+            map.after_generator_modification();
+            Ok(())
         },
         GridAction::AdjustOperation(id, percentage) => {
             let constraints = map.get_generator_constraints().clone();
@@ -325,6 +383,8 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), Box
                     generator.adjust_operation(*percentage, &constraints);
                 }
             }
+            map.after_generator_modification();
+            Ok(())
         },
         GridAction::AddCarbonOffset(offset_type) => {
             let offset_size = rand::thread_rng().gen_range(100.0..1000.0);
@@ -356,6 +416,7 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), Box
             );
             
             map.add_carbon_offset(offset);
+            Ok(())
         },
         GridAction::CloseGenerator(id) => {
             if let Some(generator) = map.get_generator_mut(id) {
@@ -374,9 +435,10 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), Box
                     }
                 }
             }
+            map.after_generator_modification();
+            Ok(())
         },
     }
-    Ok(())
 }
 
 fn calculate_average_opinion(map: &Map, year: u32) -> f64 {
@@ -499,23 +561,274 @@ struct SimulationResult {
     output: String,
 }
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short = 'n', long, default_value_t = 1000)]
+    iterations: usize,
+
+    #[arg(short, long, default_value_t = true)]
+    parallel: bool,
+
+    #[arg(long, default_value_t = false)]
+    no_continue: bool,
+
+    #[arg(short, long, default_value = "checkpoints")]
+    checkpoint_dir: String,
+
+    #[arg(short = 'i', long, default_value_t = 5)]
+    checkpoint_interval: usize,
+
+    #[arg(short = 'r', long, default_value_t = 10)]
+    progress_interval: usize,
+}
+
 fn run_multi_simulation(
     base_map: &Map,
     num_iterations: usize,
     parallel: bool,
+    continue_from_checkpoint: bool,
+    checkpoint_dir: &str,
+    checkpoint_interval: usize,
+    progress_interval: usize,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let mut action_weights = ActionWeights::new();
-    let mut best_result: Option<SimulationResult> = None;
+    // Create checkpoint directory if it doesn't exist
+    std::fs::create_dir_all(checkpoint_dir)?;
     
-    println!("Starting multi-simulation optimization with {} iterations", num_iterations);
+    // Initialize progress tracking
+    let completed_iterations = Arc::new(AtomicUsize::new(0));
+    let start_time = Instant::now();
+    
+    // Load or create initial weights
+    let initial_weights = if continue_from_checkpoint {
+        // Try to find the most recent checkpoint
+        let entries: Vec<_> = std::fs::read_dir(checkpoint_dir)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().is_dir())
+            .collect();
+        
+        let latest_dir = entries.iter()
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|name| {
+                // Filter out directories with invalid format
+                if name.len() != 15 || !name.chars().all(|c| c.is_ascii_digit() || c == '_') {
+                    return false;
+                }
+                // Parse the date from the directory name (format: YYYYMMDD_HHMMSS)
+                let year = name[0..4].parse::<i32>().unwrap_or(9999);
+                let month = name[4..6].parse::<u32>().unwrap_or(99);
+                let day = name[6..8].parse::<u32>().unwrap_or(99);
+                
+                // Accept 2025 and earlier, but ensure month and day are valid
+                if year > 2025 || month > 12 || day > 31 {
+                    return false;
+                }
+                true
+            })
+            .max();
+        
+        if let Some(latest) = latest_dir {
+            let checkpoint_path = Path::new(checkpoint_dir)
+                .join(&latest)
+                .join("latest_weights.json");
+            
+            println!("Checking for weights at: {:?}", checkpoint_path);
+            if checkpoint_path.exists() {
+                println!("Loading weights from checkpoint: {:?}", checkpoint_path);
+                match ActionWeights::load_from_file(checkpoint_path.to_str().unwrap()) {
+                    Ok(loaded_weights) => {
+                        if let Some((best_score, _)) = loaded_weights.get_best_metrics() {
+                            println!("Loaded previous best score: {:.4}", best_score);
+                        }
+                        loaded_weights
+                    },
+                    Err(e) => {
+                        println!("Error loading weights: {}. Starting fresh.", e);
+                        ActionWeights::new()
+                    }
+                }
+            } else {
+                println!("No weights found in latest directory, starting fresh");
+                ActionWeights::new()
+            }
+        } else {
+            println!("No checkpoint directories found, starting fresh");
+            ActionWeights::new()
+        }
+    } else {
+        println!("Starting fresh simulation (--no-continue specified)");
+        ActionWeights::new()
+    };
+
+    // Create timestamp directory after loading weights
+    let now = Local::now();
+    let timestamp = format!("2024{}", now.format("%m%d_%H%M%S"));
+    let run_dir = format!("{}/{}", checkpoint_dir, timestamp);
+    std::fs::create_dir_all(&run_dir)?;
+    
+    // Create shared weights
+    let action_weights = Arc::new(RwLock::new(initial_weights));
+    
+    // Spawn progress monitoring thread
+    let progress_counter = completed_iterations.clone();
+    let total_iterations = num_iterations;
+    let action_weights_for_progress = Arc::clone(&action_weights);
+    
+    std::thread::spawn(move || {
+        while progress_counter.load(Ordering::Relaxed) < total_iterations {
+            std::thread::sleep(Duration::from_secs(progress_interval as u64));
+            let completed = progress_counter.load(Ordering::Relaxed);
+            let elapsed = start_time.elapsed();
+            let iterations_per_second = completed as f64 / elapsed.as_secs_f64();
+            let remaining = total_iterations - completed;
+            let eta_seconds = if iterations_per_second > 0.0 {
+                remaining as f64 / iterations_per_second
+            } else {
+                0.0
+            };
+
+            // Get best score and metrics from the shared weights
+            let weights = action_weights_for_progress.read();
+            let (best_score, is_net_zero) = weights.get_best_metrics()
+                .unwrap_or((0.0, false));
+            
+            // Get emissions metrics from the best metrics
+            let metrics_info = if let Some(best) = weights.get_simulation_metrics() {
+                let emissions_status = if best.final_net_emissions <= 0.0 {
+                    "✓ Net Zero Achieved".to_string()
+                } else {
+                    format!("⚠ {:.1}% above target", 
+                        (best.final_net_emissions / MAX_ACCEPTABLE_EMISSIONS) * 100.0)
+                };
+                
+                let cost_status = if best.total_cost <= MAX_ACCEPTABLE_COST {
+                    "✓ Within Budget".to_string()
+                } else {
+                    format!("⚠ {:.1}% over budget", 
+                        ((best.total_cost - MAX_ACCEPTABLE_COST) / MAX_ACCEPTABLE_COST) * 100.0)
+                };
+                
+                format!("\nMetrics Status:\n\
+                        - Emissions: {} ({:.1} tons)\n\
+                        - Cost: {} (€{:.1}B/year)\n\
+                        - Public Opinion: {:.1}%\n\
+                        - Power Reliability: {:.1}%", 
+                        emissions_status,
+                        best.final_net_emissions,
+                        cost_status,
+                        best.total_cost / 1_000_000_000.0,
+                        best.average_public_opinion * 100.0,
+                        best.power_reliability * 100.0)
+            } else {
+                "\nMetrics Status: No data yet".to_string()
+            };
+            
+            println!(
+                "\nProgress Update:\n\
+                ----------------------------------------\n\
+                Iterations: {}/{} ({:.1}%)\n\
+                Speed: {:.1} iterations/sec\n\
+                ETA: {:.1} minutes\n\
+                \n\
+                Best Score: {:.9} {}\n\
+                Target: 1.0000 (Net Zero + Max Public Opinion){}\n\
+                \n\
+                Score Explanation:\n\
+                - Score < 1.0000: Working on reducing emissions\n\
+                - Score = 0.0000: Emissions at or above maximum\n\
+                - Score > 0.0000: Making progress on emissions\n\
+                - [NET ZERO]: Achieved net zero, score is now public opinion",
+                completed,
+                total_iterations,
+                (completed as f64 / total_iterations as f64) * 100.0,
+                iterations_per_second,
+                eta_seconds / 60.0,
+                best_score,
+                if is_net_zero { "[NET ZERO]" } else { "" },
+                metrics_info
+            );
+        }
+    });
+
+    let mut best_result: Option<SimulationResult> = None;
+    let start_iteration = if continue_from_checkpoint {
+        let entries: Vec<_> = std::fs::read_dir(checkpoint_dir)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().is_dir())
+            .collect();
+        
+        if let Some(latest_dir) = entries.iter()
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|name| name.chars().all(|c| c.is_ascii_digit() || c == '_'))
+            .max()
+        {
+            let iteration_path = Path::new(checkpoint_dir)
+                .join(&latest_dir)
+                .join("checkpoint_iteration.txt");
+            
+            if iteration_path.exists() {
+                std::fs::read_to_string(iteration_path)?
+                    .trim()
+                    .parse::<usize>()
+                    .unwrap_or(0)
+            } else {
+                0
+            }
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    
+    println!("Starting multi-simulation optimization with {} iterations ({} completed, {} remaining) in directory {}", 
+             num_iterations,
+             start_iteration,
+             num_iterations - start_iteration,
+             run_dir);
+    
+    // Create a clone of the base map's static data once
+    let static_data = base_map.get_static_data();
     
     if parallel {
-        let results: Vec<_> = (0..num_iterations)
+        let results: Vec<_> = (start_iteration..num_iterations)
             .into_par_iter()
             .map(|i| -> Result<SimulationResult, Box<dyn Error + Send + Sync>> {
-                let map_clone = base_map.clone();
-                let weights_clone = action_weights.clone();
-                run_iteration(i, map_clone, weights_clone)
+                // Create a new map instance with shared static data
+                let mut map_clone = Map::new_with_static_data(static_data.clone());
+                
+                // Clone only the dynamic data
+                map_clone.set_generators(base_map.get_generators().to_vec());
+                map_clone.set_settlements(base_map.get_settlements().to_vec());
+                map_clone.set_carbon_offsets(base_map.get_carbon_offsets().to_vec());
+                
+                // Create local weights to avoid lock contention
+                let mut local_weights = action_weights.read().clone();
+                let result = run_iteration(i, map_clone, &mut local_weights)?;
+                
+                // Only acquire write lock periodically to merge weights
+                if (i + 1) % 10 == 0 {
+                    let mut weights = action_weights.write();
+                    weights.update_weights_from(&local_weights);
+                }
+                
+                // Increment completed iterations counter
+                completed_iterations.fetch_add(1, Ordering::Relaxed);
+                
+                // Save checkpoint at intervals
+                if (i + 1) % checkpoint_interval == 0 {
+                    let mut weights = action_weights.write();
+                    let checkpoint_path = Path::new(&run_dir).join("latest_weights.json");
+                    weights.save_to_file(checkpoint_path.to_str().unwrap())?;
+                    
+                    // Save iteration number
+                    let iteration_path = Path::new(&run_dir).join("checkpoint_iteration.txt");
+                    std::fs::write(iteration_path, (i + 1).to_string())?;
+                    
+                    println!("Saved checkpoint at iteration {} in {}", i + 1, run_dir);
+                }
+                
+                Ok(result)
             })
             .collect::<Result<Vec<_>, _>>()?;
         
@@ -527,15 +840,38 @@ fn run_multi_simulation(
             }
         }
     } else {
-        for i in 0..num_iterations {
-            let map_clone = base_map.clone();
-            let weights_clone = action_weights.clone();
-            let result = run_iteration(i, map_clone, weights_clone)?;
+        for i in start_iteration..num_iterations {
+            // Create a new map instance with shared static data
+            let mut map_clone = Map::new_with_static_data(static_data.clone());
+            
+            // Clone only the dynamic data
+            map_clone.set_generators(base_map.get_generators().to_vec());
+            map_clone.set_settlements(base_map.get_settlements().to_vec());
+            map_clone.set_carbon_offsets(base_map.get_carbon_offsets().to_vec());
+            
+            // Get a write lock to update the shared weights
+            let mut weights = action_weights.write();
+            let result = run_iteration(i, map_clone, &mut weights)?;
+            
+            // Increment completed iterations counter
+            completed_iterations.fetch_add(1, Ordering::Relaxed);
             
             if best_result.as_ref().map_or(true, |best| {
                 score_metrics(&result.metrics) > score_metrics(&best.metrics)
             }) {
                 best_result = Some(result);
+            }
+            
+            // Save checkpoint at intervals
+            if (i + 1) % checkpoint_interval == 0 {
+                let checkpoint_path = Path::new(&run_dir).join("latest_weights.json");
+                weights.save_to_file(checkpoint_path.to_str().unwrap())?;
+                
+                // Save iteration number
+                let iteration_path = Path::new(&run_dir).join("checkpoint_iteration.txt");
+                std::fs::write(iteration_path, (i + 1).to_string())?;
+                
+                println!("Saved checkpoint at iteration {} in {}", i + 1, run_dir);
             }
         }
     }
@@ -547,13 +883,17 @@ fn run_multi_simulation(
         println!("Total cost: €{:.2}", best.metrics.total_cost);
         println!("Power reliability: {:.3}", best.metrics.power_reliability);
         
-        let timestamp = Local::now().format("%Y%m%d_%H%M%S");
-        let csv_filename = format!("best_simulation_{}.csv", timestamp);
+        // Save final results in the run directory
+        let csv_filename = Path::new(&run_dir).join("best_simulation.csv");
         let mut file = File::create(&csv_filename)?;
         file.write_all(best.output.as_bytes())?;
-        println!("\nBest simulation results saved to: {}", csv_filename);
+        println!("\nBest simulation results saved to: {}", csv_filename.display());
         
-        action_weights.save_to_file("best_weights.json")?;
+        // Save final weights in the run directory
+        let final_weights_path = Path::new(&run_dir).join("best_weights.json");
+        let weights = action_weights.write();
+        weights.save_to_file(final_weights_path.to_str().unwrap())?;
+        println!("Final weights saved to: {}", final_weights_path.display());
     }
     
     Ok(())
@@ -562,7 +902,7 @@ fn run_multi_simulation(
 fn run_iteration(
     iteration: usize,
     mut map: Map,
-    mut weights: ActionWeights,
+    mut weights: &mut ActionWeights,
 ) -> Result<SimulationResult, Box<dyn Error + Send + Sync>> {
     println!("\nStarting iteration {}", iteration + 1);
     weights.start_new_iteration();
@@ -574,11 +914,26 @@ fn run_iteration(
     
     let simulation_output = run_simulation(&mut map, Some(&mut weights))?;
     
+    // Calculate final metrics properly
+    let final_emissions = map.calc_net_co2_emissions(2050);
+    let final_opinion = calculate_average_opinion(&map, 2050);
+    let final_power_gen = map.calc_total_power_generation(2050, None);
+    let final_power_usage = map.calc_total_power_usage(2050);
+    let power_deficit = if final_power_gen < final_power_usage {
+        (final_power_usage - final_power_gen) / final_power_usage
+    } else {
+        0.0
+    };
+    
+    let operating_cost = map.calc_total_operating_cost(2050);
+    let capital_cost = map.calc_total_capital_cost(2050);
+    let total_cost = operating_cost + capital_cost;
+    
     let final_metrics = SimulationMetrics {
-        final_net_emissions: map.calc_net_co2_emissions(2050),
-        average_public_opinion: total_opinion / measurements as f64,
+        final_net_emissions: final_emissions,
+        average_public_opinion: final_opinion,
         total_cost,
-        power_reliability: 1.0 - (power_deficits / measurements as f64),
+        power_reliability: 1.0 - power_deficit,
     };
     
     weights.update_best_strategy(final_metrics.clone());
@@ -590,23 +945,31 @@ fn run_iteration(
 }
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    let args = Args::parse();
+    
     println!("EirGrid Power System Simulator (2025-2050)");
+    println!("Debug: no_continue = {}, continue_from_checkpoint = {}", args.no_continue, !args.no_continue);
     
     let config = SimulationConfig::default();
-    
     let mut map = Map::new(config);
     
     initialize_map(&mut map);
     
-    let num_iterations = 1000;
-    let use_parallel = true;
-    
-    run_multi_simulation(&map, num_iterations, use_parallel)?;
+    run_multi_simulation(
+        &map, 
+        args.iterations,
+        args.parallel,
+        !args.no_continue,
+        &args.checkpoint_dir,
+        args.checkpoint_interval,
+        args.progress_interval,
+    )?;
     
     Ok(())
 }
 
 fn initialize_map(map: &mut Map) { 
+    // Load settlements
     match settlements_loader::load_settlements("mapData/sourceData/settlements.json", SIMULATION_START_YEAR) {
         Ok(settlements) => {
             for settlement in settlements {
@@ -642,29 +1005,43 @@ fn initialize_map(map: &mut Map) {
         }
     }
 
-    map.add_generator(Generator::new(
-        "Moneypoint".to_string(),
-        Coordinate::new(30000.0, 50000.0),
-        GeneratorType::CoalPlant,
-        800_000_000.0,
-        915.0,
-        50_000_000.0,
-        40,
-        1.0,
-        2_000_000.0,
-        0.37,
-    ));
+    // Load existing generators from CSV
+    match generators_loader::load_generators("src/ireland_generators.csv", SIMULATION_START_YEAR) {
+        Ok(loaded_generators) => {
+            let num_generators = loaded_generators.len();
+            for generator in loaded_generators {
+                map.add_generator(generator.clone());  // Clone each generator before adding
+            }
+            println!("Successfully loaded {} generators from CSV", num_generators);
+        },
+        Err(e) => {
+            eprintln!("Failed to load generators from CSV: {}. Using fallback generators.", e);
+            // Add fallback generators
+            map.add_generator(Generator::new(
+                "Moneypoint".to_string(),
+                Coordinate::new(30000.0, 50000.0),
+                GeneratorType::CoalPlant,
+                800_000_000.0,
+                915.0,
+                50_000_000.0,
+                40,
+                1.0,
+                2_000_000.0,
+                0.37,
+            ));
 
-    map.add_generator(Generator::new(
-        "Dublin Bay".to_string(),
-        Coordinate::new(72000.0, 72000.0),
-        GeneratorType::GasCombinedCycle,
-        400_000_000.0,
-        415.0,
-        20_000_000.0,
-        30,
-        0.8,
-        800_000.0,
-        0.45,
-    ));
+            map.add_generator(Generator::new(
+                "Dublin Bay".to_string(),
+                Coordinate::new(72000.0, 72000.0),
+                GeneratorType::GasCombinedCycle,
+                400_000_000.0,
+                415.0,
+                20_000_000.0,
+                30,
+                0.8,
+                800_000.0,
+                0.45,
+            ));
+        }
+    }
 } 
