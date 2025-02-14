@@ -204,9 +204,21 @@ fn handle_power_deficit(
     action_weights: &mut ActionWeights,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut remaining_deficit = deficit;
-    
+
+    // Continue trying until the deficit is remedied
     while remaining_deficit > 0.0 {
-        let action = action_weights.sample_action(year);
+        // Force sampling until we get an AddGenerator action.
+        let action = loop {
+            let candidate = action_weights.sample_action(year);
+            if let GridAction::AddGenerator(_) = candidate {
+                break candidate;
+            } else {
+                // Optionally log that a non-AddGenerator action was skipped.
+                // e.g., println!("Skipping non-generator action in deficit handling: {:?}", candidate);
+                continue;
+            }
+        };
+
         let current_state = {
             let net_emissions = map.calc_net_co2_emissions(year);
             let public_opinion = calculate_average_opinion(map, year);
@@ -217,10 +229,11 @@ fn handle_power_deficit(
                 power_balance,
             }
         };
-        
+
         if let GridAction::AddGenerator(_) = action {
+            // Try to apply the AddGenerator action
             apply_action(map, &action, year)?;
-            
+
             let new_state = {
                 let net_emissions = map.calc_net_co2_emissions(year);
                 let public_opinion = calculate_average_opinion(map, year);
@@ -231,14 +244,17 @@ fn handle_power_deficit(
                     power_balance,
                 }
             };
-            
+
             let improvement = evaluate_action_impact(&current_state, &new_state);
             action_weights.update_weights(&action, year, improvement);
-            
+
+            // Update the deficit: if new_state.power_balance is negative,
+            // its minimum with zero (which is negative) is negated to a positive deficit amount.
             remaining_deficit = -new_state.power_balance.min(0.0);
         }
+        // (Since the inner loop guarantees only AddGenerator actions are processed,
+        // this branch is not needed and the loop will simply repeat until the deficit is fixed.)
     }
-    
     Ok(())
 }
 
@@ -802,8 +818,12 @@ fn run_multi_simulation(
                 map_clone.set_settlements(base_map.get_settlements().to_vec());
                 map_clone.set_carbon_offsets(base_map.get_carbon_offsets().to_vec());
                 
-                // Create local weights to avoid lock contention
-                let mut local_weights = action_weights.read().clone();
+                // Create local weights and immediately drop the read lock
+                let mut local_weights = {
+                    let weights = action_weights.read();
+                    weights.clone()
+                }; // Read lock is dropped here
+                
                 let result = run_iteration(i, map_clone, &mut local_weights)?;
                 
                 // Only acquire write lock periodically to merge weights

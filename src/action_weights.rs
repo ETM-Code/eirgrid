@@ -7,6 +7,7 @@ use std::fs;
 use std::sync::Mutex;
 use std::path::Path;
 use lazy_static::lazy_static;
+use std::str::FromStr;
 
 lazy_static! {
     static ref FILE_MUTEX: Mutex<()> = Mutex::new(());
@@ -48,7 +49,7 @@ impl From<&GridAction> for SerializableAction {
         match action {
             GridAction::AddGenerator(gen_type) => SerializableAction {
                 action_type: "AddGenerator".to_string(),
-                generator_type: Some(format!("{:?}", gen_type)),
+                generator_type: Some(gen_type.to_string()),
                 generator_id: None,
                 operation_percentage: None,
                 offset_type: None,
@@ -348,11 +349,17 @@ impl ActionWeights {
     
     pub fn save_to_file(&self, path: &str) -> std::io::Result<()> {
         // Acquire lock for file operations
-        let _lock = FILE_MUTEX.lock().unwrap();
+        let _lock = FILE_MUTEX.lock().map_err(|e| {
+            println!("Error acquiring file lock for saving: {}", e);
+            std::io::Error::new(std::io::ErrorKind::Other, "Failed to acquire file lock for saving")
+        })?;
         
         // Create parent directory if it doesn't exist
         if let Some(parent) = Path::new(path).parent() {
-            std::fs::create_dir_all(parent)?;
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                println!("Error creating directory {}: {}", parent.display(), e);
+                return Err(e);
+            }
         }
 
         // Convert to serializable format
@@ -375,15 +382,35 @@ impl ActionWeights {
             exploration_rate: self.exploration_rate,
         };
 
-        let json = serde_json::to_string_pretty(&serializable)?;
-        std::fs::write(path, json)?;
-        Ok(())
+        // Serialize to JSON with pretty printing
+        let json = match serde_json::to_string_pretty(&serializable) {
+            Ok(json) => json,
+            Err(e) => {
+                println!("Error serializing weights to JSON: {}", e);
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("JSON serialization error: {}", e)));
+            }
+        };
+
+        // Write to file
+        match std::fs::write(path, &json) {
+            Ok(_) => {
+                println!("Successfully saved weights to {}", path);
+                Ok(())
+            },
+            Err(e) => {
+                println!("Error writing weights to {}: {}", path, e);
+                Err(e)
+            }
+        }
     }
     
     pub fn load_from_file(path: &str) -> std::io::Result<Self> {
         println!("Attempting to load weights from: {}", path);
         // Acquire lock for file operations
-        let _lock = FILE_MUTEX.lock().unwrap();
+        let _lock = FILE_MUTEX.lock().map_err(|e| {
+            println!("Error acquiring file lock: {}", e);
+            std::io::Error::new(std::io::ErrorKind::Other, "Failed to acquire file lock")
+        })?;
         
         let content = match std::fs::read_to_string(path) {
             Ok(content) => content,
@@ -396,8 +423,8 @@ impl ActionWeights {
         let serializable: SerializableWeights = match serde_json::from_str(&content) {
             Ok(weights) => weights,
             Err(e) => {
-                println!("Error parsing weights JSON: {}", e);
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+                println!("Error parsing weights JSON: {}. Content starts with: {:?}", e, content.chars().take(50).collect::<String>());
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("JSON parse error: {}", e)));
             }
         };
         
@@ -407,17 +434,54 @@ impl ActionWeights {
             for (action, weight) in actions {
                 let grid_action = match action.action_type.as_str() {
                     "AddGenerator" => {
-                        let gen_type = action.generator_type.unwrap();
-                        GridAction::AddGenerator(serde_json::from_str(&gen_type).unwrap())
+                        match action.generator_type {
+                            Some(gen_type) => match GeneratorType::from_str(&gen_type) {
+                                Ok(gen) => GridAction::AddGenerator(gen),
+                                Err(e) => {
+                                    println!("Error parsing generator type '{}': {}", gen_type, e);
+                                    continue;
+                                }
+                            },
+                            None => {
+                                println!("Missing generator type for AddGenerator action");
+                                continue;
+                            }
+                        }
                     },
-                    "UpgradeEfficiency" => GridAction::UpgradeEfficiency(action.generator_id.unwrap()),
-                    "AdjustOperation" => GridAction::AdjustOperation(
-                        action.generator_id.unwrap(),
-                        action.operation_percentage.unwrap()
-                    ),
-                    "AddCarbonOffset" => GridAction::AddCarbonOffset(action.offset_type.unwrap()),
-                    "CloseGenerator" => GridAction::CloseGenerator(action.generator_id.unwrap()),
-                    _ => continue,
+                    "UpgradeEfficiency" => match action.generator_id {
+                        Some(id) => GridAction::UpgradeEfficiency(id),
+                        None => {
+                            println!("Missing generator ID for UpgradeEfficiency action");
+                            continue;
+                        }
+                    },
+                    "AdjustOperation" => {
+                        match (action.generator_id, action.operation_percentage) {
+                            (Some(id), Some(percentage)) => GridAction::AdjustOperation(id, percentage),
+                            _ => {
+                                println!("Missing generator ID or percentage for AdjustOperation action");
+                                continue;
+                            }
+                        }
+                    },
+                    "AddCarbonOffset" => match action.offset_type {
+                        Some(offset_type) => GridAction::AddCarbonOffset(offset_type),
+                        None => {
+                            println!("Missing offset type for AddCarbonOffset action");
+                            continue;
+                        }
+                    },
+                    "CloseGenerator" => match action.generator_id {
+                        Some(id) => GridAction::CloseGenerator(id),
+                        None => {
+                            println!("Missing generator ID for CloseGenerator action");
+                            continue;
+                        }
+                    },
+                    _ => {
+                        println!("Unknown action type: {}", action.action_type);
+                        continue;
+                    }
                 };
                 year_weights.insert(grid_action, weight);
             }
@@ -430,17 +494,54 @@ impl ActionWeights {
                 for (action, weight) in actions {
                     let grid_action = match action.action_type.as_str() {
                         "AddGenerator" => {
-                            let gen_type = action.generator_type.unwrap();
-                            GridAction::AddGenerator(serde_json::from_str(&gen_type).unwrap())
+                            match action.generator_type {
+                                Some(gen_type) => match GeneratorType::from_str(&gen_type) {
+                                    Ok(gen) => GridAction::AddGenerator(gen),
+                                    Err(e) => {
+                                        println!("Error parsing generator type '{}': {}", gen_type, e);
+                                        continue;
+                                    }
+                                },
+                                None => {
+                                    println!("Missing generator type for AddGenerator action");
+                                    continue;
+                                }
+                            }
                         },
-                        "UpgradeEfficiency" => GridAction::UpgradeEfficiency(action.generator_id.unwrap()),
-                        "AdjustOperation" => GridAction::AdjustOperation(
-                            action.generator_id.unwrap(),
-                            action.operation_percentage.unwrap()
-                        ),
-                        "AddCarbonOffset" => GridAction::AddCarbonOffset(action.offset_type.unwrap()),
-                        "CloseGenerator" => GridAction::CloseGenerator(action.generator_id.unwrap()),
-                        _ => continue,
+                        "UpgradeEfficiency" => match action.generator_id {
+                            Some(id) => GridAction::UpgradeEfficiency(id),
+                            None => {
+                                println!("Missing generator ID for UpgradeEfficiency action");
+                                continue;
+                            }
+                        },
+                        "AdjustOperation" => {
+                            match (action.generator_id, action.operation_percentage) {
+                                (Some(id), Some(percentage)) => GridAction::AdjustOperation(id, percentage),
+                                _ => {
+                                    println!("Missing generator ID or percentage for AdjustOperation action");
+                                    continue;
+                                }
+                            }
+                        },
+                        "AddCarbonOffset" => match action.offset_type {
+                            Some(offset_type) => GridAction::AddCarbonOffset(offset_type),
+                            None => {
+                                println!("Missing offset type for AddCarbonOffset action");
+                                continue;
+                            }
+                        },
+                        "CloseGenerator" => match action.generator_id {
+                            Some(id) => GridAction::CloseGenerator(id),
+                            None => {
+                                println!("Missing generator ID for CloseGenerator action");
+                                continue;
+                            }
+                        },
+                        _ => {
+                            println!("Unknown action type: {}", action.action_type);
+                            continue;
+                        }
                     };
                     year_weights.insert(grid_action, weight);
                 }
