@@ -72,8 +72,8 @@ fn run_simulation(
     let mut output = String::new();
     output.push_str("Year,Total Population,Total Power Usage (MW),Total Power Generation (MW),\
                     Power Balance (MW),Average Public Opinion,Total Operating Cost (€),\
-                    Total Capital Cost (€),Inflation Factor,Total CO2 Emissions (tons),\
-                    Total Carbon Offset (tons),Net CO2 Emissions (tons),Active Generators,\
+                    Total Capital Cost (€),Inflation Factor,Total CO2 Emissions (tonnes),\
+                    Total Carbon Offset (tonnes),Net CO2 Emissions (tonnes),Active Generators,\
                     Upgrade Costs (€),Closure Costs (€),Total Cost (€)\n");
 
     let mut total_upgrade_costs = 0.0;
@@ -204,9 +204,21 @@ fn handle_power_deficit(
     action_weights: &mut ActionWeights,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut remaining_deficit = deficit;
-    
+
+    // Continue trying until the deficit is remedied
     while remaining_deficit > 0.0 {
-        let action = action_weights.sample_action(year);
+        // Force sampling until we get an AddGenerator action.
+        let action = loop {
+            let candidate = action_weights.sample_action(year);
+            if let GridAction::AddGenerator(_) = candidate {
+                break candidate;
+            } else {
+                // Optionally log that a non-AddGenerator action was skipped.
+                // e.g., println!("Skipping non-generator action in deficit handling: {:?}", candidate);
+                continue;
+            }
+        };
+
         let current_state = {
             let net_emissions = map.calc_net_co2_emissions(year);
             let public_opinion = calculate_average_opinion(map, year);
@@ -217,10 +229,11 @@ fn handle_power_deficit(
                 power_balance,
             }
         };
-        
+
         if let GridAction::AddGenerator(_) = action {
+            // Try to apply the AddGenerator action
             apply_action(map, &action, year)?;
-            
+
             let new_state = {
                 let net_emissions = map.calc_net_co2_emissions(year);
                 let public_opinion = calculate_average_opinion(map, year);
@@ -231,14 +244,17 @@ fn handle_power_deficit(
                     power_balance,
                 }
             };
-            
+
             let improvement = evaluate_action_impact(&current_state, &new_state);
             action_weights.update_weights(&action, year, improvement);
-            
+
+            // Update the deficit: if new_state.power_balance is negative,
+            // its minimum with zero (which is negative) is negated to a positive deficit amount.
             remaining_deficit = -new_state.power_balance.min(0.0);
         }
+        // (Since the inner loop guarantees only AddGenerator actions are processed,
+        // this branch is not needed and the loop will simply repeat until the deficit is fixed.)
     }
-    
     Ok(())
 }
 
@@ -534,9 +550,9 @@ fn print_yearly_summary(metrics: &YearlyMetrics) {
     println!("  Upgrade Costs: €{:.2}", metrics.upgrade_costs);
     println!("  Closure Costs: €{:.2}", metrics.closure_costs);
     println!("Environmental Metrics:");
-    println!("  CO2 Emissions: {:.2} tons", metrics.total_co2_emissions);
-    println!("  Carbon Offset: {:.2} tons", metrics.total_carbon_offset);
-    println!("  Net Emissions: {:.2} tons", metrics.net_co2_emissions);
+    println!("  CO2 Emissions: {:.2} tonnes", metrics.total_co2_emissions);
+    println!("  Carbon Offset: {:.2} tonnes", metrics.total_carbon_offset);
+    println!("  Net Emissions: {:.2} tonnes", metrics.net_co2_emissions);
     println!("Public Opinion: {:.3}", metrics.average_public_opinion);
     println!("Active Generators: {}", metrics.active_generators);
 }
@@ -709,7 +725,7 @@ fn run_multi_simulation(
                 };
                 
                 format!("\nMetrics Status:\n\
-                        - Emissions: {} ({:.1} tons)\n\
+                        - Emissions: {} ({:.1} tonnes)\n\
                         - Cost: {} (€{:.1}B/year)\n\
                         - Public Opinion: {:.1}%\n\
                         - Power Reliability: {:.1}%", 
@@ -882,7 +898,7 @@ fn run_multi_simulation(
     
     if let Some(best) = best_result {
         println!("\nBest simulation results:");
-        println!("Final net emissions: {:.2} tons", best.metrics.final_net_emissions);
+        println!("Final net emissions: {:.2} tonnes", best.metrics.final_net_emissions);
         println!("Average public opinion: {:.3}", best.metrics.average_public_opinion);
         println!("Total cost: €{:.2}", best.metrics.total_cost);
         println!("Power reliability: {:.3}", best.metrics.power_reliability);

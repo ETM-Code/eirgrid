@@ -15,8 +15,8 @@ pub const BASE_TRANSMISSION_LOSS_RATE: f64 = 0.00001; // Loss per meter of dista
 pub const HIGH_VOLTAGE_LOSS_REDUCTION: f64 = 0.7;     // 30% less loss for high voltage lines
 pub const URBAN_INFRASTRUCTURE_FACTOR: f64 = 0.8;     // 20% less loss in urban areas
 pub const RURAL_INFRASTRUCTURE_FACTOR: f64 = 1.2;     // 20% more loss in rural areas
-pub const UNDERWATER_LOSS_FACTOR: f64 = 1.5;          // 50% more loss for undersea cables
-pub const MOUNTAIN_LOSS_FACTOR: f64 = 1.3;            // 30% more loss in mountainous regions
+pub const UNDERWATER_LOSS_FACTOR: f64 = 1.5;          // 50% more loss for undersea cables - unlikely to be used
+pub const MOUNTAIN_LOSS_FACTOR: f64 = 1.3;            // 30% more loss in mountainous regions - unlikely to be used
 
 // Industrial Power Usage
 pub const INDUSTRY_POWER_FACTOR: f64 = 1.8;  // Additional 80% power usage for industrial areas
@@ -30,10 +30,10 @@ pub const SMART_GRID_FACTOR: f64 = 0.85;      // 15% reduction in losses with sm
 pub const SMART_GRID_ADOPTION_YEAR: u32 = 2035;
 
 // Generator Placement Weights
-pub const TRANSMISSION_LOSS_WEIGHT: f64 = 0.05;    // Weight for transmission losses in placement
-pub const PUBLIC_OPINION_WEIGHT: f64 = 0.2;       // Weight for public opinion in placement
-pub const CONSTRUCTION_COST_WEIGHT: f64 = 0.7;    // Weight for construction costs in placement
-pub const ENVIRONMENTAL_WEIGHT: f64 = 0.05;        // Weight for environmental factors
+pub const TRANSMISSION_LOSS_WEIGHT: f64 = 0.03;    // Weight for transmission losses in placement
+pub const PUBLIC_OPINION_WEIGHT: f64 = 0.12;       // Weight for public opinion in placement
+pub const CONSTRUCTION_COST_WEIGHT: f64 = 0.82;    // Weight for construction costs in placement
+pub const ENVIRONMENTAL_WEIGHT: f64 = 0.03;        // Weight for environmental factors
 
 // Settlement Power Distribution
 pub const RESIDENTIAL_POWER_RATIO: f64 = 0.35;    // 35% of power for residential use
@@ -119,7 +119,7 @@ pub const MAX_EFFICIENCY: f64 = 0.60;
 
 // Cost Reference Values (in euros)
 pub const REFERENCE_ANNUAL_EXPENDITURE: f64 = 10_000_000_000.0; // 10 billion euros per year
-pub const MIN_ANNUAL_EXPENDITURE: f64 = 1_000_000_000.0;  // 1 billion euros per year
+pub const MIN_ANNUAL_EXPENDITURE: f64 = 500_000_000.0;  // 500 million euros per year
 
 // Power Output Reference Values (in MW)
 pub const MAX_ONSHORE_WIND_POWER: f64 = 500.0;
@@ -239,17 +239,17 @@ pub const BATTERY_BASE_OPINION: f64 = 0.85;        // Initial public opinion of 
 pub const BATTERY_OPINION_CHANGE: f64 = 0.003;     // Annual change in battery opinion 
 
 // Scoring constants
-pub const MAX_ACCEPTABLE_EMISSIONS: f64 = 10_000_000.0;  // 10 million tons CO2
-pub const MAX_ACCEPTABLE_COST: f64 = 100_000_000_000.0;  // 100 billion euros 
+pub const MAX_ACCEPTABLE_EMISSIONS: f64 = 10_160_470.0;  // 10 million tonnes CO2 (converted from 10 million tons)
+pub const MAX_ACCEPTABLE_COST: f64 = 10_000_000_000.0;  // 10 billion euros 
 
 // Decommissioning Costs
 pub const DECOMMISSION_COST_RATIO: f64 = 0.25; // 25% of base cost for decommissioning
 
-// CO2 Emission Rates (tons per MW)
-pub const COAL_CO2_RATE: f64 = 1000.0;
-pub const GAS_CC_CO2_RATE: f64 = 500.0;
-pub const GAS_PEAKER_CO2_RATE: f64 = 700.0;
-pub const BIOMASS_CO2_RATE: f64 = 50.0;
+// CO2 Emission Rates (tonnes per MW)
+pub const COAL_CO2_RATE: f64 = 1016.047;  // ~1016 tonnes per MW (converted from 1000 tons)
+pub const GAS_CC_CO2_RATE: f64 = 508.023;  // ~508 tonnes per MW (converted from 500 tons)
+pub const GAS_PEAKER_CO2_RATE: f64 = 711.233;  // ~711 tonnes per MW (converted from 700 tons)
+pub const BIOMASS_CO2_RATE: f64 = 50.802;  // ~51 tonnes per MW (converted from 50 tons)
 
 // Geographic Constants
 pub const IRELAND_MIN_LAT: f64 = 51.4;
