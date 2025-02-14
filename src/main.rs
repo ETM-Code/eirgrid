@@ -658,25 +658,44 @@ fn run_multi_simulation(
             .max();
         
         if let Some(latest) = latest_dir {
-            let checkpoint_path = Path::new(checkpoint_dir)
-                .join(&latest)
-                .join("latest_weights.json");
+            let checkpoint_dir = Path::new(checkpoint_dir).join(&latest);
+            println!("Checking for weights in: {:?}", checkpoint_dir);
             
-            println!("Checking for weights at: {:?}", checkpoint_path);
-            if checkpoint_path.exists() {
-                println!("Loading weights from checkpoint: {:?}", checkpoint_path);
-                match ActionWeights::load_from_file(checkpoint_path.to_str().unwrap()) {
-                    Ok(loaded_weights) => {
-                        if let Some((best_score, _)) = loaded_weights.get_best_metrics() {
-                            println!("Loaded previous best score: {:.4}", best_score);
+            // Load and merge all thread weights
+            let mut merged_weights = ActionWeights::new();
+            let mut found_weights = false;
+            
+            // First load the shared weights if they exist
+            let shared_weights_path = checkpoint_dir.join("latest_weights.json");
+            if shared_weights_path.exists() {
+                println!("Loading shared weights from: {:?}", shared_weights_path);
+                if let Ok(weights) = ActionWeights::load_from_file(shared_weights_path.to_str().unwrap()) {
+                    merged_weights = weights;
+                    found_weights = true;
+                }
+            }
+            
+            // Then load and merge all thread-specific weights
+            for entry in std::fs::read_dir(&checkpoint_dir)? {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
+                        if filename.starts_with("thread_") && filename.ends_with("_weights.json") {
+                            println!("Loading thread weights from: {:?}", path);
+                            if let Ok(thread_weights) = ActionWeights::load_from_file(path.to_str().unwrap()) {
+                                merged_weights.update_weights_from(&thread_weights);
+                                found_weights = true;
+                            }
                         }
-                        loaded_weights
-                    },
-                    Err(e) => {
-                        println!("Error loading weights: {}. Starting fresh.", e);
-                        ActionWeights::new()
                     }
                 }
+            }
+            
+            if found_weights {
+                if let Some((best_score, _)) = merged_weights.get_best_metrics() {
+                    println!("Loaded and merged weights with best score: {:.4}", best_score);
+                }
+                merged_weights
             } else {
                 println!("No weights found in latest directory, starting fresh");
                 ActionWeights::new()
@@ -840,6 +859,12 @@ fn run_multi_simulation(
                 
                 let result = run_iteration(i, map_clone, &mut local_weights)?;
                 
+                // Update best metrics immediately
+                {
+                    let mut weights = action_weights.write();
+                    weights.update_best_strategy(result.metrics.clone());
+                }
+                
                 // Only acquire write lock periodically to merge weights
                 if (i + 1) % 10 == 0 {
                     let mut weights = action_weights.write();
@@ -851,7 +876,15 @@ fn run_multi_simulation(
                 
                 // Save checkpoint at intervals
                 if (i + 1) % checkpoint_interval == 0 {
+                    let thread_id = rayon::current_thread_index().unwrap_or(0);
                     let mut weights = action_weights.write();
+                    
+                    // Save thread-specific weights
+                    let thread_weights_path = Path::new(&run_dir)
+                        .join(format!("thread_{}_weights.json", thread_id));
+                    local_weights.save_to_file(thread_weights_path.to_str().unwrap())?;
+                    
+                    // Save shared weights
                     let checkpoint_path = Path::new(&run_dir).join("latest_weights.json");
                     weights.save_to_file(checkpoint_path.to_str().unwrap())?;
                     
@@ -859,7 +892,7 @@ fn run_multi_simulation(
                     let iteration_path = Path::new(&run_dir).join("checkpoint_iteration.txt");
                     std::fs::write(iteration_path, (i + 1).to_string())?;
                     
-                    println!("Saved checkpoint at iteration {} in {}", i + 1, run_dir);
+                    println!("Saved checkpoint at iteration {} in {} (thread {})", i + 1, run_dir, thread_id);
                 }
                 
                 Ok(result)
