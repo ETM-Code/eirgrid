@@ -6,8 +6,9 @@ use crate::const_funcs::{calc_generator_cost, calc_operating_cost, calc_cost_opi
 use crate::simulation_config::GeneratorConstraints;
 use crate::power_storage::PowerStorageSystem;
 use crate::map_handler::Map;
+use std::str::FromStr;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum GeneratorType {
     // Wind variations
     OnshoreWind,
@@ -35,9 +36,34 @@ pub enum GeneratorType {
     WaveEnergy,
 }
 
+impl FromStr for GeneratorType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "OnshoreWind" => Ok(GeneratorType::OnshoreWind),
+            "OffshoreWind" => Ok(GeneratorType::OffshoreWind),
+            "DomesticSolar" => Ok(GeneratorType::DomesticSolar),
+            "CommercialSolar" => Ok(GeneratorType::CommercialSolar),
+            "UtilitySolar" => Ok(GeneratorType::UtilitySolar),
+            "Nuclear" => Ok(GeneratorType::Nuclear),
+            "CoalPlant" => Ok(GeneratorType::CoalPlant),
+            "GasCombinedCycle" => Ok(GeneratorType::GasCombinedCycle),
+            "GasPeaker" => Ok(GeneratorType::GasPeaker),
+            "Biomass" => Ok(GeneratorType::Biomass),
+            "HydroDam" => Ok(GeneratorType::HydroDam),
+            "PumpedStorage" => Ok(GeneratorType::PumpedStorage),
+            "BatteryStorage" => Ok(GeneratorType::BatteryStorage),
+            "TidalGenerator" => Ok(GeneratorType::TidalGenerator),
+            "WaveEnergy" => Ok(GeneratorType::WaveEnergy),
+            _ => Err(format!("Unknown generator type: {}", s)),
+        }
+    }
+}
+
 impl fmt::Display for GeneratorType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
             GeneratorType::OnshoreWind => write!(f, "OnshoreWind"),
             GeneratorType::OffshoreWind => write!(f, "OffshoreWind"),
             GeneratorType::DomesticSolar => write!(f, "DomesticSolar"),
