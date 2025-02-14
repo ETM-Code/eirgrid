@@ -3,11 +3,10 @@ use rand::Rng;
 use serde::{Serialize, Deserialize};
 use crate::generator::GeneratorType;
 use crate::constants::MAX_ACCEPTABLE_EMISSIONS;
-use std::fs;
-use std::sync::Mutex;
 use std::path::Path;
 use lazy_static::lazy_static;
 use std::str::FromStr;
+use std::sync::Mutex;
 
 lazy_static! {
     static ref FILE_MUTEX: Mutex<()> = Mutex::new(());
@@ -100,6 +99,7 @@ struct SerializableWeights {
 #[derive(Debug, Clone)]
 pub struct ActionWeights {
     weights: HashMap<u32, HashMap<GridAction, f64>>,
+    action_count_weights: HashMap<u32, HashMap<u32, f64>>, // Maps year -> (action_count -> weight)
     learning_rate: f64,
     best_metrics: Option<SimulationMetrics>,
     best_weights: Option<HashMap<u32, HashMap<GridAction, f64>>>,
@@ -110,6 +110,7 @@ pub struct ActionWeights {
 impl ActionWeights {
     pub fn new() -> Self {
         let mut weights = HashMap::new();
+        let mut action_count_weights = HashMap::new();
         
         // Initialize weights for each year from 2025 to 2050
         for year in 2025..=2050 {
@@ -154,10 +155,18 @@ impl ActionWeights {
             
             // Add year's weights to the map
             weights.insert(year, year_weights);
+
+            // Initialize action count weights for this year
+            let mut count_weights = HashMap::new();
+            for count in 0..=20 {
+                count_weights.insert(count, 1.0 / 21.0); // Equal initial probability for 0-20 actions
+            }
+            action_count_weights.insert(year, count_weights);
         }
         
         Self {
             weights,
+            action_count_weights,
             learning_rate: 0.1,
             best_metrics: None,
             best_weights: None,
@@ -333,6 +342,7 @@ impl ActionWeights {
     pub fn clone_with_best(&self) -> Self {
         Self {
             weights: self.weights.clone(),
+            action_count_weights: self.action_count_weights.clone(),
             learning_rate: self.learning_rate,
             best_metrics: self.best_metrics.clone(),
             best_weights: self.best_weights.clone(),
@@ -551,6 +561,7 @@ impl ActionWeights {
 
         Ok(Self {
             weights,
+            action_count_weights: HashMap::new(),
             learning_rate: serializable.learning_rate,
             best_metrics: serializable.best_metrics,
             best_weights,
@@ -605,11 +616,53 @@ impl ActionWeights {
         }
     }
 
-    // New method to sample additional actions based on reinforcement learning parameters
-    pub fn sample_additional_actions(&self, _year: u32) -> u32 {
+    // New method to update action count weights
+    pub fn update_action_count_weights(&mut self, year: u32, action_count: u32, improvement: f64) {
+        if let Some(year_counts) = self.action_count_weights.get_mut(&year) {
+            if let Some(weight) = year_counts.get_mut(&action_count) {
+                // Similar to action weight updates
+                let adjustment_factor = if improvement > 0.0 {
+                    1.0 + (self.learning_rate * improvement)
+                } else {
+                    1.0 / (1.0 + (self.learning_rate * improvement.abs()))
+                };
+                
+                *weight = (*weight * adjustment_factor).max(0.01).min(1.0);
+                
+                // Normalize weights
+                let total: f64 = year_counts.values().sum();
+                for w in year_counts.values_mut() {
+                    *w /= total;
+                }
+            }
+        }
+    }
+
+    // Updated method to sample number of actions
+    pub fn sample_additional_actions(&self, year: u32) -> u32 {
         let mut rng = rand::thread_rng();
-        let extra = self.iteration_count / 50;
-        rng.gen_range(0..=20 + extra)
+        
+        if let Some(year_counts) = self.action_count_weights.get(&year) {
+            // Use exploration rate to decide between exploration and exploitation
+            if rng.gen::<f64>() < self.exploration_rate {
+                // Explore: random number of actions
+                rng.gen_range(0..=20)
+            } else {
+                // Exploit: weighted random selection
+                let total: f64 = year_counts.values().sum();
+                let mut random_value = rng.gen::<f64>() * total;
+                
+                for (count, weight) in year_counts {
+                    random_value -= weight;
+                    if random_value <= 0.0 {
+                        return *count;
+                    }
+                }
+                10 // Fallback value
+            }
+        } else {
+            10 // Fallback value
+        }
     }
 
     pub fn get_best_metrics(&self) -> Option<(f64, bool)> {

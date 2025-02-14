@@ -2,6 +2,7 @@
 name = "eirgrid"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 chrono = "0.4"
@@ -14,6 +15,10 @@ csv = "1.2"
 lazy_static = "1.4"
 clap = { version = "4.5", features = ["derive"] }
 parking_lot = "0.12"
+metal = "0.25"
+
+[build-dependencies]
+fs_extra = "1.3"
 
 [[bin]]
 name = "eirgrid"

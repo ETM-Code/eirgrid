@@ -11,6 +11,7 @@ mod power_storage;
 mod settlements_loader;
 mod generators_loader;
 mod spatial_index;
+mod metal_location_search;
 
 use std::fs::File;
 use std::io::Write;
@@ -18,7 +19,7 @@ use chrono::Local;
 use rand::Rng;
 use crate::action_weights::{SimulationMetrics, score_metrics};
 use std::error::Error;
-use crate::const_funcs::{calc_inflation_factor, is_valid_generator_location, evaluate_generator_location};
+use crate::const_funcs::calc_inflation_factor;
 use std::str::FromStr;
 use rayon::prelude::*;
 use std::sync::Arc;
@@ -29,6 +30,7 @@ use crate::spatial_index::GeneratorSuitabilityType;
 use std::path::Path;
 use clap::{Parser, ArgAction};
 use parking_lot::RwLock;
+use std::collections::HashMap;
 
 pub use poi::{POI, Coordinate};
 pub use generator::{Generator, GeneratorType};
@@ -65,10 +67,16 @@ struct YearlyMetrics {
     total_cost: f64,
 }
 
+struct SimulationResult {
+    metrics: SimulationMetrics,
+    output: String,
+    actions: Vec<(u32, GridAction)>,
+}
+
 fn run_simulation(
     map: &mut Map,
     mut action_weights: Option<&mut ActionWeights>,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
+) -> Result<(String, Vec<(u32, GridAction)>), Box<dyn Error + Send + Sync>> {
     let mut output = String::new();
     output.push_str("Year,Total Population,Total Power Usage (MW),Total Power Generation (MW),\
                     Power Balance (MW),Average Public Opinion,Total Operating Cost (€),\
@@ -189,12 +197,23 @@ fn run_simulation(
             power_reliability: if final_metrics.power_balance >= 0.0 { 1.0 } else { 0.0 },
         };
         let overall_improvement = score_metrics(&sim_metrics);
-        for (year, action) in recorded_actions {
+        
+        // Group actions by year and count them
+        let mut year_action_counts: HashMap<u32, u32> = HashMap::new();
+        for (year, _) in &recorded_actions {
+            *year_action_counts.entry(*year).or_insert(0) += 1;
+        }
+        
+        // Update weights for both actions and action counts
+        for (year, action) in recorded_actions.clone() {
             local_weights.update_weights(&action, year, overall_improvement);
+            if let Some(count) = year_action_counts.get(&year) {
+                local_weights.update_action_count_weights(year, *count, overall_improvement);
+            }
         }
     }
 
-    Ok(output)
+    Ok((output, recorded_actions))
 }
 
 fn handle_power_deficit(
@@ -572,11 +591,6 @@ fn print_generator_details(metrics: &YearlyMetrics) {
     println!("----------------------------------------");
 }
 
-struct SimulationResult {
-    metrics: SimulationMetrics,
-    output: String,
-}
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -909,6 +923,205 @@ fn run_multi_simulation(
         file.write_all(best.output.as_bytes())?;
         println!("\nBest simulation results saved to: {}", csv_filename.display());
         
+        // Save actions to a separate CSV file with enhanced spatial information
+        let actions_filename = Path::new(&run_dir).join("best_simulation_actions.csv");
+        let mut actions_file = File::create(&actions_filename)?;
+        actions_file.write_all(
+            "Year,Action Type,Details,Capital Cost (EUR),Operating Cost (EUR),\
+            Location X,Location Y,Generator Type,Power Output (MW),Efficiency,\
+            CO2 Output (tonnes),Operation Percentage,Lifespan (years),\
+            Previous State,Impact Description\n".as_bytes()
+        )?;
+        
+        for (year, action) in best.actions {
+            let (
+                action_type, details, capital_cost, operating_cost,
+                location_x, location_y, gen_type, power_output, efficiency,
+                co2_output, operation_percentage, lifespan, prev_state, impact
+            ) = match action {
+                GridAction::AddGenerator(gen_type) => {
+                    let location = if let Some(gen) = base_map.get_generators().iter()
+                        .find(|g| g.get_id().contains(&format!("{}_{}", gen_type.to_string(), year))) {
+                        (gen.coordinate.x, gen.coordinate.y)
+                    } else {
+                        (0.0, 0.0) // Default if not found
+                    };
+                    (
+                        "Add Generator",
+                        gen_type.to_string(),
+                        gen_type.get_base_cost(year),
+                        gen_type.get_operating_cost(year),
+                        location.0,
+                        location.1,
+                        gen_type.to_string(),
+                        gen_type.get_base_power(year),
+                        gen_type.get_base_efficiency(year),
+                        match gen_type {
+                            GeneratorType::CoalPlant => 1000.0,
+                            GeneratorType::GasCombinedCycle => 500.0,
+                            GeneratorType::GasPeaker => 700.0,
+                            GeneratorType::Biomass => 50.0,
+                            _ => 0.0,
+                        },
+                        100i32, // New generators start at 100%
+                        gen_type.get_lifespan(),
+                        "New Installation".to_string(),
+                        format!("Added new {} power generation capacity", gen_type.to_string())
+                    )
+                },
+                GridAction::UpgradeEfficiency(id) => {
+                    let generator = base_map.get_generators().iter().find(|g| g.get_id() == id);
+                    if let Some(gen) = generator {
+                        let base_max = match gen.get_generator_type() {
+                            GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => 0.45,
+                            GeneratorType::UtilitySolar => 0.40,
+                            GeneratorType::Nuclear => 0.50,
+                            GeneratorType::GasCombinedCycle => 0.60,
+                            GeneratorType::HydroDam | GeneratorType::PumpedStorage => 0.85,
+                            GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => 0.35,
+                            _ => 0.40,
+                        };
+                        let tech_improvement = match gen.get_generator_type() {
+                            GeneratorType::OnshoreWind | GeneratorType::OffshoreWind | 
+                            GeneratorType::UtilitySolar => DEVELOPING_TECH_IMPROVEMENT_RATE,
+                            GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => EMERGING_TECH_IMPROVEMENT_RATE,
+                            _ => MATURE_TECH_IMPROVEMENT_RATE,
+                        }.powi((year - BASE_YEAR) as i32);
+                        let max_efficiency = base_max * (1.0 + (1.0 - tech_improvement));
+                        let upgrade_cost = gen.get_current_cost(year) * (max_efficiency - gen.get_efficiency()) * 2.0;
+                        (
+                            "Upgrade Efficiency",
+                            id.clone(),
+                            upgrade_cost,
+                            0.0,
+                            gen.coordinate.x,
+                            gen.coordinate.y,
+                            gen.get_generator_type().to_string(),
+                            gen.power_out,
+                            max_efficiency,
+                            gen.co2_out as f64,
+                            gen.get_operation_percentage() as i32,
+                            gen.eol,
+                            "Previous Efficiency".to_string(),
+                            format!("Upgraded efficiency from {:.1}% to {:.1}%", 
+                                gen.get_efficiency() * 100.0, max_efficiency * 100.0)
+                        )
+                    } else {
+                        continue; // Skip if generator not found
+                    }
+                },
+                GridAction::AdjustOperation(id, percentage) => {
+                    let generator = base_map.get_generators().iter().find(|g| g.get_id() == id);
+                    if let Some(gen) = generator {
+                        (
+                            "Adjust Operation",
+                            format!("{} to {}%", id, percentage),
+                            0.0,
+                            0.0,
+                            gen.coordinate.x,
+                            gen.coordinate.y,
+                            gen.get_generator_type().to_string(),
+                            gen.power_out,
+                            gen.get_efficiency(),
+                            gen.co2_out as f64,
+                            percentage as i32,
+                            gen.eol,
+                            "Previous Operation".to_string(),
+                            format!("Adjusted operation from {}% to {}%", 
+                                gen.get_operation_percentage(), percentage)
+                        )
+                    } else {
+                        continue; // Skip if generator not found
+                    }
+                },
+                GridAction::AddCarbonOffset(offset_type) => {
+                    let offset_type = CarbonOffsetType::from_str(&offset_type).unwrap_or(CarbonOffsetType::Forest);
+                    let base_cost = match offset_type {
+                        CarbonOffsetType::Forest => 10_000_000.0,
+                        CarbonOffsetType::Wetland => 15_000_000.0,
+                        CarbonOffsetType::ActiveCapture => 100_000_000.0,
+                        CarbonOffsetType::CarbonCredit => 5_000_000.0,
+                    };
+                    let operating_cost = match offset_type {
+                        CarbonOffsetType::Forest => 500_000.0,
+                        CarbonOffsetType::Wetland => 750_000.0,
+                        CarbonOffsetType::ActiveCapture => 5_000_000.0,
+                        CarbonOffsetType::CarbonCredit => 250_000.0,
+                    };
+                    // Find the offset in the map to get its location
+                    let offset = base_map.get_carbon_offsets().iter()
+                        .find(|o| o.get_id().contains(&format!("{}_{}", offset_type.to_string(), year)));
+                    let location = if let Some(o) = offset {
+                        (o.get_coordinate().x, o.get_coordinate().y)
+                    } else {
+                        (0.0, 0.0)
+                    };
+                    (
+                        "Add Carbon Offset",
+                        offset_type.to_string(),
+                        base_cost,
+                        operating_cost,
+                        location.0,
+                        location.1,
+                        "Carbon Offset".to_string(),
+                        0.0, // No power output
+                        0.0, // No efficiency
+                        0.0, // No direct CO2 output
+                        100i32, // Always fully operational
+                        30, // Standard offset lifespan
+                        "New Offset".to_string(),
+                        format!("Added new {} carbon offset project", offset_type.to_string())
+                    )
+                },
+                GridAction::CloseGenerator(id) => {
+                    let generator = base_map.get_generators().iter().find(|g| g.get_id() == id);
+                    if let Some(gen) = generator {
+                        let years_remaining = (gen.eol as i32 - (year - 2025) as i32).max(0) as f64;
+                        let closure_cost = gen.get_current_cost(year) * 0.5 * (years_remaining / gen.eol as f64);
+                        (
+                            "Close Generator",
+                            id.clone(),
+                            closure_cost,
+                            0.0,
+                            gen.coordinate.x,
+                            gen.coordinate.y,
+                            gen.get_generator_type().to_string(),
+                            gen.power_out,
+                            gen.get_efficiency(),
+                            gen.co2_out as f64,
+                            0i32, // Closed generators have 0% operation
+                            gen.eol,
+                            "Previously Active".to_string(),
+                            format!("Closed {} generator after {} years of operation", 
+                                gen.get_generator_type().to_string(), year - gen.commissioning_year)
+                        )
+                    } else {
+                        continue; // Skip if generator not found
+                    }
+                },
+            };
+            
+            actions_file.write_all(format!(
+                "{},{},\"{}\",{:.2},{:.2},{:.1},{:.1},\"{}\",{:.2},{:.3},{:.2},{},{},\"{}\",\"{}\"\n",
+                year,
+                action_type,
+                details,
+                capital_cost,
+                operating_cost,
+                location_x,
+                location_y,
+                gen_type,
+                power_output,
+                efficiency,
+                co2_output,
+                operation_percentage,
+                lifespan,
+                prev_state,
+                impact
+            ).as_bytes())?;
+        }
+        println!("Enhanced action history with spatial data saved to: {}", actions_filename.display());
+        
         // Save final weights in the run directory
         let final_weights_path = Path::new(&run_dir).join("best_weights.json");
         let weights = action_weights.write();
@@ -932,7 +1145,7 @@ fn run_iteration(
     let mut power_deficits = 0.0;
     let mut measurements = 0;
     
-    let simulation_output = run_simulation(&mut map, Some(&mut weights))?;
+    let (simulation_output, recorded_actions) = run_simulation(&mut map, Some(&mut weights))?;
     
     // Calculate final metrics properly
     let final_emissions = map.calc_net_co2_emissions(2050);
@@ -961,6 +1174,7 @@ fn run_iteration(
     Ok(SimulationResult {
         metrics: final_metrics,
         output: simulation_output,
+        actions: recorded_actions,
     })
 }
 

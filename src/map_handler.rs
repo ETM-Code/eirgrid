@@ -16,10 +16,11 @@ use crate::constants::{
     MAP_MAX_X,
     MAP_MAX_Y,
 };
-use crate::const_funcs::{is_point_inside_polygon};
+use crate::const_funcs::is_point_inside_polygon;
 use crate::simulation_config::{SimulationConfig, GeneratorConstraints};
 use crate::power_storage::calculate_max_intermittent_capacity;
 use crate::spatial_index::{SpatialIndex, GeneratorSuitabilityType};
+use crate::metal_location_search::MetalLocationSearch;
 
 // Static data that doesn't change during simulation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +38,7 @@ pub struct Map {
     carbon_offsets: Vec<CarbonOffset>,
     grid_occupancy: HashMap<(i32, i32), f64>,
     pub spatial_index: SpatialIndex,
+    metal_location_search: Option<MetalLocationSearch>,
 }
 
 // Custom serialization implementation
@@ -79,12 +81,18 @@ impl<'de> Deserialize<'de> for Map {
             carbon_offsets: helper.carbon_offsets,
             grid_occupancy: helper.grid_occupancy,
             spatial_index: SpatialIndex::new(),
+            metal_location_search: None,
         })
     }
 }
 
 impl Map {
     pub fn new(config: SimulationConfig) -> Self {
+        let metal_location_search = MetalLocationSearch::new().ok();
+        if metal_location_search.is_none() {
+            println!("Warning: Metal-based location search not available, falling back to CPU implementation");
+        }
+
         let coastline_json: serde_json::Value = serde_json::from_str(
             include_str!("coastline_points.json")
         ).expect("Failed to load coastline points");
@@ -114,6 +122,7 @@ impl Map {
             carbon_offsets: Vec::new(),
             grid_occupancy: HashMap::new(),
             spatial_index: SpatialIndex::new(),
+            metal_location_search,
         };
 
         map.initialize_spatial_index();
@@ -121,17 +130,20 @@ impl Map {
     }
 
     pub fn new_with_static_data(static_data: Arc<MapStaticData>) -> Self {
-        let mut map = Self {
+        let metal_location_search = MetalLocationSearch::new().ok();
+        if metal_location_search.is_none() {
+            println!("Warning: Metal-based location search not available, falling back to CPU implementation");
+        }
+
+        Self {
             static_data,
             generators: Vec::new(),
             settlements: Vec::new(),
             carbon_offsets: Vec::new(),
             grid_occupancy: HashMap::new(),
             spatial_index: SpatialIndex::new(),
-        };
-
-        map.initialize_spatial_index();
-        map
+            metal_location_search,
+        }
     }
 
     fn initialize_spatial_index(&mut self) {
@@ -638,8 +650,22 @@ impl Map {
     }
 
     pub fn find_best_generator_location(&self, generator_type: &GeneratorType, size: f64) -> Option<Coordinate> {
+        // Try Metal-based search first if available
+        if let Some(metal_search) = &self.metal_location_search {
+            if let Some(location) = metal_search.find_best_location(
+                generator_type,
+                &self.settlements,
+                &self.generators,
+                &self.static_data.coastline_points,
+                size as f32,
+            ) {
+                return Some(location);
+            }
+        }
+
+        // Fall back to CPU implementation if Metal search fails or is unavailable
         let initial_min_score = match generator_type {
-            GeneratorType::OnshoreWind => 0.2,  // Reduced from 0.3
+            GeneratorType::OnshoreWind => 0.2,
             GeneratorType::OffshoreWind => 0.3,
             GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => 0.35,
             GeneratorType::Nuclear => 0.4,
@@ -650,7 +676,7 @@ impl Map {
         };
 
         let reduction_steps = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3];
-        let size_penalty = 0.03 * size; // Scale penalty with generator size
+        let size_penalty = 0.03 * size;
 
         for reduction in reduction_steps.iter() {
             let min_score = initial_min_score * reduction;
