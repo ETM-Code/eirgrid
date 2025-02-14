@@ -349,8 +349,6 @@ pub struct Generator {
     pub operation_percentage: f64,
     pub upgrade_history: Vec<(u32, f64)>, // Year -> New efficiency pairs
     pub storage: Option<PowerStorageSystem>,  // New field for storage capabilities
-    cached_efficiency: Option<f64>,
-    cached_power_output: Option<f64>,
 }
 
 impl Generator {
@@ -389,8 +387,6 @@ impl Generator {
             storage,
             is_active: true,
             upgrade_history: Vec::new(),
-            cached_efficiency: None,
-            cached_power_output: None,
         }
     }
 
@@ -520,7 +516,6 @@ impl Generator {
         let upgrade_cost = self.base_cost * efficiency_increase * 2.0; // Cost scales with improvement
         self.efficiency = new_efficiency;
         self.upgrade_history.push((year, new_efficiency));
-        self.invalidate_cache(); // Clear cache when efficiency changes
         upgrade_cost
     }
 
@@ -540,7 +535,6 @@ impl Generator {
         }
 
         self.operation_percentage = clamped_percentage as f64 / 100.0;
-        self.invalidate_cache(); // Clear cache when operation changes
         true
     }
 
@@ -563,10 +557,7 @@ impl Generator {
     }
 
     pub fn get_efficiency(&self) -> f64 {
-        if let Some(cached) = self.cached_efficiency {
-            return cached;
-        }
-        self.generator_type.get_base_efficiency(2025)
+        self.efficiency
     }
 
     pub fn get_operation_percentage(&self) -> u8 {
@@ -589,11 +580,6 @@ impl Generator {
 
     pub fn get_size(&self) -> f64 {
         self.size
-    }
-
-    pub fn invalidate_cache(&mut self) {
-        self.cached_efficiency = None;
-        self.cached_power_output = None;
     }
 }
 

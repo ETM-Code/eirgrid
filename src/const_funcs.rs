@@ -226,8 +226,15 @@ pub fn calc_type_opinion(gen_type: &GeneratorType, year: u32) -> f64 {
 
 pub fn calc_cost_opinion(cost: f64, year: u32) -> f64 {
     let inflation_adjusted_max = REFERENCE_ANNUAL_EXPENDITURE * calc_inflation_factor(year);
-    let normalized_cost = (cost / inflation_adjusted_max).min(1.0_f64);
-    1.0_f64 - normalized_cost
+    let normalized_cost = cost / inflation_adjusted_max;
+    
+    if normalized_cost <= 1.0 {
+        // For costs below or at reference, keep linear scaling
+        1.0 - normalized_cost
+    } else {
+        // For costs above reference, use exponential decay
+        0.5 * (-0.5 * (normalized_cost - 1.0)).exp()
+    }
 }
 
 pub fn calc_transmission_loss(

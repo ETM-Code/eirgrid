@@ -16,8 +16,8 @@ pub struct CarbonOffsetConstraints {
     pub allowed_types: Vec<CarbonOffsetType>,
     pub max_forest_area: f64,      // Maximum forest area in hectares
     pub max_wetland_area: f64,     // Maximum wetland area in hectares
-    pub max_active_capture: f64,   // Maximum active capture capacity in tons
-    pub max_carbon_credits: f64,   // Maximum carbon credits in tons
+    pub max_active_capture: f64,   // Maximum active capture capacity in tonnes
+    pub max_carbon_credits: f64,   // Maximum carbon credits in tonnes
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,8 +72,8 @@ impl Default for SimulationConfig {
                 ],
                 max_forest_area: 50000.0,      // 50,000 hectares
                 max_wetland_area: 20000.0,     // 20,000 hectares
-                max_active_capture: 1000.0,    // 1,000 tons
-                max_carbon_credits: 5000.0,    // 5,000 tons
+                max_active_capture: 1000.0,    // 1,000 tonnes
+                max_carbon_credits: 5000.0,    // 5,000 tonnes
             },
         }
     }
