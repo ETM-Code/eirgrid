@@ -159,6 +159,9 @@ fn run_simulation(
             final_year_metrics = Some(metrics.clone());
         }
         
+        // Calculate operating costs only for CSV export
+        let operating_cost_for_csv = map.calc_total_operating_cost(year);
+        
         output.push_str(&format!(
             "{},{},{:.2},{:.2},{:.2},{:.3},{:.2},{:.2},{:.3},{:.2},{:.2},{:.2},{},{:.2},{:.2},{:.2}\n",
             metrics.year,
@@ -167,7 +170,7 @@ fn run_simulation(
             metrics.total_power_generation,
             metrics.power_balance,
             metrics.average_public_opinion,
-            metrics.total_operating_cost,
+            operating_cost_for_csv,
             metrics.total_capital_cost,
             metrics.inflation_factor,
             metrics.total_co2_emissions,
@@ -528,10 +531,10 @@ fn calculate_yearly_metrics(map: &Map, year: u32, total_upgrade_costs: f64, tota
         }
     }
 
-    let total_operating_cost = map.calc_total_operating_cost(year);
+    let total_operating_cost = 0.0; // We'll only calculate this when needed for CSV export
     let total_capital_cost = map.calc_total_capital_cost(year);
     let inflation_factor = calc_inflation_factor(year);
-    let total_cost = total_operating_cost + total_capital_cost;
+    let total_cost = total_capital_cost;  // Only use capital costs for budget
 
     YearlyMetrics {
         year,
@@ -1193,7 +1196,7 @@ fn run_iteration(
     
     let operating_cost = map.calc_total_operating_cost(2050);
     let capital_cost = map.calc_total_capital_cost(2050);
-    let total_cost = operating_cost + capital_cost;
+    let total_cost = capital_cost;  // Only use capital costs for budget
     
     let final_metrics = SimulationMetrics {
         final_net_emissions: final_emissions,

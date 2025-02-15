@@ -264,3 +264,88 @@ pub const COASTAL_THRESHOLD: f64 = 0.1; // Proportion of map width to consider c
 pub const RESIDENTIAL_EFFICIENCY_GAIN: f64 = 0.02;  // 2% annual efficiency improvement
 pub const COMMERCIAL_GROWTH_RATE: f64 = 0.015;      // 1.5% annual growth in commercial power usage
 pub const INDUSTRIAL_EVOLUTION_RATE: f64 = -0.01;   // 1% annual reduction due to efficiency improvements 
+
+// Generator Operation Percentages
+pub const NUCLEAR_MIN_OPERATION: u8 = 60;  // Nuclear needs high base load
+pub const HYDRO_MIN_OPERATION: u8 = 20;    // Flexible operation for hydro
+pub const DEFAULT_MIN_OPERATION: u8 = 30;   // Default minimum for other types
+pub const MAX_OPERATION_PERCENTAGE: u8 = 100;
+
+// Time-based Operation Factors
+pub const NIGHT_WIND_FACTOR: f64 = 1.2;    // Higher wind output at night
+pub const DAY_WIND_FACTOR: f64 = 0.8;      // Lower wind output during day
+pub const NIGHT_START_HOUR: u8 = 6;        // Start of night period
+pub const DAY_END_HOUR: u8 = 18;           // End of day period
+pub const SOLAR_PEAK_HOUR: f64 = 12.0;     // Hour of peak solar output
+pub const SOLAR_WINDOW: f64 = 6.0;         // Hours from peak for solar operation
+
+// Generator Efficiency Factors
+pub const WIND_CAPACITY_FACTOR: f64 = 0.35;  // Average wind capacity factor
+pub const SOLAR_CAPACITY_FACTOR: f64 = 0.20;  // Average solar capacity factor
+pub const EFFICIENCY_UPGRADE_COST_FACTOR: f64 = 2.0;  // Multiplier for efficiency upgrade costs
+pub const CLOSURE_COST_FACTOR: f64 = 0.5;  // Factor for calculating closure costs 
+
+// Generator Size Constraints
+pub const ONSHORE_WIND_MIN_SIZE: f64 = 0.2;
+pub const OFFSHORE_WIND_MIN_SIZE: f64 = 0.5;
+pub const DOMESTIC_SOLAR_MIN_SIZE: f64 = 0.001;
+pub const DOMESTIC_SOLAR_MAX_SIZE: f64 = 0.01;
+pub const COMMERCIAL_SOLAR_MIN_SIZE: f64 = 0.01;
+pub const COMMERCIAL_SOLAR_MAX_SIZE: f64 = 0.1;
+pub const UTILITY_SOLAR_MIN_SIZE: f64 = 0.2;
+pub const NUCLEAR_MIN_SIZE: f64 = 0.8;
+pub const COAL_MIN_SIZE: f64 = 0.6;
+pub const GAS_CC_MIN_SIZE: f64 = 0.4;
+pub const GAS_PEAKER_MIN_SIZE: f64 = 0.2;
+pub const GAS_PEAKER_MAX_SIZE: f64 = 0.6;
+pub const BIOMASS_MIN_SIZE: f64 = 0.4;
+pub const HYDRO_MIN_SIZE: f64 = 0.5;
+pub const PUMPED_STORAGE_MIN_SIZE: f64 = 0.4;
+pub const PUMPED_STORAGE_MAX_SIZE: f64 = 0.8;
+pub const TIDAL_MIN_SIZE: f64 = 0.1;
+pub const TIDAL_MAX_SIZE: f64 = 0.5;
+pub const WAVE_MIN_SIZE: f64 = 0.05;
+pub const WAVE_MAX_SIZE: f64 = 0.3;
+pub const BATTERY_MIN_SIZE: f64 = 0.1;
+pub const BATTERY_MAX_SIZE: f64 = 0.5;
+
+// Cost Evolution Rates
+pub const ONSHORE_WIND_COST_EVOLUTION: f64 = 0.97;      // 3% reduction per year
+pub const OFFSHORE_WIND_COST_EVOLUTION: f64 = 0.95;     // 5% reduction per year
+pub const DOMESTIC_SOLAR_COST_EVOLUTION: f64 = 0.93;    // 7% reduction per year
+pub const COMMERCIAL_SOLAR_COST_EVOLUTION: f64 = 0.93;  // 7% reduction per year
+pub const UTILITY_SOLAR_COST_EVOLUTION: f64 = 0.92;     // 8% reduction per year
+pub const GAS_CC_COST_EVOLUTION: f64 = 1.02;            // 2% increase per year
+pub const GAS_PEAKER_COST_EVOLUTION: f64 = 1.02;        // 2% increase per year
+pub const BIOMASS_COST_EVOLUTION: f64 = 0.98;           // 2% reduction per year
+pub const PUMPED_STORAGE_COST_EVOLUTION: f64 = 1.01;    // 1% increase per year
+pub const BATTERY_COST_EVOLUTION: f64 = 0.90;           // 10% reduction per year
+pub const TIDAL_COST_EVOLUTION: f64 = 0.90;             // 10% reduction per year
+pub const WAVE_COST_EVOLUTION: f64 = 0.88;              // 12% reduction per year
+
+// Base Opinion Values
+pub const ONSHORE_WIND_OPINION: f64 = 0.75;
+pub const OFFSHORE_WIND_OPINION: f64 = 0.85;
+pub const DOMESTIC_SOLAR_OPINION: f64 = 0.95;
+pub const COMMERCIAL_SOLAR_OPINION: f64 = 0.90;
+pub const UTILITY_SOLAR_OPINION: f64 = 0.85;
+pub const BIOMASS_OPINION: f64 = 0.55;
+pub const PUMPED_STORAGE_OPINION: f64 = 0.75;
+pub const BATTERY_OPINION: f64 = 0.85;
+pub const TIDAL_OPINION: f64 = 0.80;
+pub const WAVE_OPINION: f64 = 0.85;
+
+// Opinion Change Rates
+pub const ONSHORE_WIND_OPINION_CHANGE: f64 = 0.002;
+pub const OFFSHORE_WIND_OPINION_CHANGE: f64 = 0.003;
+pub const DOMESTIC_SOLAR_OPINION_CHANGE: f64 = 0.001;
+pub const COMMERCIAL_SOLAR_OPINION_CHANGE: f64 = 0.002;
+pub const UTILITY_SOLAR_OPINION_CHANGE: f64 = 0.002;
+pub const BIOMASS_OPINION_CHANGE: f64 = 0.001;
+pub const PUMPED_STORAGE_OPINION_CHANGE: f64 = 0.002;
+pub const TIDAL_OPINION_CHANGE: f64 = 0.005;
+pub const WAVE_OPINION_CHANGE: f64 = 0.005;
+
+// Additional Operating Costs
+pub const BIOMASS_OPERATING_COST: f64 = 120_000.0;
+pub const BATTERY_STORAGE_OPERATING_COST: f64 = 10_000_000.0; 
