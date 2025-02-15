@@ -5,7 +5,6 @@ use crate::constants::*;
 use crate::const_funcs::{calc_generator_cost, calc_operating_cost, calc_cost_opinion, calc_type_opinion};
 use crate::simulation_config::GeneratorConstraints;
 use crate::power_storage::PowerStorageSystem;
-use crate::map_handler::Map;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -104,29 +103,29 @@ impl GeneratorType {
     pub fn get_size_constraints(&self) -> (f64, f64) {
         match *self {
             // Wind constraints
-            GeneratorType::OnshoreWind => (0.2, 1.0),     // 20-100% size range
-            GeneratorType::OffshoreWind => (0.5, 1.0),    // 50-100% size range (larger turbines)
+            GeneratorType::OnshoreWind => (ONSHORE_WIND_MIN_SIZE, MAX_GENERATOR_SIZE),
+            GeneratorType::OffshoreWind => (OFFSHORE_WIND_MIN_SIZE, MAX_GENERATOR_SIZE),
             
             // Solar constraints
-            GeneratorType::DomesticSolar => (0.001, 0.01),  // Fixed small size
-            GeneratorType::CommercialSolar => (0.01, 0.1),  // Medium installations
-            GeneratorType::UtilitySolar => (0.2, 1.0),      // Large solar farms
+            GeneratorType::DomesticSolar => (DOMESTIC_SOLAR_MIN_SIZE, DOMESTIC_SOLAR_MAX_SIZE),
+            GeneratorType::CommercialSolar => (COMMERCIAL_SOLAR_MIN_SIZE, COMMERCIAL_SOLAR_MAX_SIZE),
+            GeneratorType::UtilitySolar => (UTILITY_SOLAR_MIN_SIZE, MAX_GENERATOR_SIZE),
             
             // Nuclear constraints
-            GeneratorType::Nuclear => (0.8, 1.0),         // Only large installations
+            GeneratorType::Nuclear => (NUCLEAR_MIN_SIZE, MAX_GENERATOR_SIZE),
             
             // Fossil fuel constraints
-            GeneratorType::CoalPlant => (0.6, 1.0),      // Large baseload plants
-            GeneratorType::GasCombinedCycle => (0.4, 1.0), // Medium to large
-            GeneratorType::GasPeaker => (0.2, 0.6),      // Smaller peaking plants
-            GeneratorType::Biomass => (0.4, 1.0),
+            GeneratorType::CoalPlant => (COAL_MIN_SIZE, MAX_GENERATOR_SIZE),
+            GeneratorType::GasCombinedCycle => (GAS_CC_MIN_SIZE, MAX_GENERATOR_SIZE),
+            GeneratorType::GasPeaker => (GAS_PEAKER_MIN_SIZE, GAS_PEAKER_MAX_SIZE),
+            GeneratorType::Biomass => (BIOMASS_MIN_SIZE, MAX_GENERATOR_SIZE),
             
             // Hydro constraints
-            GeneratorType::HydroDam => (0.5, 1.0),       // Large installations
-            GeneratorType::PumpedStorage => (0.4, 0.8),   // Medium to large
-            GeneratorType::TidalGenerator => (0.1, 0.5),  // Smaller, experimental
-            GeneratorType::WaveEnergy => (0.05, 0.3),    // Very small to medium
-            GeneratorType::BatteryStorage => (0.1, 0.5),  // Flexible sizing for battery installations
+            GeneratorType::HydroDam => (HYDRO_MIN_SIZE, MAX_GENERATOR_SIZE),
+            GeneratorType::PumpedStorage => (PUMPED_STORAGE_MIN_SIZE, PUMPED_STORAGE_MAX_SIZE),
+            GeneratorType::TidalGenerator => (TIDAL_MIN_SIZE, TIDAL_MAX_SIZE),
+            GeneratorType::WaveEnergy => (WAVE_MIN_SIZE, WAVE_MAX_SIZE),
+            GeneratorType::BatteryStorage => (BATTERY_MIN_SIZE, BATTERY_MAX_SIZE),
         }
     }
 
@@ -156,89 +155,89 @@ impl GeneratorType {
 
     pub fn get_base_efficiency(&self, year: u32) -> f64 {
         match *self {
-            GeneratorType::OnshoreWind => 0.35,
-            GeneratorType::OffshoreWind => 0.42,
-            GeneratorType::DomesticSolar => 0.20,
-            GeneratorType::CommercialSolar => 0.22,
-            GeneratorType::UtilitySolar => 0.25,
-            GeneratorType::Nuclear => 0.33,
-            GeneratorType::CoalPlant => 0.37,
-            GeneratorType::GasCombinedCycle => 0.45,
-            GeneratorType::GasPeaker => 0.35,
-            GeneratorType::Biomass => 0.30,
-            GeneratorType::HydroDam => 0.90,
-            GeneratorType::PumpedStorage => 0.80,
-            GeneratorType::BatteryStorage => 0.85,  // High efficiency for battery storage
+            GeneratorType::OnshoreWind => 1.0,
+            GeneratorType::OffshoreWind => 1.0,
+            GeneratorType::DomesticSolar => 1.0,
+            GeneratorType::CommercialSolar => 1.0,
+            GeneratorType::UtilitySolar => 1.0,
+            GeneratorType::Nuclear => 1.0,
+            GeneratorType::CoalPlant => 1.0,
+            GeneratorType::GasCombinedCycle => 1.0,
+            GeneratorType::GasPeaker => 1.0,
+            GeneratorType::Biomass => 1.0,
+            GeneratorType::HydroDam => 1.0,
+            GeneratorType::PumpedStorage => 1.0,
+            GeneratorType::BatteryStorage => 1.0,
             GeneratorType::TidalGenerator => {
                 // Efficiency improves significantly over time as technology matures
                 let years_from_base = (year - BASE_YEAR) as f64;
-                0.20 + (years_from_base * 0.01).min(0.40) // Starts at 20%, can reach 60%
+                1.0 + (years_from_base * 0.01).min(0.40) // Starts at 20%, can reach 60%
             },
             GeneratorType::WaveEnergy => {
                 // Similar to tidal but starts lower
                 let years_from_base = (year - BASE_YEAR) as f64;
-                0.15 + (years_from_base * 0.01).min(0.35) // Starts at 15%, can reach 50%
+                1.0 + (years_from_base * 0.01).min(0.35) // Starts at 15%, can reach 50%
             },
         }
     }
 
     pub fn get_cost_evolution_rate(&self) -> f64 {
         match *self {
-            GeneratorType::OnshoreWind => 0.97,      // 3% reduction per year
-            GeneratorType::OffshoreWind => 0.95,     // 5% reduction per year
-            GeneratorType::DomesticSolar => 0.93,    // 7% reduction per year
-            GeneratorType::CommercialSolar => 0.93,  // 7% reduction per year
-            GeneratorType::UtilitySolar => 0.92,     // 8% reduction per year
-            GeneratorType::Nuclear => 1.01,          // 1% increase per year
-            GeneratorType::CoalPlant => 1.04,        // 4% increase per year
-            GeneratorType::GasCombinedCycle => 1.02, // 2% increase per year
-            GeneratorType::GasPeaker => 1.02,        // 2% increase per year
-            GeneratorType::Biomass => 0.98,
-            GeneratorType::HydroDam => 1.005,        // 0.5% increase per year
-            GeneratorType::PumpedStorage => 1.01,    // 1% increase per year
-            GeneratorType::BatteryStorage => 0.90,   // 10% reduction per year (rapid improvement)
-            GeneratorType::TidalGenerator => 0.90,   // 10% reduction per year (rapid improvement)
-            GeneratorType::WaveEnergy => 0.88,       // 12% reduction per year (very rapid improvement)
+            GeneratorType::OnshoreWind => ONSHORE_WIND_COST_EVOLUTION,
+            GeneratorType::OffshoreWind => OFFSHORE_WIND_COST_EVOLUTION,
+            GeneratorType::DomesticSolar => DOMESTIC_SOLAR_COST_EVOLUTION,
+            GeneratorType::CommercialSolar => COMMERCIAL_SOLAR_COST_EVOLUTION,
+            GeneratorType::UtilitySolar => UTILITY_SOLAR_COST_EVOLUTION,
+            GeneratorType::Nuclear => NUCLEAR_COST_INCREASE,
+            GeneratorType::CoalPlant => COAL_COST_INCREASE,
+            GeneratorType::GasCombinedCycle => GAS_CC_COST_EVOLUTION,
+            GeneratorType::GasPeaker => GAS_PEAKER_COST_EVOLUTION,
+            GeneratorType::Biomass => BIOMASS_COST_EVOLUTION,
+            GeneratorType::HydroDam => HYDRO_COST_INCREASE,
+            GeneratorType::PumpedStorage => PUMPED_STORAGE_COST_EVOLUTION,
+            GeneratorType::BatteryStorage => BATTERY_COST_EVOLUTION,
+            GeneratorType::TidalGenerator => TIDAL_COST_EVOLUTION,
+            GeneratorType::WaveEnergy => WAVE_COST_EVOLUTION,
         }
     }
 
     pub fn get_base_opinion(&self) -> f64 {
         match *self {
-            GeneratorType::OnshoreWind => 0.75,
-            GeneratorType::OffshoreWind => 0.85,
-            GeneratorType::DomesticSolar => 0.95,
-            GeneratorType::CommercialSolar => 0.90,
-            GeneratorType::UtilitySolar => 0.85,
-            GeneratorType::Nuclear => 0.30,
-            GeneratorType::CoalPlant => 0.25,
-            GeneratorType::GasCombinedCycle => 0.45,
-            GeneratorType::GasPeaker => 0.40,
-            GeneratorType::Biomass => 0.55,
-            GeneratorType::HydroDam => 0.70,
-            GeneratorType::PumpedStorage => 0.75,
-            GeneratorType::BatteryStorage => 0.85,
-            GeneratorType::TidalGenerator => 0.80,
-            GeneratorType::WaveEnergy => 0.85,
+            GeneratorType::OnshoreWind => ONSHORE_WIND_OPINION,
+            GeneratorType::OffshoreWind => OFFSHORE_WIND_OPINION,
+            GeneratorType::DomesticSolar => DOMESTIC_SOLAR_OPINION,
+            GeneratorType::CommercialSolar => COMMERCIAL_SOLAR_OPINION,
+            GeneratorType::UtilitySolar => UTILITY_SOLAR_OPINION,
+            GeneratorType::Nuclear => NUCLEAR_BASE_OPINION,
+            GeneratorType::CoalPlant => COAL_BASE_OPINION,
+            GeneratorType::GasCombinedCycle => GAS_BASE_OPINION,
+            GeneratorType::GasPeaker => GAS_BASE_OPINION,
+            GeneratorType::Biomass => BIOMASS_OPINION,
+            GeneratorType::HydroDam => HYDRO_BASE_OPINION,
+            GeneratorType::PumpedStorage => PUMPED_STORAGE_OPINION,
+            GeneratorType::BatteryStorage => BATTERY_OPINION,
+            GeneratorType::TidalGenerator => TIDAL_OPINION,
+            GeneratorType::WaveEnergy => WAVE_OPINION,
         }
     }
 
     pub fn get_opinion_change_rate(&self) -> f64 {
         match *self {
-            GeneratorType::OnshoreWind => 0.002,
-            GeneratorType::OffshoreWind => 0.003,
-            GeneratorType::DomesticSolar => 0.001,
-            GeneratorType::CommercialSolar => 0.002,
-            GeneratorType::UtilitySolar => 0.002,
-            GeneratorType::Nuclear => 0.008,
-            GeneratorType::CoalPlant => -0.015,
-            GeneratorType::GasCombinedCycle => -0.008,
-            GeneratorType::GasPeaker => -0.008,
-            GeneratorType::Biomass => 0.001,
-            GeneratorType::HydroDam => 0.001,
-            GeneratorType::PumpedStorage => 0.002,
-            GeneratorType::BatteryStorage => 0.004,
-            GeneratorType::TidalGenerator => 0.005,
-            GeneratorType::WaveEnergy => 0.005,
+            GeneratorType::OnshoreWind => ONSHORE_WIND_OPINION_CHANGE,
+            GeneratorType::OffshoreWind => OFFSHORE_WIND_OPINION_CHANGE,
+            GeneratorType::DomesticSolar => DOMESTIC_SOLAR_OPINION_CHANGE,
+            GeneratorType::CommercialSolar => COMMERCIAL_SOLAR_OPINION_CHANGE,
+            GeneratorType::UtilitySolar => UTILITY_SOLAR_OPINION_CHANGE,
+            GeneratorType::Nuclear => NUCLEAR_OPINION_CHANGE,
+            GeneratorType::CoalPlant => COAL_OPINION_CHANGE,
+            GeneratorType::GasCombinedCycle => GAS_OPINION_CHANGE,
+            GeneratorType::GasPeaker => GAS_OPINION_CHANGE,
+            GeneratorType::Biomass => BIOMASS_OPINION_CHANGE,
+            GeneratorType::HydroDam => HYDRO_OPINION_CHANGE,
+            GeneratorType::PumpedStorage => PUMPED_STORAGE_OPINION_CHANGE,
+            GeneratorType::BatteryStorage => MARINE_OPINION_CHANGE,
+            GeneratorType::TidalGenerator => TIDAL_OPINION_CHANGE,
+            GeneratorType::WaveEnergy => WAVE_OPINION_CHANGE,
         }
     }
 
@@ -268,41 +267,41 @@ impl GeneratorType {
 
     pub fn get_base_power(&self, year: u32) -> f64 {
         match *self {
-            GeneratorType::OnshoreWind => 3.0,
-            GeneratorType::OffshoreWind => 5.0,
-            GeneratorType::DomesticSolar => 0.005,
-            GeneratorType::CommercialSolar => 0.05,
-            GeneratorType::UtilitySolar => 2.0,
-            GeneratorType::Nuclear => 1000.0,
-            GeneratorType::CoalPlant => 500.0,
-            GeneratorType::GasCombinedCycle => 400.0,
-            GeneratorType::GasPeaker => 100.0,
-            GeneratorType::Biomass => 50.0,
-            GeneratorType::HydroDam => 200.0,
-            GeneratorType::PumpedStorage => 300.0,
-            GeneratorType::BatteryStorage => 100.0,
-            GeneratorType::TidalGenerator => 20.0,
-            GeneratorType::WaveEnergy => 10.0,
+            GeneratorType::OnshoreWind => MAX_ONSHORE_WIND_POWER,
+            GeneratorType::OffshoreWind => MAX_OFFSHORE_WIND_POWER,
+            GeneratorType::DomesticSolar => MAX_DOMESTIC_SOLAR_POWER,
+            GeneratorType::CommercialSolar => MAX_COMMERCIAL_SOLAR_POWER,
+            GeneratorType::UtilitySolar => MAX_UTILITY_SOLAR_POWER,
+            GeneratorType::Nuclear => MAX_NUCLEAR_POWER,
+            GeneratorType::CoalPlant => MAX_COAL_POWER,
+            GeneratorType::GasCombinedCycle => MAX_GAS_CC_POWER,
+            GeneratorType::GasPeaker => MAX_GAS_PEAKER_POWER,
+            GeneratorType::Biomass => MAX_BIOMASS_POWER,
+            GeneratorType::HydroDam => MAX_HYDRO_DAM_POWER,
+            GeneratorType::PumpedStorage => MAX_PUMPED_STORAGE_POWER,
+            GeneratorType::BatteryStorage => MAX_BATTERY_STORAGE_POWER,
+            GeneratorType::TidalGenerator => MAX_TIDAL_POWER,
+            GeneratorType::WaveEnergy => MAX_WAVE_POWER,
         }
     }
 
     pub fn get_operating_cost(&self, year: u32) -> f64 {
         let base_cost = match *self {
-            GeneratorType::OnshoreWind => 50_000.0,
-            GeneratorType::OffshoreWind => 100_000.0,
-            GeneratorType::DomesticSolar => 1_000.0,
-            GeneratorType::CommercialSolar => 5_000.0,
-            GeneratorType::UtilitySolar => 50_000.0,
-            GeneratorType::Nuclear => 200_000_000.0,
-            GeneratorType::CoalPlant => 100_000_000.0,
-            GeneratorType::GasCombinedCycle => 50_000_000.0,
-            GeneratorType::GasPeaker => 20_000_000.0,
-            GeneratorType::Biomass => 120_000.0,
-            GeneratorType::HydroDam => 30_000_000.0,
-            GeneratorType::PumpedStorage => 40_000_000.0,
-            GeneratorType::BatteryStorage => 10_000_000.0,
-            GeneratorType::TidalGenerator => 30_000_000.0,
-            GeneratorType::WaveEnergy => 20_000_000.0,
+            GeneratorType::OnshoreWind => ONSHORE_WIND_OPERATING_COST,
+            GeneratorType::OffshoreWind => OFFSHORE_WIND_OPERATING_COST,
+            GeneratorType::DomesticSolar => DOMESTIC_SOLAR_OPERATING_COST,
+            GeneratorType::CommercialSolar => COMMERCIAL_SOLAR_OPERATING_COST,
+            GeneratorType::UtilitySolar => UTILITY_SOLAR_OPERATING_COST,
+            GeneratorType::Nuclear => NUCLEAR_OPERATING_COST,
+            GeneratorType::CoalPlant => COAL_OPERATING_COST,
+            GeneratorType::GasCombinedCycle => GAS_CC_OPERATING_COST,
+            GeneratorType::GasPeaker => GAS_PEAKER_OPERATING_COST,
+            GeneratorType::Biomass => BIOMASS_OPERATING_COST,
+            GeneratorType::HydroDam => HYDRO_DAM_OPERATING_COST,
+            GeneratorType::PumpedStorage => PUMPED_STORAGE_OPERATING_COST,
+            GeneratorType::BatteryStorage => BATTERY_STORAGE_OPERATING_COST,
+            GeneratorType::TidalGenerator => TIDAL_OPERATING_COST,
+            GeneratorType::WaveEnergy => WAVE_OPERATING_COST,
         };
 
         let years_from_base = (year - BASE_YEAR) as f64;
@@ -380,7 +379,7 @@ impl Generator {
             eol,
             size,
             co2_out,
-            efficiency: 0.35, // Starting efficiency
+            efficiency: BASE_EFFICIENCY,
             decommission_cost,
             commissioning_year: 0,
             operation_percentage: 1.0,
@@ -408,12 +407,12 @@ impl Generator {
             if self.generator_type.is_intermittent() {
                 match self.generator_type {
                     GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => {
-                        base_output * 0.35  // Average wind capacity factor
+                        base_output * WIND_CAPACITY_FACTOR
                     },
                     GeneratorType::UtilitySolar |
                     GeneratorType::CommercialSolar |
                     GeneratorType::DomesticSolar => {
-                        base_output * 0.20  // Average solar capacity factor
+                        base_output * SOLAR_CAPACITY_FACTOR
                     },
                     _ => base_output,
                 }
@@ -428,7 +427,11 @@ impl Generator {
         match self.generator_type {
             GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => {
                 // Simple wind pattern with higher output at night
-                let hour_factor = if hour < 6 || hour > 18 { 1.2 } else { 0.8 };
+                let hour_factor = if hour < NIGHT_START_HOUR || hour > DAY_END_HOUR { 
+                    NIGHT_WIND_FACTOR 
+                } else { 
+                    DAY_WIND_FACTOR 
+                };
                 base_output * hour_factor
             },
             GeneratorType::DomesticSolar |
@@ -436,8 +439,8 @@ impl Generator {
             GeneratorType::UtilitySolar => {
                 // Solar output peaks at noon
                 let hour_f = hour as f64;
-                let solar_factor = if hour >= 6 && hour <= 18 {
-                    (1.0 - ((hour_f - 12.0) / 6.0).powi(2)).max(0.0)
+                let solar_factor = if hour >= NIGHT_START_HOUR && hour <= DAY_END_HOUR {
+                    (1.0 - ((hour_f - SOLAR_PEAK_HOUR) / SOLAR_WINDOW).powi(2)).max(0.0)
                 } else {
                     0.0
                 };
@@ -513,7 +516,7 @@ impl Generator {
 
     pub fn upgrade_efficiency(&mut self, year: u32, new_efficiency: f64) -> f64 {
         let efficiency_increase = new_efficiency - self.efficiency;
-        let upgrade_cost = self.base_cost * efficiency_increase * 2.0; // Cost scales with improvement
+        let upgrade_cost = self.base_cost * efficiency_increase * EFFICIENCY_UPGRADE_COST_FACTOR;
         self.efficiency = new_efficiency;
         self.upgrade_history.push((year, new_efficiency));
         upgrade_cost
@@ -521,14 +524,14 @@ impl Generator {
 
     pub fn adjust_operation(&mut self, new_percentage: u8, constraints: &GeneratorConstraints) -> bool {
         let min_percentage = match self.generator_type {
-            GeneratorType::Nuclear => 60, // Nuclear needs high base load
-            GeneratorType::HydroDam | GeneratorType::PumpedStorage => 20, // Flexible operation
+            GeneratorType::Nuclear => NUCLEAR_MIN_OPERATION,
+            GeneratorType::HydroDam | GeneratorType::PumpedStorage => HYDRO_MIN_OPERATION,
             GeneratorType::OnshoreWind | GeneratorType::OffshoreWind |
-            GeneratorType::UtilitySolar => 0, // Can be fully curtailed
-            _ => 30, // Default minimum for other types
+            GeneratorType::UtilitySolar => 0,
+            _ => DEFAULT_MIN_OPERATION,
         };
         
-        let clamped_percentage = new_percentage.clamp(min_percentage, 100);
+        let clamped_percentage = new_percentage.clamp(min_percentage, MAX_OPERATION_PERCENTAGE);
         
         if !self.is_active {
             return false;
@@ -543,8 +546,8 @@ impl Generator {
             return 0.0;
         }
 
-        let years_remaining = (self.eol as i32 - (year - 2025) as i32).max(0) as f64;
-        let closure_cost = self.base_cost * 0.5 * (years_remaining / self.eol as f64);
+        let years_remaining = (self.eol as i32 - (year - BASE_YEAR) as i32).max(0) as f64;
+        let closure_cost = self.base_cost * CLOSURE_COST_FACTOR * (years_remaining / self.eol as f64);
         
         self.is_active = false;
         self.operation_percentage = 0.0;
@@ -566,11 +569,11 @@ impl Generator {
 
     pub fn get_min_operation_percentage(&self) -> u8 {
         match self.generator_type {
-            GeneratorType::Nuclear => 60, // Nuclear needs high base load
-            GeneratorType::HydroDam | GeneratorType::PumpedStorage => 20, // Flexible operation
+            GeneratorType::Nuclear => NUCLEAR_MIN_OPERATION,
+            GeneratorType::HydroDam | GeneratorType::PumpedStorage => HYDRO_MIN_OPERATION,
             GeneratorType::OnshoreWind | GeneratorType::OffshoreWind |
-            GeneratorType::UtilitySolar => 0, // Can be fully curtailed
-            _ => 30, // Default minimum for other types
+            GeneratorType::UtilitySolar => 0,
+            _ => DEFAULT_MIN_OPERATION,
         }
     }
 

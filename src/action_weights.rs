@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use rand::Rng;
 use serde::{Serialize, Deserialize};
 use crate::generator::GeneratorType;
-use crate::constants::MAX_ACCEPTABLE_EMISSIONS;
+use crate::constants::{MAX_ACCEPTABLE_EMISSIONS, MAX_ACCEPTABLE_COST};
 use std::path::Path;
 use lazy_static::lazy_static;
 use std::str::FromStr;
@@ -677,13 +677,22 @@ impl ActionWeights {
 }
 
 pub fn score_metrics(metrics: &SimulationMetrics) -> f64 {
-    // If we haven't achieved net zero emissions, only consider emissions
+    // First priority: Reach net zero emissions
     if metrics.final_net_emissions > 0.0 {
-        // Normalize emissions to 0-1 scale and invert (0 emissions = 1.0 score)
+        // If we haven't achieved net zero, only focus on reducing emissions
         1.0 - (metrics.final_net_emissions / MAX_ACCEPTABLE_EMISSIONS).min(1.0)
-    } else {
-        // After achieving net zero, only consider public opinion
-        metrics.average_public_opinion
+    }
+    // Second priority: Optimize costs if they're above 800% of budget
+    else if metrics.total_cost > MAX_ACCEPTABLE_COST * 8.0 {
+        // We've achieved net zero, now focus on reducing cost
+        // Score will be between 1.0 and 2.0 to indicate we're in cost optimization phase
+        1.0 + (1.0 - (metrics.total_cost / (MAX_ACCEPTABLE_COST * 8.0)).min(1.0))
+    }
+    // Final priority: Optimize public opinion
+    else {
+        // We've achieved net zero and costs are under 800%, now optimize public opinion
+        // Score will be between 2.0 and 3.0 to indicate we're in opinion optimization phase
+        2.0 + metrics.average_public_opinion
     }
 }
 
@@ -698,21 +707,19 @@ pub fn evaluate_action_impact(
     current_state: &ActionResult,
     new_state: &ActionResult,
 ) -> f64 {
-    // Calculate immediate impact score
-    let immediate_score = if current_state.net_emissions > 0.0 {
-        // If we haven't achieved net zero, only consider emissions
+    // Calculate immediate impact score based on priorities
+    if current_state.net_emissions > 0.0 {
+        // First priority: If we haven't achieved net zero, only consider emissions
         let emissions_improvement = (current_state.net_emissions - new_state.net_emissions) / 
                                   current_state.net_emissions.abs().max(1.0);
         emissions_improvement
-    } else {
-        // If we've achieved net zero, only consider opinion
+    }
+    // Note: We can't check cost here since ActionResult doesn't have cost info
+    // Cost optimization is handled through the SimulationMetrics scoring
+    else {
+        // If we've achieved net zero, consider opinion improvements
+        // The cost check will be handled by the SimulationMetrics scoring
         (new_state.public_opinion - current_state.public_opinion) /
         current_state.public_opinion.abs().max(1.0)
-    };
-
-    // The final 2050 impact is handled through the SimulationMetrics scoring
-    // in update_best_strategy, which affects 70% of the weight updates
-    
-    // Return immediate score which affects 30% of weight updates
-    immediate_score
+    }
 } 
