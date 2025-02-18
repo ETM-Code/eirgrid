@@ -349,3 +349,48 @@ pub const WAVE_OPINION_CHANGE: f64 = 0.005;
 // Additional Operating Costs
 pub const BIOMASS_OPERATING_COST: f64 = 120_000.0;
 pub const BATTERY_STORAGE_OPERATING_COST: f64 = 10_000_000.0; 
+
+// Generator Default Size
+pub const DEFAULT_GENERATOR_SIZE: u32 = 100;
+
+// Carbon Offset Size Range
+pub const MIN_CARBON_OFFSET_SIZE: f64 = 100.0;
+pub const MAX_CARBON_OFFSET_SIZE: f64 = 1000.0;
+
+// Carbon Offset Efficiency Range
+pub const MIN_CARBON_OFFSET_EFFICIENCY: f64 = 0.7;
+pub const MAX_CARBON_OFFSET_EFFICIENCY: f64 = 0.95;
+
+// Generator Minimum Ages for Closure
+pub const NUCLEAR_MIN_CLOSURE_AGE: u32 = 30;
+pub const HYDRO_DAM_MIN_CLOSURE_AGE: u32 = 40;
+pub const WIND_MIN_CLOSURE_AGE: u32 = 15;
+pub const SOLAR_MIN_CLOSURE_AGE: u32 = 20;
+pub const DEFAULT_MIN_CLOSURE_AGE: u32 = 25;
+
+// Carbon Offset Base Costs
+pub const FOREST_BASE_COST: f64 = 10_000_000.0;
+pub const WETLAND_BASE_COST: f64 = 15_000_000.0;
+pub const ACTIVE_CAPTURE_BASE_COST: f64 = 100_000_000.0;
+pub const CARBON_CREDIT_BASE_COST: f64 = 5_000_000.0;
+
+// Carbon Offset Operating Costs
+pub const FOREST_OPERATING_COST: f64 = 500_000.0;
+pub const WETLAND_OPERATING_COST: f64 = 750_000.0;
+pub const ACTIVE_CAPTURE_OPERATING_COST: f64 = 5_000_000.0;
+pub const CARBON_CREDIT_OPERATING_COST: f64 = 250_000.0;
+
+// Generator Base Maximum Efficiencies
+pub const WIND_BASE_MAX_EFFICIENCY: f64 = 0.45;
+pub const UTILITY_SOLAR_BASE_MAX_EFFICIENCY: f64 = 0.40;
+pub const NUCLEAR_BASE_MAX_EFFICIENCY: f64 = 0.50;
+pub const GAS_CC_BASE_MAX_EFFICIENCY: f64 = 0.60;
+pub const HYDRO_BASE_MAX_EFFICIENCY: f64 = 0.85;
+pub const MARINE_BASE_MAX_EFFICIENCY: f64 = 0.35;
+pub const DEFAULT_BASE_MAX_EFFICIENCY: f64 = 0.40;
+
+// // Metal Location Search Constants
+// pub const MAP_MAX_X: f64 = 50_000.0;
+// pub const MAP_MAX_Y: f64 = 50_000.0;
+// pub const GRID_CELL_SIZE: f64 = 1000.0;
+// pub const COASTAL_THRESHOLD: f64 = 0.1; 

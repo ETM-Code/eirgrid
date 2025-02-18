@@ -1,41 +1,31 @@
 # EirGrid Power System Simulator
 
-This directory contains the core implementation of the EirGrid Power System Simulator, a sophisticated simulation tool for modeling Ireland's power grid from 2025 to 2050. The simulator helps analyze and optimize power generation strategies while considering environmental impact, public opinion, and economic factors.
+A sophisticated simulation tool for modeling Ireland's power grid evolution from 2025 to 2050. The simulator helps analyze and optimize power generation strategies while considering environmental impact, public opinion, and economic factors.
 
-## Core Components
+## Features
 
-### Power Generation
-- `generator.rs`: Defines various types of power generators and their characteristics
-- `generators_loader.rs`: Handles loading existing generator data from CSV files
-- `power_storage.rs`: Implements power storage systems (batteries, pumped storage)
+### Core Capabilities
+- **Temporal Simulation**: Models power grid evolution from 2025 to 2050
+- **Geographic Optimization**: Uses Metal-accelerated location analysis for optimal generator placement
+- **Economic Modeling**: Includes capital costs, operating costs, and inflation factors
+- **Public Opinion**: Simulates public acceptance of different generator types
+- **Environmental Impact**: Tracks CO2 emissions and carbon offsets
+- **Power Storage**: Models energy storage systems for grid stability
+- **Technical Evolution**: Accounts for improving technology efficiencies over time
 
-### Geographic and Infrastructure
-- `map_handler.rs`: Manages the spatial aspects of the power grid
-- `settlement.rs`: Represents population centers and their power demands
-- `settlements_loader.rs`: Loads settlement data from JSON files
-- `poi.rs`: Handles Points of Interest on the map
-- `coastline_points.json`: Defines Ireland's coastline for geographic constraints
-
-### Environmental Impact
-- `carbon_offset.rs`: Manages carbon offset mechanisms and calculations
-- `action_weights.rs`: Evaluates and scores different grid actions based on environmental impact
-
-### Configuration and Constants
-- `constants.rs`: Defines system-wide constants and parameters
-- `const_funcs.rs`: Contains utility functions for calculations
-- `simulation_config.rs`: Handles simulation configuration settings
-
-### Main Simulation
-- `main.rs`: Orchestrates the simulation, including initialization and execution
+### Performance Features
+- **Parallel Processing**: Multi-threaded simulation support
+- **Metal Acceleration**: GPU-accelerated location analysis (Apple Silicon)
+- **Checkpointing**: Robust save/resume capability
+- **Performance Monitoring**: Detailed timing instrumentation
+- **Fast Simulation Mode**: Optimized simulation for rapid iteration
 
 ## Generator Types
-
-The simulator supports various types of power generators:
 
 ### Renewable Sources
 - Wind: Onshore and Offshore
 - Solar: Domestic, Commercial, and Utility-scale
-- Hydro: Dams, Pumped Storage
+- Hydro: Dams and Pumped Storage
 - Marine: Tidal and Wave Energy
 - Biomass
 
@@ -48,131 +38,118 @@ The simulator supports various types of power generators:
 - Pumped Hydro Storage
 - Battery Storage Systems
 
-## Key Features
+## Project Structure
 
-1. **Temporal Simulation**: Models power grid evolution from 2025 to 2050
-2. **Geographic Constraints**: Considers location-specific factors for generator placement
-3. **Economic Modeling**: Includes capital costs, operating costs, and inflation
-4. **Public Opinion**: Simulates public acceptance of different generator types
-5. **Environmental Impact**: Tracks CO2 emissions and carbon offsets
-6. **Power Storage**: Models energy storage systems for grid stability
-7. **Technical Evolution**: Accounts for improving technology efficiencies over time
+### Core Components
+```
+src/
+├── main.rs                 # Main simulation orchestration
+├── map_handler.rs          # Geographic and spatial management
+├── generator.rs            # Power generator implementations
+├── settlement.rs           # Population center modeling
+├── carbon_offset.rs        # Environmental impact tracking
+├── power_storage.rs        # Energy storage systems
+├── metal_location_search.rs # GPU-accelerated location optimization
+├── logging.rs              # Performance monitoring and timing
+└── action_weights.rs       # Strategy optimization
+```
 
-## Data Sources
-
-- `ireland_generators.csv`: Existing power generators in Ireland
-- `settlements.json`: Population centers and their characteristics
-- `coastline_points.json`: Geographic data for Ireland's coastline
+### Data Files
+- `ireland_generators.csv`: Existing power generator data
+- `settlements.json`: Population centers and demographics
+- `coastline_points.json`: Geographic constraints
 
 ## Usage
 
-The simulator is configured to run multiple iterations to find optimal strategies for power grid development. It considers:
-
-- Power demand growth
-- Population changes
-- Technology improvements
-- Environmental targets
-- Economic constraints
-- Public opinion factors
-
-Results are saved as CSV files with timestamps for analysis and comparison.
-
-## Dependencies
-
-The project uses several Rust crates:
-- `serde`: For data serialization/deserialization
-- `rand`: For randomization in simulations
-- `chrono`: For timestamp handling
-- `rayon`: For parallel processing
-- `anyhow`: For error handling
-- `clap`: For command-line argument parsing
-
-## Command-Line Arguments
-
-The simulator supports several command-line arguments for customizing its execution:
-
+### Basic Command
 ```bash
-# Basic usage
-cargo run [OPTIONS]
-
-OPTIONS:
-    -i, --iterations <NUMBER>         Number of simulation iterations to run [default: 1000]
-    -p, --parallel                   Run simulations in parallel [default: true]
-    -n, --no-continue               Start fresh instead of continuing from checkpoint
-    -c, --checkpoint-dir <DIR>       Directory for saving checkpoints [default: "checkpoints"]
-    -k, --checkpoint-interval <NUM>  How often to save checkpoints (iterations) [default: 5]
-    -r, --progress-interval <NUM>    How often to print progress (seconds) [default: 10]
+cargo run -- [OPTIONS]
 ```
 
-### Examples:
-
+### Common Options
 ```bash
-# Run with default settings (1000 iterations, parallel, continue from checkpoint if exists)
-cargo run
-
-# Start a fresh simulation with 2000 iterations
-cargo run -- --iterations 2000 --no-continue
-
-# Run sequentially (non-parallel) with custom checkpoint directory
-cargo run -- --parallel false --checkpoint-dir my_checkpoints
-
-# Save checkpoints more frequently (every 10 iterations)
-cargo run -- --checkpoint-interval 10
-
-# Update progress more frequently (every 5 seconds)
-cargo run -- --progress-interval 5
+-n, --iterations <NUM>      Number of iterations [default: 1000]
+--parallel                  Enable parallel processing [default: true]
+--enable-timing            Enable performance monitoring
+--checkpoint-interval <NUM> Save frequency [default: 5]
+--progress-interval <NUM>   Progress update frequency [default: 10]
+--force-full-simulation    Disable fast simulation mode
 ```
 
-The checkpoint system allows the simulation to be resumed if interrupted, making it more resilient to crashes or system shutdowns. Each checkpoint saves:
-- Current iteration number
-- Latest weights and learning progress
-- Best results so far
+### Examples
+```bash
+# Run with timing enabled
+cargo run -- -n 10 --enable-timing
 
-When continuing from a checkpoint, the simulation will automatically load the latest state and continue from where it left off, unless `--no-continue` is specified.
+# Fast parallel simulation with 1000 iterations
+cargo run -- -n 1000 --parallel
 
-## File Saving and Checkpoints
-
-The simulator saves files in several locations:
-
-### Checkpoint Files (During Simulation)
-Location: `<checkpoint-dir>/<YYYYMMDD_HHMMSS>/` (default: `./checkpoints/YYYYMMDD_HHMMSS/`)
-Frequency: Every `checkpoint-interval` iterations (default: 5)
-Files saved in each timestamped directory:
-- `latest_weights.json`: Current state of the action weights
-- `checkpoint_iteration.txt`: Current iteration number
-- `best_simulation.csv`: Best simulation results for this run
-- `best_weights.json`: Final optimized weights for this run
-
-The timestamp format (YYYYMMDD_HHMMSS) ensures unique directories for each run and makes it easy to track when each simulation was executed. When continuing from a checkpoint, the simulator automatically finds and loads the most recent checkpoint directory.
-
-Example directory structure:
-```
-checkpoints/
-├── 20240315_093000/
-│   ├── latest_weights.json
-│   ├── checkpoint_iteration.txt
-│   ├── best_simulation.csv
-│   └── best_weights.json
-├── 20240315_100530/
-│   ├── latest_weights.json
-│   ├── checkpoint_iteration.txt
-│   ├── best_simulation.csv
-│   └── best_weights.json
-└── 20240315_110845/
-    ├── latest_weights.json
-    ├── checkpoint_iteration.txt
-    ├── best_simulation.csv
-    └── best_weights.json
+# Full simulation mode with frequent checkpoints
+cargo run -- --force-full-simulation --checkpoint-interval 2
 ```
 
-## Output
+## Performance Monitoring
 
-The simulation produces detailed metrics including:
-- Total population served
-- Power generation and usage
-- Grid balance
+The simulator includes comprehensive timing instrumentation across various operation categories:
+
+### Operation Categories
+- **Simulation**: Core simulation operations
+- **Power Calculation**: Generation, usage, and balance computations
+- **Location Search**: Generator placement optimization
+- **Weights Update**: Strategy optimization
+- **File I/O**: Data loading and checkpointing
+
+### Timing Report Example
+```
+Detailed Performance Report
+==========================
+
+Hierarchical Timing Analysis:
+---------------------------
+run_simulation: total=10.5s, count=100, avg=105.0ms
+  ├─ calc_power_generation: total=2.1s, avg=21.0ms
+  ├─ handle_power_deficit: total=1.8s, avg=18.0ms
+  └─ update_weights: total=0.8s, avg=8.0ms
+
+Performance by Category:
+------------------------
+Power Calculation: 45.2% of total time
+  mean=21.5ms, p95=35.2ms, p99=42.1ms
+Location Search: 30.1% of total time
+  mean=150.2ms, p95=280.5ms, p99=320.1ms
+Simulation: 15.5% of total time
+  mean=105.0ms, p95=180.2ms, p99=220.5ms
+```
+
+## Output Files
+
+### Checkpoint Directory Structure
+```
+checkpoints/YYYYMMDD_HHMMSS/
+├── latest_weights.json     # Current optimization state
+├── checkpoint_iteration.txt # Progress tracking
+├── best_simulation.csv     # Best results metrics
+├── best_simulation_actions.csv # Detailed action history
+└── best_weights.json       # Optimized strategy weights
+```
+
+### Metrics Tracked
+- Population served and power demand
+- Generation capacity and grid balance
 - Public opinion scores
 - Operating and capital costs
 - CO2 emissions and offsets
 - Generator efficiencies
-- Storage utilization 
+- Storage utilization
+- Action history with spatial data
+
+## Requirements
+
+- Rust 1.70 or later
+- macOS 11.0 or later (for Metal acceleration)
+- 8GB RAM minimum (16GB recommended)
+- Apple Silicon Mac recommended for optimal performance
+
+## License
+
+This project is proprietary and confidential. All rights reserved. 
