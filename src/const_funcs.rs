@@ -1,10 +1,9 @@
-use crate::generator::GeneratorType;
 use crate::constants::*;
+use crate::generator::GeneratorType;
 use crate::settlement::Settlement;
-use crate::poi::{Coordinate, POI};
+use crate::poi::Coordinate;
 use std::collections::HashMap;
 use serde_json;
-#[macro_use]
 use lazy_static::lazy_static;
 
 // Helper function to calculate size-based efficiency bonus

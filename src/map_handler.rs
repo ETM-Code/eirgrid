@@ -3,6 +3,10 @@ use std::fs;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
+use crate::logging;
+use crate::logging::{
+    OperationCategory, FileIOType, PowerCalcType, LocationSearchType
+};
 
 use crate::generator::{Generator, GeneratorType};
 use crate::settlement::Settlement;
@@ -22,6 +26,206 @@ use crate::power_storage::calculate_max_intermittent_capacity;
 use crate::spatial_index::{SpatialIndex, GeneratorSuitabilityType};
 use crate::metal_location_search::MetalLocationSearch;
 
+// Define trait for location analysis functionality
+pub trait LocationAnalysisSource {
+    fn calculate_generator_suitability(&self, coordinate: &Coordinate, generator_type: &GeneratorType) -> f64;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocationSuitability {
+    pub coordinate: Coordinate,
+    pub suitability_scores: HashMap<GeneratorType, f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocationAnalysis {
+    pub locations: Vec<LocationSuitability>,
+    pub type_counts: HashMap<GeneratorType, usize>,
+    pub multi_type_locations: Vec<(Coordinate, Vec<GeneratorType>)>,
+    remaining_spaces: HashMap<GeneratorType, usize>,
+}
+
+impl LocationAnalysis {
+    pub fn analyze_map(map: &Map, min_suitability: f64) -> Self {
+        let mut locations = Vec::new();
+        let mut type_counts = HashMap::new();
+        let mut multi_type_locations = Vec::new();
+
+        // Define grid step size for analysis (larger than normal grid size for efficiency)
+        let step_size = GRID_CELL_SIZE * 2.0;
+        
+        // Calculate number of steps in each direction
+        let x_steps = (MAP_MAX_X / step_size).ceil() as i32;
+        let y_steps = (MAP_MAX_Y / step_size).ceil() as i32;
+
+        // Analyze grid points
+        for i in -x_steps..=x_steps {
+            for j in -y_steps..=y_steps {
+                let x = i as f64 * step_size;
+                let y = j as f64 * step_size;
+                let coordinate = Coordinate::new(x, y);
+
+                let mut suitable_types = Vec::new();
+                let mut suitability_scores = HashMap::new();
+
+                // Check suitability for each generator type
+                for generator_type in [
+                    GeneratorType::OnshoreWind,
+                    GeneratorType::OffshoreWind,
+                    GeneratorType::DomesticSolar,
+                    GeneratorType::CommercialSolar,
+                    GeneratorType::UtilitySolar,
+                    GeneratorType::Nuclear,
+                    GeneratorType::CoalPlant,
+                    GeneratorType::GasCombinedCycle,
+                    GeneratorType::GasPeaker,
+                    GeneratorType::Biomass,
+                    GeneratorType::HydroDam,
+                    GeneratorType::PumpedStorage,
+                    GeneratorType::BatteryStorage,
+                    GeneratorType::TidalGenerator,
+                    GeneratorType::WaveEnergy,
+                ].iter() {
+                    let suitability = map.calculate_generator_suitability(&coordinate, generator_type);
+                    
+                    if suitability >= min_suitability {
+                        suitable_types.push(generator_type.clone());
+                        suitability_scores.insert(generator_type.clone(), suitability);
+                        *type_counts.entry(generator_type.clone()).or_insert(0) += 1;
+                    }
+                }
+
+                // If location is suitable for any generator type, add it to results
+                if !suitable_types.is_empty() {
+                    locations.push(LocationSuitability {
+                        coordinate: coordinate.clone(),
+                        suitability_scores,
+                    });
+
+                    // If location is suitable for multiple types, add to multi-type list
+                    if suitable_types.len() > 1 {
+                        multi_type_locations.push((coordinate, suitable_types));
+                    }
+                }
+            }
+        }
+
+        // Initialize remaining spaces with total counts
+        let remaining_spaces = type_counts.clone();
+
+        Self {
+            locations,
+            type_counts,
+            multi_type_locations,
+            remaining_spaces,
+        }
+    }
+
+    pub fn try_reserve_space(&mut self, generator_type: &GeneratorType) -> bool {
+        if let Some(count) = self.remaining_spaces.get_mut(generator_type) {
+            if *count > 0 {
+                *count -= 1;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
+    pub fn reset_space_counts(&mut self) {
+        self.remaining_spaces = self.type_counts.clone();
+    }
+
+    pub fn get_remaining_spaces(&self, generator_type: &GeneratorType) -> usize {
+        self.remaining_spaces.get(generator_type).copied().unwrap_or(0)
+    }
+
+    pub fn print_summary(&self) {
+        println!("\nLocation Analysis Summary:");
+        println!("-------------------------");
+        println!("\nTotal suitable locations found: {}", self.locations.len());
+        
+        println!("\nSuitable locations by generator type:");
+        for (gen_type, count) in &self.type_counts {
+            println!("{}: {} locations", gen_type, count);
+        }
+        
+        println!("\nMulti-type locations: {}", self.multi_type_locations.len());
+        
+        // Print most common multi-type combinations
+        let mut combination_counts = HashMap::new();
+        for (_, types) in &self.multi_type_locations {
+            let mut type_names: Vec<String> = types.iter().map(|t| t.to_string()).collect();
+            type_names.sort();
+            let key = type_names.join(", ");
+            *combination_counts.entry(key).or_insert(0) += 1;
+        }
+        
+        println!("\nMost common multi-type combinations:");
+        let mut combinations: Vec<_> = combination_counts.iter().collect();
+        combinations.sort_by(|a, b| b.1.cmp(a.1));
+        for (types, count) in combinations.iter().take(5) {
+            println!("{}: {} locations", types, count);
+        }
+    }
+
+    pub fn save_to_file(&self, path: &str) -> std::io::Result<()> {
+        use std::fs::File;
+        use std::io::Write;
+        
+        let mut file = File::create(path)?;
+        
+        // Write header
+        writeln!(file, "Location Analysis Results")?;
+        writeln!(file, "========================\n")?;
+        
+        // Write summary statistics
+        writeln!(file, "Total suitable locations: {}", self.locations.len())?;
+        writeln!(file, "Multi-type locations: {}\n", self.multi_type_locations.len())?;
+        
+        // Write type counts
+        writeln!(file, "Locations by Generator Type:")?;
+        writeln!(file, "--------------------------")?;
+        for (gen_type, count) in &self.type_counts {
+            writeln!(file, "{}: {}", gen_type, count)?;
+        }
+        
+        // Write detailed location data
+        writeln!(file, "\nDetailed Location Data:")?;
+        writeln!(file, "---------------------")?;
+        for location in &self.locations {
+            writeln!(file, "\nCoordinate: ({}, {})", 
+                location.coordinate.x, location.coordinate.y)?;
+            for (gen_type, score) in &location.suitability_scores {
+                writeln!(file, "  {}: {:.3}", gen_type, score)?;
+            }
+        }
+        
+        Ok(())
+    }
+
+    pub fn save_cache(&self, cache_dir: &str) -> std::io::Result<()> {
+        std::fs::create_dir_all(cache_dir)?;
+        let cache_path = std::path::Path::new(cache_dir).join("location_analysis.json");
+        let json = serde_json::to_string_pretty(self)?;
+        std::fs::write(cache_path, json)?;
+        Ok(())
+    }
+
+    pub fn load_cache(cache_dir: &str) -> std::io::Result<Option<Self>> {
+        let cache_path = std::path::Path::new(cache_dir).join("location_analysis.json");
+        if cache_path.exists() {
+            let content = std::fs::read_to_string(cache_path)?;
+            let analysis: Self = serde_json::from_str(&content)?;
+            Ok(Some(analysis))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 // Static data that doesn't change during simulation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MapStaticData {
@@ -39,6 +243,9 @@ pub struct Map {
     grid_occupancy: HashMap<(i32, i32), f64>,
     pub spatial_index: SpatialIndex,
     metal_location_search: Option<MetalLocationSearch>,
+    location_analysis: Option<LocationAnalysis>,
+    use_fast_simulation: bool,
+    storage_cache: Vec<usize>, // Indices of storage generators, sorted by efficiency
 }
 
 // Custom serialization implementation
@@ -82,12 +289,18 @@ impl<'de> Deserialize<'de> for Map {
             grid_occupancy: helper.grid_occupancy,
             spatial_index: SpatialIndex::new(),
             metal_location_search: None,
+            location_analysis: None,
+            use_fast_simulation: true,
+            storage_cache: Vec::new(),
         })
     }
 }
 
 impl Map {
     pub fn new(config: SimulationConfig) -> Self {
+        let _timing = logging::start_timing("Map::new", 
+            OperationCategory::FileIO { subcategory: FileIOType::DataLoad });
+        
         let metal_location_search = MetalLocationSearch::new().ok();
         if metal_location_search.is_none() {
             println!("Warning: Metal-based location search not available, falling back to CPU implementation");
@@ -123,6 +336,9 @@ impl Map {
             grid_occupancy: HashMap::new(),
             spatial_index: SpatialIndex::new(),
             metal_location_search,
+            location_analysis: None,
+            use_fast_simulation: true,
+            storage_cache: Vec::new(),
         };
 
         map.initialize_spatial_index();
@@ -143,6 +359,9 @@ impl Map {
             grid_occupancy: HashMap::new(),
             spatial_index: SpatialIndex::new(),
             metal_location_search,
+            location_analysis: None,
+            use_fast_simulation: true,
+            storage_cache: Vec::new(),
         }
     }
 
@@ -276,7 +495,19 @@ impl Map {
         Ok(())
     }
 
-    pub fn add_generator(&mut self, generator: Generator) {
+    pub fn add_generator(&mut self, mut generator: Generator) {
+        if self.use_fast_simulation {
+            if let Some(analysis) = &mut self.location_analysis {
+                if analysis.try_reserve_space(generator.get_generator_type()) {
+                    // In fast mode, we don't care about actual coordinates
+                    generator.coordinate = Coordinate::new(0.0, 0.0);
+                    self.generators.push(generator);
+                }
+            }
+            return;
+        }
+
+        // Existing add_generator logic for full simulation
         let coord = generator.get_coordinate();
         let size = generator.size;
         
@@ -321,6 +552,9 @@ impl Map {
         }
 
         self.generators.push(generator);
+        if self.generators.last().unwrap().get_generator_type().is_storage() {
+            self.update_storage_cache();
+        }
     }
 
     pub fn remove_generator(&mut self, id: &str) -> Option<Generator> {
@@ -361,6 +595,11 @@ impl Map {
                 suitability_type,
                 1.0, // Restore full suitability
             );
+
+            // Update storage cache if needed
+            if generator.get_generator_type().is_storage() {
+                self.update_storage_cache();
+            }
 
             Some(generator)
         } else {
@@ -405,6 +644,9 @@ impl Map {
     }
 
     pub fn calc_total_power_generation(&self, year: u32, hour: Option<u8>) -> f64 {
+        let _timing = logging::start_timing("calc_total_power_generation", 
+            OperationCategory::PowerCalculation { subcategory: PowerCalcType::Generation });
+        
         let mut total_generation = 0.0;
         let mut excess_intermittent = 0.0;
         let mut storage_capacity = 0.0;
@@ -443,20 +685,29 @@ impl Map {
     }
 
     pub fn handle_power_deficit(&mut self, deficit: f64, hour: Option<u8>) -> f64 {
+        let _timing = logging::start_timing("handle_power_deficit", 
+            OperationCategory::PowerCalculation { subcategory: PowerCalcType::Balance });
+        
+        // Initialize storage cache if empty
+        if self.storage_cache.is_empty() {
+            self.update_storage_cache();
+        }
+        
         let mut remaining_deficit = deficit;
         
-        // First try to use stored power
-        for generator in &mut self.generators {
-            if !generator.get_generator_type().is_storage() {
-                continue;
+        // Use storage from cache, starting with most efficient
+        for &generator_idx in &self.storage_cache {
+            if remaining_deficit <= 0.0 {
+                break;
             }
             
+            let generator = &mut self.generators[generator_idx];
             if let Some(storage) = &mut generator.storage {
-                let discharged = storage.discharge(remaining_deficit);
-                remaining_deficit -= discharged;
-                
-                if remaining_deficit <= 0.0 {
-                    break;
+                // Calculate optimal discharge amount based on remaining deficit and storage capacity
+                let max_discharge = storage.current_charge.min(remaining_deficit);
+                if max_discharge > 0.0 {
+                    let discharged = storage.discharge(max_discharge);
+                    remaining_deficit -= discharged;
                 }
             }
         }
@@ -480,6 +731,9 @@ impl Map {
     }
 
     pub fn calc_total_co2_emissions(&self) -> f64 {
+        let _timing = logging::start_timing("calc_total_co2_emissions", 
+            OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
+        
         self.generators.iter()
             .filter(|g| g.is_active())
             .map(|g| g.get_co2_output())
@@ -487,6 +741,9 @@ impl Map {
     }
 
     pub fn calc_total_carbon_offset(&self, year: u32) -> f64 {
+        let _timing = logging::start_timing("calc_total_carbon_offset", 
+            OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
+        
         self.carbon_offsets.iter()
             .map(|offset| offset.calc_carbon_offset(year))
             .sum()
@@ -523,6 +780,9 @@ impl Map {
     }
 
     pub fn calc_total_operating_cost(&self, year: u32) -> f64 {
+        let _timing = logging::start_timing("calc_total_operating_cost", 
+            OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
+        
         let generator_costs = self.generators.iter()
             .map(|g| g.get_current_operating_cost(year))
             .sum::<f64>();
@@ -535,6 +795,9 @@ impl Map {
     }
 
     pub fn calc_total_capital_cost(&self, year: u32) -> f64 {
+        let _timing = logging::start_timing("calc_total_capital_cost", 
+            OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
+        
         let generator_costs = self.generators.iter()
             .map(|g| g.get_current_cost(year))
             .sum::<f64>();
@@ -592,6 +855,7 @@ impl Map {
     // Add a method to handle generator state changes
     pub fn handle_generator_state_change(&mut self) {
         self.update_grid_occupancy();
+        self.update_storage_cache();
     }
 
     // Add method to be called after generator modifications
@@ -650,13 +914,28 @@ impl Map {
     }
 
     pub fn find_best_generator_location(&self, generator_type: &GeneratorType, size: f64) -> Option<Coordinate> {
+        let _timing = logging::start_timing("find_best_generator_location", 
+            OperationCategory::LocationSearch { subcategory: LocationSearchType::GeneratorPlacement });
+        
+        if self.use_fast_simulation {
+            // In fast simulation mode, just return a dummy coordinate if space is available
+            if let Some(analysis) = &self.location_analysis {
+                if analysis.get_remaining_spaces(generator_type) > 0 {
+                    // Return a placeholder coordinate - actual location doesn't matter in fast mode
+                    return Some(Coordinate::new(0.0, 0.0));
+                }
+                return None;
+            }
+        }
+
+        // Use existing location finding logic for full simulation mode
         // Try Metal-based search first if available
         if let Some(metal_search) = &self.metal_location_search {
-            if let Some(location) = metal_search.find_best_location(
-                generator_type,
+            if let Some(location) = metal_search.find_suitable_location(
                 &self.settlements,
                 &self.generators,
                 &self.static_data.coastline_points,
+                generator_type.clone(),
                 size as f32,
             ) {
                 return Some(location);
@@ -835,6 +1114,9 @@ impl Map {
     }
 
     pub fn calculate_generator_suitability(&self, coordinate: &Coordinate, generator_type: &GeneratorType) -> f64 {
+        let _timing = logging::start_timing("calculate_generator_suitability", 
+            OperationCategory::LocationSearch { subcategory: LocationSearchType::SuitabilityCheck });
+        
         match generator_type {
             GeneratorType::OnshoreWind => {
                 let base_score = if self.is_urban_area(coordinate) {
@@ -946,6 +1228,56 @@ impl Map {
         
         total_population
     }
+
+    pub fn set_simulation_mode(&mut self, use_fast: bool) {
+        self.use_fast_simulation = use_fast;
+        if let Some(analysis) = &mut self.location_analysis {
+            analysis.reset_space_counts();
+        }
+    }
+
+    pub fn load_location_analysis(&mut self, cache_dir: &str) -> std::io::Result<bool> {
+        match LocationAnalysis::load_cache(cache_dir) {
+            Ok(Some(analysis)) => {
+                self.location_analysis = Some(analysis);
+                Ok(true)
+            }
+            Ok(None) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn analyze_locations(&self, min_suitability: f64) -> LocationAnalysis {
+        LocationAnalysis::analyze_map(self, min_suitability)
+    }
+
+    fn update_storage_cache(&mut self) {
+        // Get indices of all storage generators
+        let mut storage_indices: Vec<usize> = self.generators.iter()
+            .enumerate()
+            .filter(|(_, g)| g.get_generator_type().is_storage() && g.is_active())
+            .map(|(i, _)| i)
+            .collect();
+        
+        // Sort by efficiency and capacity
+        storage_indices.sort_by(|&a, &b| {
+            let gen_a = &self.generators[a];
+            let gen_b = &self.generators[b];
+            
+            // Compare by efficiency first
+            let eff_cmp = gen_b.get_efficiency().partial_cmp(&gen_a.get_efficiency()).unwrap_or(std::cmp::Ordering::Equal);
+            
+            if eff_cmp == std::cmp::Ordering::Equal {
+                // If efficiency is equal, compare by capacity
+                gen_b.get_storage_capacity().partial_cmp(&gen_a.get_storage_capacity())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            } else {
+                eff_cmp
+            }
+        });
+        
+        self.storage_cache = storage_indices;
+    }
 }
 
 // Add the Bounds struct if it doesn't exist
@@ -953,4 +1285,11 @@ impl Map {
 pub struct Bounds {
     pub min: Coordinate,
     pub max: Coordinate,
+}
+
+impl LocationAnalysisSource for Map {
+    fn calculate_generator_suitability(&self, coordinate: &Coordinate, generator_type: &GeneratorType) -> f64 {
+        // Simply delegate to the existing method in Map
+        self.calculate_generator_suitability(coordinate, generator_type)
+    }
 }
