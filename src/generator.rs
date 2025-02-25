@@ -183,51 +183,51 @@ impl GeneratorType {
 
     pub fn get_cost_evolution_rate(&self) -> f64 {
         match *self {
-            GeneratorType::OnshoreWind => ONSHORE_WIND_COST_EVOLUTION,
-            GeneratorType::OffshoreWind => OFFSHORE_WIND_COST_EVOLUTION,
-            GeneratorType::DomesticSolar => DOMESTIC_SOLAR_COST_EVOLUTION,
-            GeneratorType::CommercialSolar => COMMERCIAL_SOLAR_COST_EVOLUTION,
-            GeneratorType::UtilitySolar => UTILITY_SOLAR_COST_EVOLUTION,
-            GeneratorType::Nuclear => NUCLEAR_COST_INCREASE,
+            GeneratorType::OnshoreWind => WIND_COST_REDUCTION,
+            GeneratorType::OffshoreWind => WIND_COST_REDUCTION,
+            GeneratorType::DomesticSolar => SOLAR_COST_REDUCTION,
+            GeneratorType::CommercialSolar => SOLAR_COST_REDUCTION,
+            GeneratorType::UtilitySolar => SOLAR_COST_REDUCTION,
+            GeneratorType::Nuclear => NUCLEAR_COST_REDUCTION,
             GeneratorType::CoalPlant => COAL_COST_INCREASE,
-            GeneratorType::GasCombinedCycle => GAS_CC_COST_EVOLUTION,
-            GeneratorType::GasPeaker => GAS_PEAKER_COST_EVOLUTION,
-            GeneratorType::Biomass => BIOMASS_COST_EVOLUTION,
+            GeneratorType::GasCombinedCycle => GAS_COST_INCREASE,
+            GeneratorType::GasPeaker => GAS_COST_INCREASE,
+            GeneratorType::Biomass => 1.0,
             GeneratorType::HydroDam => HYDRO_COST_INCREASE,
-            GeneratorType::PumpedStorage => PUMPED_STORAGE_COST_EVOLUTION,
-            GeneratorType::BatteryStorage => BATTERY_COST_EVOLUTION,
-            GeneratorType::TidalGenerator => TIDAL_COST_EVOLUTION,
-            GeneratorType::WaveEnergy => WAVE_COST_EVOLUTION,
+            GeneratorType::PumpedStorage => HYDRO_COST_INCREASE,
+            GeneratorType::BatteryStorage => 1.0,
+            GeneratorType::TidalGenerator => 1.0,
+            GeneratorType::WaveEnergy => 1.0,
         }
     }
 
     pub fn get_base_opinion(&self) -> f64 {
         match *self {
-            GeneratorType::OnshoreWind => ONSHORE_WIND_OPINION,
-            GeneratorType::OffshoreWind => OFFSHORE_WIND_OPINION,
-            GeneratorType::DomesticSolar => DOMESTIC_SOLAR_OPINION,
-            GeneratorType::CommercialSolar => COMMERCIAL_SOLAR_OPINION,
-            GeneratorType::UtilitySolar => UTILITY_SOLAR_OPINION,
+            GeneratorType::OnshoreWind => WIND_BASE_OPINION,
+            GeneratorType::OffshoreWind => WIND_BASE_OPINION,
+            GeneratorType::DomesticSolar => SOLAR_BASE_OPINION,
+            GeneratorType::CommercialSolar => SOLAR_BASE_OPINION,
+            GeneratorType::UtilitySolar => SOLAR_BASE_OPINION,
             GeneratorType::Nuclear => NUCLEAR_BASE_OPINION,
             GeneratorType::CoalPlant => COAL_BASE_OPINION,
             GeneratorType::GasCombinedCycle => GAS_BASE_OPINION,
             GeneratorType::GasPeaker => GAS_BASE_OPINION,
-            GeneratorType::Biomass => BIOMASS_OPINION,
+            GeneratorType::Biomass => BIOMASS_BASE_OPINION,
             GeneratorType::HydroDam => HYDRO_BASE_OPINION,
-            GeneratorType::PumpedStorage => PUMPED_STORAGE_OPINION,
-            GeneratorType::BatteryStorage => BATTERY_OPINION,
-            GeneratorType::TidalGenerator => TIDAL_OPINION,
-            GeneratorType::WaveEnergy => WAVE_OPINION,
+            GeneratorType::PumpedStorage => PUMPED_STORAGE_BASE_OPINION,
+            GeneratorType::BatteryStorage => BATTERY_BASE_OPINION,
+            GeneratorType::TidalGenerator => TIDAL_BASE_OPINION,
+            GeneratorType::WaveEnergy => WAVE_BASE_OPINION,
         }
     }
 
     pub fn get_opinion_change_rate(&self) -> f64 {
         match *self {
-            GeneratorType::OnshoreWind => ONSHORE_WIND_OPINION_CHANGE,
-            GeneratorType::OffshoreWind => OFFSHORE_WIND_OPINION_CHANGE,
-            GeneratorType::DomesticSolar => DOMESTIC_SOLAR_OPINION_CHANGE,
-            GeneratorType::CommercialSolar => COMMERCIAL_SOLAR_OPINION_CHANGE,
-            GeneratorType::UtilitySolar => UTILITY_SOLAR_OPINION_CHANGE,
+            GeneratorType::OnshoreWind => WIND_OPINION_CHANGE,
+            GeneratorType::OffshoreWind => WIND_OPINION_CHANGE,
+            GeneratorType::DomesticSolar => SOLAR_OPINION_CHANGE,
+            GeneratorType::CommercialSolar => SOLAR_OPINION_CHANGE,
+            GeneratorType::UtilitySolar => SOLAR_OPINION_CHANGE,
             GeneratorType::Nuclear => NUCLEAR_OPINION_CHANGE,
             GeneratorType::CoalPlant => COAL_OPINION_CHANGE,
             GeneratorType::GasCombinedCycle => GAS_OPINION_CHANGE,
@@ -290,7 +290,7 @@ impl GeneratorType {
             GeneratorType::OnshoreWind => ONSHORE_WIND_OPERATING_COST,
             GeneratorType::OffshoreWind => OFFSHORE_WIND_OPERATING_COST,
             GeneratorType::DomesticSolar => DOMESTIC_SOLAR_OPERATING_COST,
-            GeneratorType::CommercialSolar => COMMERCIAL_SOLAR_OPERATING_COST,
+            GeneratorType::CommercialSolar => UTILITY_SOLAR_OPERATING_COST,
             GeneratorType::UtilitySolar => UTILITY_SOLAR_OPERATING_COST,
             GeneratorType::Nuclear => NUCLEAR_OPERATING_COST,
             GeneratorType::CoalPlant => COAL_OPERATING_COST,
@@ -426,13 +426,7 @@ impl Generator {
         let base_output = self.power_out * self.efficiency * self.operation_percentage;
         match self.generator_type {
             GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => {
-                // Simple wind pattern with higher output at night
-                let hour_factor = if hour < NIGHT_START_HOUR || hour > DAY_END_HOUR { 
-                    NIGHT_WIND_FACTOR 
-                } else { 
-                    DAY_WIND_FACTOR 
-                };
-                base_output * hour_factor
+                base_output
             },
             GeneratorType::DomesticSolar |
             GeneratorType::CommercialSolar |
