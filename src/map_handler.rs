@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use crate::logging;
 use crate::logging::{
@@ -43,6 +43,8 @@ pub struct LocationAnalysis {
     pub type_counts: HashMap<GeneratorType, usize>,
     pub multi_type_locations: Vec<(Coordinate, Vec<GeneratorType>)>,
     remaining_spaces: HashMap<GeneratorType, usize>,
+    #[serde(default)]
+    exhausted_types: HashSet<GeneratorType>,
 }
 
 impl LocationAnalysis {
@@ -118,6 +120,7 @@ impl LocationAnalysis {
             type_counts,
             multi_type_locations,
             remaining_spaces,
+            exhausted_types: HashSet::new(),
         }
     }
 
@@ -125,8 +128,13 @@ impl LocationAnalysis {
         if let Some(count) = self.remaining_spaces.get_mut(generator_type) {
             if *count > 0 {
                 *count -= 1;
+                if *count <= 5 {
+                    println!("WARNING: Only {} suitable locations remaining for {:?}", count, generator_type);
+                }
                 true
             } else {
+                self.exhausted_types.insert(generator_type.clone());
+                println!("WARNING: No more suitable locations available for {:?}", generator_type);
                 false
             }
         } else {
@@ -136,6 +144,15 @@ impl LocationAnalysis {
 
     pub fn reset_space_counts(&mut self) {
         self.remaining_spaces = self.type_counts.clone();
+        self.exhausted_types.clear();
+    }
+
+    pub fn any_types_exhausted(&self) -> bool {
+        !self.exhausted_types.is_empty()
+    }
+
+    pub fn get_exhausted_types(&self) -> Vec<GeneratorType> {
+        self.exhausted_types.iter().cloned().collect()
     }
 
     pub fn get_remaining_spaces(&self, generator_type: &GeneratorType) -> usize {
@@ -498,15 +515,38 @@ impl Map {
     pub fn add_generator(&mut self, mut generator: Generator) {
         if self.use_fast_simulation {
             if let Some(analysis) = &mut self.location_analysis {
+                println!("Fast mode: Attempting to add {:?} generator", generator.get_generator_type());
+                println!("  Available spaces: {}", analysis.get_remaining_spaces(generator.get_generator_type()));
+                
                 if analysis.try_reserve_space(generator.get_generator_type()) {
                     // In fast mode, we don't care about actual coordinates
                     generator.coordinate = Coordinate::new(0.0, 0.0);
                     self.generators.push(generator);
+                } else if analysis.any_types_exhausted() {
+                    // If we've exhausted locations for any generator type, switch to full mode
+                    let exhausted_types = analysis.get_exhausted_types();
+                    println!("WARNING: Fast mode exhausted. Details:");
+                    println!("  - Generator being added: {:?}", generator.get_generator_type());
+                    println!("  - All exhausted types: {:?}", exhausted_types);
+                    println!("  - Remaining spaces by type:");
+                    for gen_type in [
+                        GeneratorType::OnshoreWind,
+                        GeneratorType::OffshoreWind,
+                        GeneratorType::UtilitySolar,
+                        GeneratorType::Nuclear,
+                        GeneratorType::GasCombinedCycle,
+                        GeneratorType::GasPeaker,
+                    ] {
+                        println!("    {:?}: {}", gen_type, analysis.get_remaining_spaces(&gen_type));
+                    }
+                    self.use_fast_simulation = false;
+                    // Try adding the generator again in full mode
+                    self.add_generator(generator);
                 }
+                return;
             }
-            return;
         }
-
+        
         // Existing add_generator logic for full simulation
         let coord = generator.get_coordinate();
         let size = generator.size;
@@ -1230,6 +1270,9 @@ impl Map {
     }
 
     pub fn set_simulation_mode(&mut self, use_fast: bool) {
+        if use_fast != self.use_fast_simulation {
+            println!("Switching simulation mode to: {}", if use_fast { "FAST" } else { "FULL" });
+        }
         self.use_fast_simulation = use_fast;
         if let Some(analysis) = &mut self.location_analysis {
             analysis.reset_space_counts();

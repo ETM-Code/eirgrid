@@ -5,6 +5,7 @@ use crate::generator::GeneratorType;
 use crate::map_handler::Map;
 use crate::poi::Coordinate;
 use crate::constants::{MAP_MAX_X, MAP_MAX_Y, GRID_CELL_SIZE};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocationSuitability {
@@ -18,6 +19,7 @@ pub struct LocationAnalysis {
     pub type_counts: HashMap<GeneratorType, usize>,
     pub multi_type_locations: Vec<(Coordinate, Vec<GeneratorType>)>,
     remaining_spaces: HashMap<GeneratorType, usize>,
+    exhausted_types: HashSet<GeneratorType>,
 }
 
 impl LocationAnalysis {
@@ -93,31 +95,42 @@ impl LocationAnalysis {
             type_counts,
             multi_type_locations,
             remaining_spaces,
+            exhausted_types: HashSet::new(),
         }
     }
 
-    // Add method to check and decrement available spaces
-    pub fn try_reserve_space(&mut self, generator_type: &GeneratorType) -> bool {
-        if let Some(count) = self.remaining_spaces.get_mut(generator_type) {
+    pub fn try_reserve_space(&mut self, generator_type: GeneratorType) -> bool {
+        if let Some(count) = self.remaining_spaces.get_mut(&generator_type) {
             if *count > 0 {
                 *count -= 1;
-                true
+                if *count <= 5 {
+                    println!("WARNING: Only {} suitable locations remaining for {:?}", count, generator_type);
+                }
+                return true;
             } else {
-                false
+                self.exhausted_types.insert(generator_type);
+                println!("WARNING: No more suitable locations available for {:?}", generator_type);
+                return false;
             }
-        } else {
-            false
         }
+        false
     }
 
-    // Add method to reset remaining spaces
     pub fn reset_space_counts(&mut self) {
         self.remaining_spaces = self.type_counts.clone();
+        self.exhausted_types.clear();
     }
 
-    // Add method to get remaining space count
     pub fn get_remaining_spaces(&self, generator_type: &GeneratorType) -> usize {
         self.remaining_spaces.get(generator_type).copied().unwrap_or(0)
+    }
+
+    pub fn any_types_exhausted(&self) -> bool {
+        !self.exhausted_types.is_empty()
+    }
+
+    pub fn get_exhausted_types(&self) -> Vec<GeneratorType> {
+        self.exhausted_types.iter().cloned().collect()
     }
 
     pub fn print_summary(&self) {

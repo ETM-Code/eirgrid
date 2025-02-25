@@ -156,11 +156,23 @@ impl ActionWeights {
             // Add year's weights to the map
             weights.insert(year, year_weights);
 
-            // Initialize action count weights for this year
+            // Initialize action count weights for this year with bias towards fewer actions
             let mut count_weights = HashMap::new();
+            let decay_rate = 0.4; // Controls how quickly the probability decreases
+            let mut total_weight = 0.0;
+            
+            // Calculate weights with exponential decay
             for count in 0..=20 {
-                count_weights.insert(count, 1.0 / 21.0); // Equal initial probability for 0-20 actions
+                let weight = (-decay_rate * count as f64).exp();
+                count_weights.insert(count, weight);
+                total_weight += weight;
             }
+            
+            // Normalize weights to sum to 1.0
+            for weight in count_weights.values_mut() {
+                *weight /= total_weight;
+            }
+            
             action_count_weights.insert(year, count_weights);
         }
         
