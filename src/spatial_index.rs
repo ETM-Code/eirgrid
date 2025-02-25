@@ -1,6 +1,5 @@
 use crate::poi::Coordinate;
 use crate::constants::{MAP_MAX_X, MAP_MAX_Y, GRID_CELL_SIZE};
-use std::sync::Arc;
 use std::fmt;
 
 #[derive(Clone, Debug)]

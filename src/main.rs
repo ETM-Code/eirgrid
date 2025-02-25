@@ -233,24 +233,62 @@ fn handle_power_deficit(
     year: u32,
     action_weights: &mut ActionWeights,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let _timing = logging::start_timing("handle_power_deficit", 
-        OperationCategory::PowerCalculation { subcategory: PowerCalcType::Balance });
-    
-    let mut remaining_deficit = deficit;
+    let _timing = logging::start_timing(
+        "handle_power_deficit",
+        OperationCategory::PowerCalculation { subcategory: PowerCalcType::Balance },
+    );
+
+    // First, use any available stored power to reduce the deficit.
+    // (Uses the existing storage-based method.)
+    let mut remaining_deficit = map.handle_power_deficit(deficit, None);
+
+    // We'll add generation until the deficit is met.
+    // If several attempts have produced no improvement (reliability issues), force a storage action.
+    let mut attempts: u32 = 0;
+    const MAX_TRIES_BEFORE_STORAGE_OVERRIDE: u32 = 5; // after 5 tries, switch to storage
 
     while remaining_deficit > 0.0 {
-        let action = loop {
-            let _timing = logging::start_timing("sample_generator_action", 
-                OperationCategory::WeightsUpdate { subcategory: WeightsUpdateType::ActionUpdate });
+        attempts += 1;
+
+        // Sample an AddGenerator action using the weighted method.
+        let action = if attempts < MAX_TRIES_BEFORE_STORAGE_OVERRIDE {
+            // Use standard sampling until a valid AddGenerator action is found.
+            loop {
+                let _timing = logging::start_timing(
+                    "sample_generator_action",
+                    OperationCategory::WeightsUpdate { subcategory: WeightsUpdateType::ActionUpdate },
+                );
+                let candidate = action_weights.sample_action(year);
+                if let GridAction::AddGenerator(_) = candidate {
+                    break candidate;
+                }
+            }
+        } else {
+            // After several tries, force a storage action if the sampled candidate isn't storage.
+            let _timing = logging::start_timing(
+                "sample_generator_action_storage_override",
+                OperationCategory::WeightsUpdate { subcategory: WeightsUpdateType::ActionUpdate },
+            );
             let candidate = action_weights.sample_action(year);
-            if let GridAction::AddGenerator(_) = candidate {
-                break candidate;
+            match candidate {
+                GridAction::AddGenerator(gen_type) => {
+                    if gen_type.is_storage() {
+                        GridAction::AddGenerator(gen_type)
+                    } else {
+                        // Use BatteryStorage as our storage option (using a constant)
+                        GridAction::AddGenerator(GeneratorType::BatteryStorage)
+                    }
+                }
+                _ => candidate,
             }
         };
 
+        // Compute the current simulation state before applying the action.
         let current_state = {
-            let _timing = logging::start_timing("calculate_current_state", 
-                OperationCategory::PowerCalculation { subcategory: PowerCalcType::Balance });
+            let _timing = logging::start_timing(
+                "calculate_current_state",
+                OperationCategory::PowerCalculation { subcategory: PowerCalcType::Balance },
+            );
             let net_emissions = map.calc_net_co2_emissions(year);
             let public_opinion = calculate_average_opinion(map, year);
             let power_balance = map.calc_total_power_generation(year, None) - map.calc_total_power_usage(year);
@@ -261,14 +299,20 @@ fn handle_power_deficit(
             }
         };
 
+        // Only add a generator if the sampled action is an AddGenerator.
         if let GridAction::AddGenerator(_) = action {
-            let _timing = logging::start_timing("apply_generator_action", 
-                OperationCategory::Simulation);
+            let _timing = logging::start_timing(
+                "apply_generator_action",
+                OperationCategory::Simulation,
+            );
             apply_action(map, &action, year)?;
 
+            // Recalculate state after the action.
             let new_state = {
-                let _timing = logging::start_timing("calculate_new_state", 
-                    OperationCategory::PowerCalculation { subcategory: PowerCalcType::Balance });
+                let _timing = logging::start_timing(
+                    "calculate_new_state",
+                    OperationCategory::PowerCalculation { subcategory: PowerCalcType::Balance },
+                );
                 let net_emissions = map.calc_net_co2_emissions(year);
                 let public_opinion = calculate_average_opinion(map, year);
                 let power_balance = map.calc_total_power_generation(year, None) - map.calc_total_power_usage(year);
@@ -280,13 +324,16 @@ fn handle_power_deficit(
             };
 
             let improvement = evaluate_action_impact(&current_state, &new_state);
-            
+
             {
-                let _timing = logging::start_timing("update_weights", 
-                    OperationCategory::WeightsUpdate { subcategory: WeightsUpdateType::ActionUpdate });
+                let _timing = logging::start_timing(
+                    "update_weights",
+                    OperationCategory::WeightsUpdate { subcategory: WeightsUpdateType::ActionUpdate },
+                );
                 action_weights.update_weights(&action, year, improvement);
             }
 
+            // Update the deficit based on the new state.
             remaining_deficit = -new_state.power_balance.min(0.0);
         }
     }
@@ -859,14 +906,15 @@ fn run_multi_simulation(
                     map_clone.set_settlements(base_map.get_settlements().to_vec());
                     map_clone.set_carbon_offsets(base_map.get_carbon_offsets().to_vec());
 
-                    // Set simulation mode based on iteration number
+                    // Set simulation mode based on global progress
                     let final_full_sim_count = num_iterations.min(20);
+                    let total_completed = completed_iterations.load(Ordering::Relaxed);
                     let use_fast = !force_full_simulation && 
                                  cache_loaded && 
-                                 i < num_iterations.saturating_sub(final_full_sim_count);
+                                 total_completed < num_iterations.saturating_sub(final_full_sim_count);
                     map_clone.set_simulation_mode(use_fast);
                     
-                    if i == num_iterations.saturating_sub(final_full_sim_count) {
+                    if total_completed == num_iterations.saturating_sub(final_full_sim_count) {
                         println!("\nSwitching to full simulation mode for final {} iterations", final_full_sim_count);
                     }
                     
@@ -935,14 +983,15 @@ fn run_multi_simulation(
                 map_clone.set_settlements(base_map.get_settlements().to_vec());
                 map_clone.set_carbon_offsets(base_map.get_carbon_offsets().to_vec());
 
-                // Set simulation mode based on iteration number
+                // Set simulation mode based on global progress
                 let final_full_sim_count = num_iterations.min(20);
+                let total_completed = completed_iterations.load(Ordering::Relaxed);
                 let use_fast = !force_full_simulation && 
                              cache_loaded && 
-                             i < num_iterations.saturating_sub(final_full_sim_count);
+                             total_completed < num_iterations.saturating_sub(final_full_sim_count);
                 map_clone.set_simulation_mode(use_fast);
                 
-                if i == num_iterations.saturating_sub(final_full_sim_count) {
+                if total_completed == num_iterations.saturating_sub(final_full_sim_count) {
                     println!("\nSwitching to full simulation mode for final {} iterations", final_full_sim_count);
                 }
                 

@@ -1,14 +1,11 @@
+use std::error::Error;
 #[cfg(feature = "metal")]
 use metal;
 use crate::poi::{Coordinate, POI};
 use crate::generator::GeneratorType;
 use crate::settlement::Settlement;
 use crate::generator::Generator;
-use crate::constants::*;
-use std::error::Error;
-use std::mem;
 use std::fmt;
-use std::sync::Arc;
 
 #[cfg(feature = "metal")]
 #[repr(C)]
