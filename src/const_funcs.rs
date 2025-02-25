@@ -1,9 +1,10 @@
-use crate::constants::*;
 use crate::generator::GeneratorType;
+use crate::constants::*;
 use crate::settlement::Settlement;
-use crate::poi::Coordinate;
+use crate::poi::{Coordinate, POI};
 use std::collections::HashMap;
 use serde_json;
+#[macro_use]
 use lazy_static::lazy_static;
 
 // Helper function to calculate size-based efficiency bonus
@@ -13,38 +14,33 @@ fn calc_size_efficiency_bonus(size: f64) -> f64 {
 
 // Helper function to calculate cost-based efficiency bonus
 fn calc_cost_efficiency_bonus(cost: f64) -> f64 {
-    ((cost - MIN_ANNUAL_EXPENDITURE) / (REFERENCE_ANNUAL_EXPENDITURE - MIN_ANNUAL_EXPENDITURE))
+    ((cost) / (REFERENCE_ANNUAL_EXPENDITURE))
         .clamp(0.0_f64, 1.0_f64) * COST_EFFICIENCY_FACTOR
 }
 
 // Helper function to get max power output for generator type
 fn get_max_power_output(gen_type: &GeneratorType) -> f64 {
     match gen_type {
-        GeneratorType::OnshoreWind => MAX_ONSHORE_WIND_POWER,
-        GeneratorType::OffshoreWind => MAX_OFFSHORE_WIND_POWER,
-        GeneratorType::DomesticSolar => MAX_DOMESTIC_SOLAR_POWER,
-        GeneratorType::CommercialSolar => MAX_COMMERCIAL_SOLAR_POWER,
-        GeneratorType::UtilitySolar => MAX_UTILITY_SOLAR_POWER,
-        GeneratorType::Nuclear => MAX_NUCLEAR_POWER,
-        GeneratorType::CoalPlant => MAX_COAL_POWER,
-        GeneratorType::GasCombinedCycle => MAX_GAS_CC_POWER,
-        GeneratorType::GasPeaker => MAX_GAS_PEAKER_POWER,
-        GeneratorType::Biomass => MAX_BIOMASS_POWER,
-        GeneratorType::HydroDam => MAX_HYDRO_DAM_POWER,
-        GeneratorType::PumpedStorage => MAX_PUMPED_STORAGE_POWER,
-        GeneratorType::TidalGenerator => MAX_TIDAL_POWER,
-        GeneratorType::WaveEnergy => MAX_WAVE_POWER,
-        GeneratorType::BatteryStorage => MAX_BATTERY_STORAGE_POWER,
+        GeneratorType::OnshoreWind => f64::INFINITY,
+        GeneratorType::OffshoreWind => f64::INFINITY,
+        GeneratorType::DomesticSolar => f64::INFINITY,
+        GeneratorType::CommercialSolar => f64::INFINITY,
+        GeneratorType::UtilitySolar => f64::INFINITY,
+        GeneratorType::Nuclear => f64::INFINITY,
+        GeneratorType::CoalPlant => f64::INFINITY,
+        GeneratorType::GasCombinedCycle => f64::INFINITY,
+        GeneratorType::GasPeaker => f64::INFINITY,
+        GeneratorType::Biomass => f64::INFINITY,
+        GeneratorType::HydroDam => f64::INFINITY,
+        GeneratorType::PumpedStorage => f64::INFINITY,
+        GeneratorType::TidalGenerator => f64::INFINITY,
+        GeneratorType::WaveEnergy => f64::INFINITY,
+        GeneratorType::BatteryStorage => f64::INFINITY,
     }
 }
 
 pub fn calc_inflation_factor(year: u32) -> f64 {
-    let annual_inflation = match year {
-        year if year <= MEDIUM_TERM_YEAR => SHORT_TERM_INFLATION,
-        year if year <= LONG_TERM_YEAR => MEDIUM_TERM_INFLATION,
-        _ => LONG_TERM_INFLATION,
-    };
-    (1.0 + annual_inflation).powi((year - BASE_YEAR) as i32)
+    (1.0 + INFLATION_RATE).powi((year - BASE_YEAR) as i32)
 }
 
 pub fn calc_population_growth(initial_pop: u32, year: u32) -> u32 {
@@ -60,17 +56,17 @@ pub fn calc_population_growth(initial_pop: u32, year: u32) -> u32 {
     };
 
     let urbanization_factor = if is_urban {
-        1.0 + (URBAN_GROWTH_RATE * (years_passed as f64).min(MAX_URBAN_BOOST_YEARS))
+        1.0 + (URBAN_GROWTH_RATE * (years_passed as f64))
     } else if is_medium {
         1.0
     } else {
-        1.0 - (RURAL_DECLINE_RATE * (years_passed as f64).min(MAX_RURAL_DECLINE_YEARS))
+        1.0 + (RURAL_GROWTH_RATE * (years_passed as f64))
     };
 
     let age_structure_factor = if is_urban {
-        1.0 + (initial_pop as f64 / LARGE_CITY_REFERENCE).min(MAX_URBAN_BOOST)
+        1.0 + (initial_pop as f64 / LARGE_CITY_REFERENCE)
     } else {
-        1.0 - (URBAN_POPULATION_THRESHOLD as f64 / initial_pop as f64).min(MAX_RURAL_DECLINE)
+        1.0 - (URBAN_POPULATION_THRESHOLD as f64 / initial_pop as f64)
     };
 
     let growth_rate = base_national_growth * urbanization_factor * age_structure_factor;
@@ -183,7 +179,7 @@ pub fn calc_generator_efficiency(
             BIOMASS_EFFICIENCY_GAIN.powf(years_from_base),
     };
     
-    ((base_efficiency + size_bonus + cost_bonus + location_bonus) * tech_improvement).min(MAX_EFFICIENCY)
+    ((base_efficiency + size_bonus + cost_bonus + location_bonus) * tech_improvement)
 }
 
 
@@ -240,32 +236,12 @@ pub fn calc_transmission_loss(
     from: &Coordinate,
     to: &Coordinate,
     year: u32,
-    is_urban: bool,
-    is_underwater: bool,
-    is_mountainous: bool,
 ) -> f64 {
+    // Distance given in m
     let distance = ((from.x - to.x).powi(2) + (from.y - to.y).powi(2)).sqrt();
     
     // Base loss calculation
-    let mut loss_rate = BASE_TRANSMISSION_LOSS_RATE * distance;
-    
-    // Apply infrastructure factors
-    loss_rate *= if is_urban {
-        URBAN_INFRASTRUCTURE_FACTOR
-    } else {
-        RURAL_INFRASTRUCTURE_FACTOR
-    };
-    
-    // Apply terrain factors
-    if is_underwater {
-        loss_rate *= UNDERWATER_LOSS_FACTOR;
-    }
-    if is_mountainous {
-        loss_rate *= MOUNTAIN_LOSS_FACTOR;
-    }
-    
-    // Apply high voltage reduction
-    loss_rate *= HIGH_VOLTAGE_LOSS_REDUCTION;
+    let mut loss_rate = BASE_TRANSMISSION_LOSS_RATE / 1000.0 * distance;
     
     // Apply technological improvements
     let years_passed = year - BASE_YEAR;
@@ -375,10 +351,7 @@ pub fn evaluate_generator_location(
         let loss = calc_transmission_loss(
             coordinate,
             settlement.get_coordinate(),
-            year,
-            settlement.get_population() >= URBAN_POPULATION_THRESHOLD,
-            false, // Would need terrain data for these
-            false,
+            year
         );
         
         weighted_transmission_score += total_settlement_power * (1.0 - loss);

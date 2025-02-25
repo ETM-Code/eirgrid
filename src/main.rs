@@ -459,11 +459,11 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), Box
                 if generator.is_active() {
                     let age = year - generator.commissioning_year;
                     let min_age = match generator.get_generator_type() {
-                        GeneratorType::Nuclear => NUCLEAR_MIN_CLOSURE_AGE,
-                        GeneratorType::HydroDam => HYDRO_DAM_MIN_CLOSURE_AGE,
-                        GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => WIND_MIN_CLOSURE_AGE,
-                        GeneratorType::UtilitySolar => SOLAR_MIN_CLOSURE_AGE,
-                        _ => DEFAULT_MIN_CLOSURE_AGE,
+                        GeneratorType::Nuclear => 1,
+                        GeneratorType::HydroDam => 1,
+                        GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => 1,
+                        GeneratorType::UtilitySolar => 1,
+                        _ => 1,
                     };
                     
                     if age >= min_age {
