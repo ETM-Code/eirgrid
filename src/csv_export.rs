@@ -138,13 +138,13 @@ impl CsvExporter {
         writeln!(summary_file, "Yearly Summary Metrics")?;
         writeln!(
             summary_file,
-            "Year,Population,Power Usage (MW),Power Generation (MW),Power Balance (MW),Public Opinion (%),CO2 Emissions (tonnes),Carbon Offset (tonnes),Net CO2 Emissions (tonnes),Operating Cost (€),Capital Cost (€),Total Cost (€),Active Generators"
+            "Year,Population,Power Usage (MW),Power Generation (MW),Power Balance (MW),Public Opinion (%),CO2 Emissions (tonnes),Carbon Offset (tonnes),Net CO2 Emissions (tonnes),Operating Cost (€),Capital Cost (€),Carbon Credit Revenue (€),Total Cost (€),Active Generators"
         )?;
         
         for metrics in yearly_metrics {
             writeln!(
                 summary_file,
-                "{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{}",
+                "{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{}",
                 metrics.year,
                 metrics.total_population,
                 metrics.total_power_usage,
@@ -156,6 +156,7 @@ impl CsvExporter {
                 metrics.net_co2_emissions,
                 metrics.total_operating_cost,
                 metrics.total_capital_cost,
+                metrics.carbon_credit_revenue,
                 metrics.total_cost,
                 metrics.active_generators
             )?;
@@ -407,6 +408,7 @@ pub struct YearlyMetrics {
     pub total_co2_emissions: f64,
     pub total_carbon_offset: f64,
     pub net_co2_emissions: f64,
+    pub carbon_credit_revenue: f64,
     pub generator_efficiencies: Vec<(String, f64)>,
     pub generator_operations: Vec<(String, f64)>,
     pub active_generators: usize,
