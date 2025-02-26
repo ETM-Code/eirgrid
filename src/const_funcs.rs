@@ -178,3 +178,38 @@ lazy_static! {
 pub fn is_location_on_land(coordinate: &Coordinate) -> bool {
     is_point_inside_polygon(coordinate, &IRELAND_COASTLINE)
 }
+
+/// Returns the carbon price (€/tCO₂) based on the simulation year.
+pub fn carbon_price(year: u32) -> f64 {
+    if year < PRICE_PHASE1_START_YEAR {
+        PRICE_BEFORE_PHASE1
+    } else if year < PRICE_PHASE1_END_YEAR {
+        // Linear interpolation from PRICE_PHASE1_START to PRICE_PHASE1_END over the phase length.
+        let phase_length = (PRICE_PHASE1_END_YEAR - PRICE_PHASE1_START_YEAR) as f64;
+        let t = (year - PRICE_PHASE1_START_YEAR) as f64 / phase_length;
+        PRICE_PHASE1_START + t * (PRICE_PHASE1_END - PRICE_PHASE1_START)
+    } else if year <= PRICE_PHASE2_END_YEAR {
+        // Linear interpolation from PRICE_PHASE2_START to PRICE_PHASE2_END over the phase length.
+        let phase_length = (PRICE_PHASE2_END_YEAR - PRICE_PHASE2_START_YEAR) as f64;
+        let t = (year - PRICE_PHASE2_START_YEAR) as f64 / phase_length;
+        PRICE_PHASE2_START + t * (PRICE_PHASE2_END - PRICE_PHASE2_START)
+    } else {
+        // For years beyond PRICE_PHASE2_END_YEAR, assume a constant price.
+        PRICE_PHASE2_END
+    }
+}
+
+/// Calculates the revenue from selling carbon credits for negative emissions.
+pub fn calculate_carbon_credit_revenue(net_emissions: f64, year: u32) -> f64 {
+    if net_emissions >= 0.0 {
+        // No negative emissions, no carbon credit revenue
+        return 0.0;
+    }
+
+    // Convert negative emissions to positive value for calculation
+    let negative_emissions = -net_emissions;
+    
+    // Calculate revenue based on current carbon price
+    let price = carbon_price(year);
+    negative_emissions * price
+}

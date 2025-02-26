@@ -74,6 +74,7 @@ struct YearlyMetrics {
     total_co2_emissions: f64,
     total_carbon_offset: f64,
     net_co2_emissions: f64,
+    carbon_credit_revenue: f64,
     generator_efficiencies: Vec<(String, f64)>,
     generator_operations: Vec<(String, f64)>,
     active_generators: usize,
@@ -524,6 +525,13 @@ fn calculate_yearly_metrics(map: &Map, year: u32, total_upgrade_costs: f64, tota
             map.calc_net_co2_emissions(year)
         )
     };
+    
+    // Calculate revenue from carbon credits for negative emissions
+    let carbon_credit_revenue = {
+        let _timing = logging::start_timing("calc_carbon_credit_revenue", 
+            OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
+        const_funcs::calculate_carbon_credit_revenue(net_co2_emissions, year)
+    };
 
     let mut total_opinion = 0.0;
     let mut opinion_count = 0;
@@ -551,10 +559,12 @@ fn calculate_yearly_metrics(map: &Map, year: u32, total_upgrade_costs: f64, tota
         }
     }
 
+    // Calculate total cost (subtracting carbon credit revenue)
     let total_operating_cost = 0.0; // We'll only calculate this when needed for CSV export
     let total_capital_cost = map.calc_total_capital_cost(year);
     let inflation_factor = const_funcs::calc_inflation_factor(year);
-    let total_cost = total_capital_cost;
+    // Subtract carbon credit revenue from total cost
+    let total_cost = total_capital_cost - carbon_credit_revenue;
 
     YearlyMetrics {
         year,
@@ -569,6 +579,7 @@ fn calculate_yearly_metrics(map: &Map, year: u32, total_upgrade_costs: f64, tota
         total_co2_emissions,
         total_carbon_offset,
         net_co2_emissions,
+        carbon_credit_revenue,
         generator_efficiencies,
         generator_operations,
         active_generators: active_count,
@@ -591,6 +602,9 @@ fn print_yearly_summary(metrics: &YearlyMetrics) {
     println!("  Capital Cost: €{:.2}", metrics.total_capital_cost);
     println!("  Upgrade Costs: €{:.2}", metrics.upgrade_costs);
     println!("  Closure Costs: €{:.2}", metrics.closure_costs);
+    if metrics.carbon_credit_revenue > 0.0 {
+        println!("  Carbon Credit Revenue: €{:.2}", metrics.carbon_credit_revenue);
+    }
     println!("Environmental Metrics:");
     println!("  CO2 Emissions: {:.2} tonnes", metrics.total_co2_emissions);
     println!("  Carbon Offset: {:.2} tonnes", metrics.total_carbon_offset);
@@ -1375,7 +1389,12 @@ fn run_iteration(
         };
         
         let capital_cost = map.calc_total_capital_cost(2050);
-        let total_cost = capital_cost;  // Only use capital costs for budget
+        
+        // Calculate carbon credit revenue for 2050
+        let carbon_credit_revenue = const_funcs::calculate_carbon_credit_revenue(final_emissions, 2050);
+        
+        // Subtract carbon credit revenue from total cost
+        let total_cost = capital_cost - carbon_credit_revenue;
         
         let final_metrics = SimulationMetrics {
             final_net_emissions: final_emissions,
@@ -1620,6 +1639,7 @@ fn convert_yearly_metrics(metrics: &[YearlyMetrics]) -> Vec<csv_export::YearlyMe
         total_co2_emissions: m.total_co2_emissions,
         total_carbon_offset: m.total_carbon_offset,
         net_co2_emissions: m.net_co2_emissions,
+        carbon_credit_revenue: m.carbon_credit_revenue,
         generator_efficiencies: m.generator_efficiencies.clone(),
         generator_operations: m.generator_operations.clone(),
         active_generators: m.active_generators,
