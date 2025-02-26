@@ -1,62 +1,19 @@
 // Time Constants
 pub const BASE_YEAR: u32 = 2025;
 pub const END_YEAR: u32 = 2050;
-pub const MEDIUM_TERM_YEAR: u32 = 2030;
-pub const LONG_TERM_YEAR: u32 = 2040;
 
 // Map and Grid Constants
 pub const MAP_MAX_X: f64 = 50_000.0;
 pub const MAP_MAX_Y: f64 = 50_000.0;
 pub const GRID_CELL_SIZE: f64 = 1000.0;              // 1km grid cells
-pub const MAX_CUMULATIVE_GENERATOR_SIZE: f64 = 1.0;  // Maximum size a generator can be
-
-// Electricity Transmission Loss Factors
-pub const BASE_TRANSMISSION_LOSS_RATE: f64 = 1.6e-4;     // Loss per km of distance
-
-// Industrial Power Usage
-pub const INDUSTRY_POWER_FACTOR: f64 = 1.8;       // Additional 80% power usage for industrial areas
-pub const INDUSTRY_THRESHOLD_POP: u32 = 33_700;   // Population threshold for significant industry
-pub const DATA_CENTER_POWER_FACTOR: f64 = 3.0;      // Additional 50% power for areas with data centers
-pub const COMMERCIAL_POWER_FACTOR: f64 = 1.8;     // Additional 30% for commercial districts
-
-// Grid Infrastructure Evolution
-pub const GRID_IMPROVEMENT_RATE: f64 = 0.01;  // 1% annual improvement in transmission efficiency
-pub const SMART_GRID_FACTOR: f64 = 0.49;      // 15% reduction in losses with smart grid
-pub const SMART_GRID_ADOPTION_YEAR: u32 = 2040;
 
 // Generator Placement Weights
 pub const TRANSMISSION_LOSS_WEIGHT: f64 = 0.03;    // Weight for transmission losses in placement
 pub const PUBLIC_OPINION_WEIGHT: f64 = 0.12;       // Weight for public opinion in placement
 pub const CONSTRUCTION_COST_WEIGHT: f64 = 0.82;    // Weight for construction costs in placement
-pub const ENVIRONMENTAL_WEIGHT: f64 = 0.03;        // Weight for environmental factors
-
-// Settlement Power Distribution
-pub const RESIDENTIAL_POWER_RATIO: f64 = 0.211;    // 35% of power for residential use
-pub const COMMERCIAL_POWER_RATIO: f64 = 0.595;     // 25% of power for commercial use
-pub const INDUSTRIAL_POWER_RATIO: f64 = 0.194;     // 40% of power for industrial use
-
-// Settlement Size Classifications (population)
-pub const URBAN_POPULATION_THRESHOLD: u32 = 25_000;
-pub const MEDIUM_SETTLEMENT_THRESHOLD: u32 = 50_000;
-pub const LARGE_CITY_REFERENCE: f64 = 80_000.0;
 
 // Economic Constants
 pub const INFLATION_RATE: f64 = 0.0185;
-
-// Population Growth Rates (from CSO)
-pub const SHORT_TERM_GROWTH: f64 = 0.05;
-pub const MEDIUM_TERM_GROWTH: f64 = 0.045;
-pub const LONG_TERM_GROWTH: f64 = 0.04;
-
-// Urbanization Factors
-pub const URBAN_GROWTH_RATE: f64 = 0.0031;
-pub const RURAL_GROWTH_RATE: f64 = 0.0017;
-
-// Economic Growth Rates
-pub const ECONOMIC_GROWTH: f64 = 0.038;
-
-// Energy Efficiency Improvements
-pub const EFFICIENCY_GAIN: f64 = 0.02;
 
 // Technology Cost Evolution
 pub const WIND_COST_REDUCTION: f64 = 0.99;   // 5% reduction per year
@@ -102,8 +59,8 @@ pub const WAVE_OPINION_CHANGE: f64 = 0.005;
 
 
 
-// Infrastructure Impact Factors
-pub const DATA_CENTER_GROWTH: f64 = 0.02;     // 3% annual growth
+
+
 
 // Generator Size and Efficiency Bounds
 pub const MIN_GENERATOR_SIZE: f64 = 0.1;
@@ -112,31 +69,6 @@ pub const BASE_EFFICIENCY: f64 = 0.99;
 
 // Cost Reference Values (in euros)
 pub const REFERENCE_ANNUAL_EXPENDITURE: f64 = 1_384_000_000.0; // 10 billion euros per year
-
-// Size-Efficiency Relationships
-pub const SIZE_EFFICIENCY_FACTOR: f64 = 0.244;  // Maximum additional efficiency from size
-pub const COST_EFFICIENCY_FACTOR: f64 = 0.09;  // Maximum additional efficiency from cost
-
-// Output Configuration
-pub const CSV_HEADER: &str = "Year,Total Population,Total Power Usage (MW),Total Power Generation (MW),Power Balance (MW),Average Public Opinion"; 
-
-// Base Costs (in euros)
-pub const BASE_ONSHORE_WIND_COST: f64 = 1_300_000.0;    // Per MW
-pub const BASE_OFFSHORE_WIND_COST: f64 = 1_800_000.0;   // Per MW
-
-pub const BASE_DOMESTIC_SOLAR_COST: f64 = 800_000.0;    // Per MW
-pub const BASE_UTILITY_SOLAR_COST: f64 = 1_000_000.0;   // Per MW
-
-pub const BASE_NUCLEAR_COST: f64 = 2_500_000.0;         // Per MW
-
-pub const BASE_COAL_COST: f64 = 4_074_000.0;            // Per MW
-pub const BASE_GAS_CC_COST: f64 = 1_130_000.0;          // Per MW
-pub const BASE_GAS_PEAKER_COST: f64 = 1_130_000.0;        // Per MW
-
-pub const BASE_HYDRO_DAM_COST: f64 = 3_083_000.0;       // Per MW
-pub const BASE_PUMPED_STORAGE_COST: f64 = 3_752_000.0;  // Per MW
-pub const BASE_TIDAL_COST: f64 = 3_432_000.0;        // Per MW (initially very expensive)
-pub const BASE_WAVE_COST: f64 = 3_240_000.0;        // Per MW (initially extremely expensive)
 
 // Operating Costs (per year)
 pub const ONSHORE_WIND_OPERATING_COST: f64 = 45_000.0;
@@ -167,25 +99,6 @@ pub const RIVER_BONUS: f64 = 1.10;             // 10% bonus for water-based gene
 // Power Storage Constants
 pub const MAX_INTERMITTENT_PERCENTAGE: f64 = 0.40;  // Maximum 30% intermittent without storage
 pub const STORAGE_CAPACITY_FACTOR: f64 = 0.5;      // Each MW of storage allows 0.5 MW more intermittent
-
-// Pumped Storage Parameters
-pub const PUMPED_STORAGE_CAPACITY: f64 = 2500.0;      // MWh of storage
-pub const PUMPED_STORAGE_EFFICIENCY: f64 = 0.75;       // 75% round-trip efficiency
-
-// Battery Storage Parameters
-pub const BATTERY_STORAGE_CAPACITY: f64 = 200.0;      // MWh of storage
-pub const BATTERY_STORAGE_EFFICIENCY: f64 = 0.35;      // 85% round-trip efficiency
-
-// Time-based Generation Factors
-pub const SOLAR_PEAK_HOURS: u8 = 5;  // Number of peak solar hours per day
-pub const WIND_PEAK_HOURS: u8 = 12;   // Number of peak wind hours per day
-
-// Weather Impact Factors
-pub const CLOUDY_DAY_FACTOR: f64 = 0.175;  // Solar output on cloudy days
-
-// Storage Cost Parameters
-pub const BATTERY_STORAGE_COST_PER_MWH: f64 = 1_316_000.0;  // Cost per MWh of battery storage
-pub const PUMPED_STORAGE_COST_PER_MWH: f64 = 3_752_000.0;   // Cost per MWh of pumped storage 
 
 // Marine and Battery Storage Power Outputs
 pub const MARINE_EFFICIENCY_GAIN: f64 = 0.93;      // 7% annual efficiency gain for marine tech
@@ -218,11 +131,6 @@ pub const IRELAND_MAX_LON: f64 = -5.4;
 
 // Geographic Features
 pub const COASTAL_THRESHOLD: f64 = 0.1; // Proportion of map width to consider coastal 
-
-// Power Distribution Evolution Rates
-pub const RESIDENTIAL_EFFICIENCY_GAIN: f64 = 0.02;  // 2% annual efficiency improvement
-pub const COMMERCIAL_GROWTH_RATE: f64 = 0.049;      // 1.5% annual growth in commercial power usage
-pub const INDUSTRIAL_EVOLUTION_RATE: f64 = -0.01;   // 1% annual reduction due to efficiency improvements
 
 // Generator Size Constraints
 pub const ONSHORE_WIND_MIN_SIZE: f64 = 0.2;

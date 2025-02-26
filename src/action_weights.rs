@@ -457,26 +457,7 @@ impl ActionWeights {
         }
     }
 
-    pub fn clone_with_best(&self) -> Self {
-        Self {
-            weights: self.weights.clone(),
-            action_count_weights: self.action_count_weights.clone(),
-            learning_rate: self.learning_rate,
-            best_metrics: self.best_metrics.clone(),
-            best_weights: self.best_weights.clone(),
-            best_actions: self.best_actions.clone(),
-            iteration_count: self.iteration_count,
-            exploration_rate: self.exploration_rate,
-            current_run_actions: HashMap::new(),
-        }
-    }
 
-    pub fn load_best_strategy(&mut self) {
-        if let Some(best_weights) = &self.best_weights {
-            self.weights = best_weights.clone();
-        }
-    }
-    
     pub fn save_to_file(&self, path: &str) -> std::io::Result<()> {
         // Acquire lock for file operations
         let _lock = FILE_MUTEX.lock().map_err(|e| {
@@ -919,8 +900,7 @@ impl ActionWeights {
             current_run_actions: HashMap::new(),
         })
     }
-    
-    // Get a reference to the weights for a specific year
+    #[allow(dead_code)]
     pub fn get_year_weights(&self, year: u32) -> Option<&HashMap<GridAction, f64>> {
         self.weights.get(&year)
     }
