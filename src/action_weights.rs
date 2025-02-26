@@ -8,6 +8,7 @@ use lazy_static::lazy_static;
 use std::str::FromStr;
 use std::sync::Mutex;
 
+
 lazy_static! {
     static ref FILE_MUTEX: Mutex<()> = Mutex::new(());
 }
@@ -15,6 +16,7 @@ lazy_static! {
 const DEFAULT_WEIGHT: f64 = 0.5;
 const MIN_WEIGHT: f64 = 0.001;  // Ensure weight doesn't go too close to zero
 const MAX_WEIGHT: f64 = 0.95;  // Ensure weight doesn't dominate completely
+const DIVERGENCE_FOR_NEGATIVE_WEIGHT: f64 = 0.03; //The difference of improvement necessary for a negative weight
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GridAction {
@@ -23,6 +25,7 @@ pub enum GridAction {
     AdjustOperation(String, u8),  // Generator ID, percentage (0-100)
     AddCarbonOffset(String),  // Offset type
     CloseGenerator(String),  // Generator ID
+    DoNothing, // New no-op action
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +84,13 @@ impl From<&GridAction> for SerializableAction {
                 operation_percentage: None,
                 offset_type: None,
             },
+            GridAction::DoNothing => SerializableAction {
+                action_type: "DoNothing".to_string(),
+                generator_type: None,
+                generator_id: None,
+                operation_percentage: None,
+                offset_type: None,
+            },
         }
     }
 }
@@ -92,6 +102,7 @@ struct SerializableWeights {
     learning_rate: f64,
     best_metrics: Option<SimulationMetrics>,
     best_weights: Option<HashMap<u32, Vec<(SerializableAction, f64)>>>,
+    best_actions: Option<HashMap<u32, Vec<SerializableAction>>>,
     iteration_count: u32,
     exploration_rate: f64,
 }
@@ -103,8 +114,10 @@ pub struct ActionWeights {
     learning_rate: f64,
     best_metrics: Option<SimulationMetrics>,
     best_weights: Option<HashMap<u32, HashMap<GridAction, f64>>>,
+    best_actions: Option<HashMap<u32, Vec<GridAction>>>, // Store actions from the best run
     iteration_count: u32,
     exploration_rate: f64,
+    current_run_actions: HashMap<u32, Vec<GridAction>>, // Track actions in the current run
 }
 
 impl ActionWeights {
@@ -153,6 +166,9 @@ impl ActionWeights {
             
             year_weights.insert(GridAction::CloseGenerator(String::new()), 0.02);
             
+            // Initialize DoNothing action weight (base value can be tuned)
+            year_weights.insert(GridAction::DoNothing, 0.1);
+            
             // Add year's weights to the map
             weights.insert(year, year_weights);
 
@@ -182,8 +198,10 @@ impl ActionWeights {
             learning_rate: 0.1,
             best_metrics: None,
             best_weights: None,
+            best_actions: None,
             iteration_count: 0,
             exploration_rate: 0.2,
+            current_run_actions: HashMap::new(),
         }
     }
 
@@ -191,6 +209,8 @@ impl ActionWeights {
         self.iteration_count += 1;
         // Decay exploration rate over time
         self.exploration_rate = 0.2 * (1.0 / (1.0 + 0.1 * self.iteration_count as f64));
+        // Clear actions from the previous run
+        self.current_run_actions.clear();
     }
     
     pub fn sample_action(&self, year: u32) -> GridAction {
@@ -254,6 +274,8 @@ impl ActionWeights {
         year_weights.insert(GridAction::AddCarbonOffset("ActiveCapture".to_string()), 0.02);
         year_weights.insert(GridAction::AddCarbonOffset("CarbonCredit".to_string()), 0.02);
         year_weights.insert(GridAction::CloseGenerator(String::new()), 0.02);
+        // Initialize DoNothing with a base weight
+        year_weights.insert(GridAction::DoNothing, 0.1);
         year_weights
     }
 
@@ -309,12 +331,18 @@ impl ActionWeights {
         
         year_weights.insert(action.clone(), new_weight);
         
-        // If this was a bad outcome, slightly increase weights of other actions
+        // If this was a bad outcome, slightly increase weights of other actions.
         if combined_improvement < 0.0 {
             let boost_factor = 1.0 + (self.learning_rate * 0.1); // Small boost to alternatives
             for (other_action, weight) in year_weights.iter_mut() {
                 if other_action != action {
                     *weight = (*weight * boost_factor).min(MAX_WEIGHT);
+                }
+            }
+            // If we've achieved net zero but are suffering from high costs, further boost DoNothing.
+            if self.best_metrics.as_ref().map(|m| m.final_net_emissions <= 0.0 && m.total_cost > MAX_ACCEPTABLE_COST * 8.0).unwrap_or(false) {
+                if let Some(noop_weight) = year_weights.get_mut(&GridAction::DoNothing) {
+                    *noop_weight = (*noop_weight * (1.0 + self.learning_rate * 0.2)).min(MAX_WEIGHT);
                 }
             }
         }
@@ -334,19 +362,97 @@ impl ActionWeights {
         if should_update {
             // Only print improvement message if we actually had a previous best
             if let Some(best) = &self.best_metrics {
-                println!("\nNew best strategy found! Score improved from {:.4} to {:.4}", 
-                        score_metrics(best),
-                        current_score);
+                let best_score = score_metrics(best);
+                let improvement = ((current_score - best_score) / best_score * 100.0).abs();
+                
+                // Create a VERY visible message with details about the improvement
+                println!("\n\n");
+                println!("{}", "🌟".repeat(40));
+                println!("{}", "=".repeat(80));
+                println!("🎉🎉🎉  MAJOR STRATEGY IMPROVEMENT FOUND!  🎉🎉🎉");
+                println!("{}", "=".repeat(80));
+                println!("{}", "🌟".repeat(40));
+                println!("\nScore improved by {:.2}%", improvement);
+                println!("Previous best score: {:.4} → New best score: {:.4}", best_score, current_score);
+
+                // Add more detailed metrics information with better formatting
+                println!("\n📊 DETAILED METRICS COMPARISON:");
+                
+                // Net emissions comparison with appropriate emoji
+                let emissions_change = metrics.final_net_emissions - best.final_net_emissions;
+                let emissions_emoji = if emissions_change <= 0.0 { "✅" } else { "⚠️" };
+                println!("  {} Net emissions: {:.2} → {:.2} ({:+.2})", 
+                        emissions_emoji, best.final_net_emissions, metrics.final_net_emissions, emissions_change);
+                
+                // Cost comparison with appropriate emoji
+                let cost_change = metrics.total_cost - best.total_cost;
+                let cost_change_pct = (cost_change / best.total_cost) * 100.0;
+                let cost_emoji = if cost_change <= 0.0 { "✅" } else { "⚠️" };
+                println!("  {} Total cost: €{:.2}B → €{:.2}B ({:+.2}%, {:+.2}B)", 
+                        cost_emoji, 
+                        best.total_cost / 1_000_000_000.0, 
+                        metrics.total_cost / 1_000_000_000.0,
+                        cost_change_pct,
+                        cost_change / 1_000_000_000.0);
+                
+                // Public opinion comparison with appropriate emoji
+                let opinion_change = (metrics.average_public_opinion - best.average_public_opinion) * 100.0;
+                let opinion_emoji = if opinion_change >= 0.0 { "✅" } else { "⚠️" };
+                println!("  {} Public opinion: {:.1}% → {:.1}% ({:+.1}%)", 
+                        opinion_emoji,
+                        best.average_public_opinion * 100.0, 
+                        metrics.average_public_opinion * 100.0,
+                        opinion_change);
+                
+                // Power reliability comparison with appropriate emoji
+                let reliability_change = (metrics.power_reliability - best.power_reliability) * 100.0;
+                let reliability_emoji = if reliability_change >= 0.0 { "✅" } else { "⚠️" };
+                println!("  {} Power reliability: {:.1}% → {:.1}% ({:+.1}%)", 
+                        reliability_emoji,
+                        best.power_reliability * 100.0, 
+                        metrics.power_reliability * 100.0,
+                        reliability_change);
+                
+                println!("{}", "=".repeat(80));
+                println!("{}", "🌟".repeat(40));
+                println!("\n");
+            } else {
+                // First successful strategy found - make this VERY visible too
+                println!("\n\n");
+                println!("{}", "🌟".repeat(40));
+                println!("{}", "=".repeat(80));
+                println!("🎉🎉🎉  FIRST SUCCESSFUL STRATEGY FOUND!  🎉🎉🎉");
+                println!("{}", "=".repeat(80));
+                println!("{}", "🌟".repeat(40));
+                println!("\nInitial score: {:.4}", current_score);
+                
+                // Add detailed metrics for the first strategy
+                println!("\n📊 INITIAL METRICS:");
+                println!("  Net emissions: {:.2} tonnes", metrics.final_net_emissions);
+                println!("  Total cost: €{:.2}B/year", metrics.total_cost / 1_000_000_000.0);
+                println!("  Public opinion: {:.1}%", metrics.average_public_opinion * 100.0);
+                println!("  Power reliability: {:.1}%", metrics.power_reliability * 100.0);
+                
+                println!("{}", "=".repeat(80));
+                println!("{}", "🌟".repeat(40));
+                println!("\n");
             }
             self.best_metrics = Some(metrics);
             self.best_weights = Some(self.weights.clone());
-        } else if let Some(best) = &self.best_metrics {
-            // If this was significantly worse than our best, print a warning
-            let best_score = score_metrics(best);
-            let deterioration = (best_score - current_score) / best_score;
-            if deterioration > 0.1 { // More than 10% worse
-                println!("\nWarning: Current strategy performing poorly. Score: {:.4} (Best: {:.4})", 
-                        current_score, best_score);
+            // Store the current run's actions as the best actions
+            self.best_actions = Some(self.current_run_actions.clone());
+        } else {
+            // If this was significantly worse than our best, apply contrast learning
+            self.apply_contrast_learning(&metrics);
+            
+            // Also print a warning if significantly worse
+            if let Some(best) = &self.best_metrics {
+                let best_score = score_metrics(best);
+                let deterioration = (best_score - current_score) / best_score;
+                if deterioration > 0.1 { // More than 10% worse
+                    println!("\nWarning: Current strategy performing poorly. Score: {:.4} (Best: {:.4}, {:.1}% worse)", 
+                            current_score, best_score, deterioration * 100.0);
+                }
             }
         }
     }
@@ -358,8 +464,10 @@ impl ActionWeights {
             learning_rate: self.learning_rate,
             best_metrics: self.best_metrics.clone(),
             best_weights: self.best_weights.clone(),
+            best_actions: self.best_actions.clone(),
             iteration_count: self.iteration_count,
             exploration_rate: self.exploration_rate,
+            current_run_actions: HashMap::new(),
         }
     }
 
@@ -385,190 +493,418 @@ impl ActionWeights {
         }
 
         // Convert to serializable format
+        let mut serializable_weights = HashMap::new();
+        for (year, year_weights) in &self.weights {
+            let mut serializable_year_weights = Vec::new();
+            for (action, &weight) in year_weights {
+                match action {
+                    GridAction::AddGenerator(gen_type) => {
+                        serializable_year_weights.push((
+                            SerializableAction {
+                                action_type: "AddGenerator".to_string(),
+                                generator_type: Some(gen_type.to_string()),
+                                generator_id: None,
+                                operation_percentage: None,
+                                offset_type: None,
+                            },
+                            weight,
+                        ));
+                    },
+                    GridAction::UpgradeEfficiency(id) => {
+                        serializable_year_weights.push((
+                            SerializableAction {
+                                action_type: "UpgradeEfficiency".to_string(),
+                                generator_type: None,
+                                generator_id: Some(id.clone()),
+                                operation_percentage: None,
+                                offset_type: None,
+                            },
+                            weight,
+                        ));
+                    },
+                    GridAction::AdjustOperation(id, percentage) => {
+                        serializable_year_weights.push((
+                            SerializableAction {
+                                action_type: "AdjustOperation".to_string(),
+                                generator_type: None,
+                                generator_id: Some(id.clone()),
+                                operation_percentage: Some(*percentage),
+                                offset_type: None,
+                            },
+                            weight,
+                        ));
+                    },
+                    GridAction::AddCarbonOffset(offset_type) => {
+                        serializable_year_weights.push((
+                            SerializableAction {
+                                action_type: "AddCarbonOffset".to_string(),
+                                generator_type: None,
+                                generator_id: None,
+                                operation_percentage: None,
+                                offset_type: Some(offset_type.clone()),
+                            },
+                            weight,
+                        ));
+                    },
+                    GridAction::CloseGenerator(id) => {
+                        serializable_year_weights.push((
+                            SerializableAction {
+                                action_type: "CloseGenerator".to_string(),
+                                generator_type: None,
+                                generator_id: Some(id.clone()),
+                                operation_percentage: None,
+                                offset_type: None,
+                            },
+                            weight,
+                        ));
+                    },
+                    GridAction::DoNothing => {
+                        serializable_year_weights.push((
+                            SerializableAction {
+                                action_type: "DoNothing".to_string(),
+                                generator_type: None,
+                                generator_id: None,
+                                operation_percentage: None,
+                                offset_type: None,
+                            },
+                            weight,
+                        ));
+                    },
+                }
+            }
+            serializable_weights.insert(*year, serializable_year_weights);
+        }
+        
+        // Convert best weights to serializable format
+        let serializable_best_weights = self.best_weights.as_ref().map(|best_weights| {
+            let mut serializable = HashMap::new();
+            for (year, year_weights) in best_weights {
+                let mut serializable_year_weights = Vec::new();
+                for (action, &weight) in year_weights {
+                    match action {
+                        GridAction::AddGenerator(gen_type) => {
+                            serializable_year_weights.push((
+                                SerializableAction {
+                                    action_type: "AddGenerator".to_string(),
+                                    generator_type: Some(gen_type.to_string()),
+                                    generator_id: None,
+                                    operation_percentage: None,
+                                    offset_type: None,
+                                },
+                                weight,
+                            ));
+                        },
+                        GridAction::UpgradeEfficiency(id) => {
+                            serializable_year_weights.push((
+                                SerializableAction {
+                                    action_type: "UpgradeEfficiency".to_string(),
+                                    generator_type: None,
+                                    generator_id: Some(id.clone()),
+                                    operation_percentage: None,
+                                    offset_type: None,
+                                },
+                                weight,
+                            ));
+                        },
+                        GridAction::AdjustOperation(id, percentage) => {
+                            serializable_year_weights.push((
+                                SerializableAction {
+                                    action_type: "AdjustOperation".to_string(),
+                                    generator_type: None,
+                                    generator_id: Some(id.clone()),
+                                    operation_percentage: Some(*percentage),
+                                    offset_type: None,
+                                },
+                                weight,
+                            ));
+                        },
+                        GridAction::AddCarbonOffset(offset_type) => {
+                            serializable_year_weights.push((
+                                SerializableAction {
+                                    action_type: "AddCarbonOffset".to_string(),
+                                    generator_type: None,
+                                    generator_id: None,
+                                    operation_percentage: None,
+                                    offset_type: Some(offset_type.clone()),
+                                },
+                                weight,
+                            ));
+                        },
+                        GridAction::CloseGenerator(id) => {
+                            serializable_year_weights.push((
+                                SerializableAction {
+                                    action_type: "CloseGenerator".to_string(),
+                                    generator_type: None,
+                                    generator_id: Some(id.clone()),
+                                    operation_percentage: None,
+                                    offset_type: None,
+                                },
+                                weight,
+                            ));
+                        },
+                        GridAction::DoNothing => {
+                            serializable_year_weights.push((
+                                SerializableAction {
+                                    action_type: "DoNothing".to_string(),
+                                    generator_type: None,
+                                    generator_id: None,
+                                    operation_percentage: None,
+                                    offset_type: None,
+                                },
+                                weight,
+                            ));
+                        },
+                    }
+                }
+                serializable.insert(*year, serializable_year_weights);
+            }
+            serializable
+        });
+        
+        // Convert best actions to serializable format
+        let serializable_best_actions = self.best_actions.as_ref().map(|best_actions| {
+            let mut serializable = HashMap::new();
+            for (year, actions) in best_actions {
+                let mut serializable_actions = Vec::new();
+                for action in actions {
+                    match action {
+                        GridAction::AddGenerator(gen_type) => {
+                            serializable_actions.push(
+                                SerializableAction {
+                                    action_type: "AddGenerator".to_string(),
+                                    generator_type: Some(gen_type.to_string()),
+                                    generator_id: None,
+                                    operation_percentage: None,
+                                    offset_type: None,
+                                }
+                            );
+                        },
+                        GridAction::UpgradeEfficiency(id) => {
+                            serializable_actions.push(
+                                SerializableAction {
+                                    action_type: "UpgradeEfficiency".to_string(),
+                                    generator_type: None,
+                                    generator_id: Some(id.clone()),
+                                    operation_percentage: None,
+                                    offset_type: None,
+                                }
+                            );
+                        },
+                        GridAction::AdjustOperation(id, percentage) => {
+                            serializable_actions.push(
+                                SerializableAction {
+                                    action_type: "AdjustOperation".to_string(),
+                                    generator_type: None,
+                                    generator_id: Some(id.clone()),
+                                    operation_percentage: Some(*percentage),
+                                    offset_type: None,
+                                }
+                            );
+                        },
+                        GridAction::AddCarbonOffset(offset_type) => {
+                            serializable_actions.push(
+                                SerializableAction {
+                                    action_type: "AddCarbonOffset".to_string(),
+                                    generator_type: None,
+                                    generator_id: None,
+                                    operation_percentage: None,
+                                    offset_type: Some(offset_type.clone()),
+                                }
+                            );
+                        },
+                        GridAction::CloseGenerator(id) => {
+                            serializable_actions.push(
+                                SerializableAction {
+                                    action_type: "CloseGenerator".to_string(),
+                                    generator_type: None,
+                                    generator_id: Some(id.clone()),
+                                    operation_percentage: None,
+                                    offset_type: None,
+                                }
+                            );
+                        },
+                        GridAction::DoNothing => {
+                            serializable_actions.push(
+                                SerializableAction {
+                                    action_type: "DoNothing".to_string(),
+                                    generator_type: None,
+                                    generator_id: None,
+                                    operation_percentage: None,
+                                    offset_type: None,
+                                }
+                            );
+                        },
+                    }
+                }
+                serializable.insert(*year, serializable_actions);
+            }
+            serializable
+        });
+
         let serializable = SerializableWeights {
-            weights: self.weights.iter().map(|(year, weights)| {
-                (*year, weights.iter().map(|(action, weight)| {
-                    (SerializableAction::from(action), *weight)
-                }).collect())
-            }).collect(),
+            weights: serializable_weights,
             learning_rate: self.learning_rate,
             best_metrics: self.best_metrics.clone(),
-            best_weights: self.best_weights.as_ref().map(|weights| {
-                weights.iter().map(|(year, weights)| {
-                    (*year, weights.iter().map(|(action, weight)| {
-                        (SerializableAction::from(action), *weight)
-                    }).collect())
-                }).collect()
-            }),
+            best_weights: serializable_best_weights,
+            best_actions: serializable_best_actions,
             iteration_count: self.iteration_count,
             exploration_rate: self.exploration_rate,
         };
-
-        // Serialize to JSON with pretty printing
-        let json = match serde_json::to_string_pretty(&serializable) {
-            Ok(json) => json,
-            Err(e) => {
-                println!("Error serializing weights to JSON: {}", e);
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("JSON serialization error: {}", e)));
-            }
-        };
-
-        // Write to file
-        match std::fs::write(path, &json) {
-            Ok(_) => {
-                println!("Successfully saved weights to {}", path);
-                Ok(())
-            },
-            Err(e) => {
-                println!("Error writing weights to {}: {}", path, e);
-                Err(e)
-            }
-        }
+        
+        let json = serde_json::to_string_pretty(&serializable)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        
+        std::fs::write(path, json)?;
+        
+        Ok(())
     }
     
     pub fn load_from_file(path: &str) -> std::io::Result<Self> {
-        println!("Attempting to load weights from: {}", path);
-        // Acquire lock for file operations
         let _lock = FILE_MUTEX.lock().map_err(|e| {
-            println!("Error acquiring file lock: {}", e);
-            std::io::Error::new(std::io::ErrorKind::Other, "Failed to acquire file lock")
+            std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to acquire file lock for loading: {}", e))
         })?;
         
-        let content = match std::fs::read_to_string(path) {
-            Ok(content) => content,
-            Err(e) => {
-                println!("Error reading file: {}", e);
-                return Err(e);
-            }
-        };
+        let json = std::fs::read_to_string(path)?;
+        let serializable: SerializableWeights = serde_json::from_str(&json)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         
-        let serializable: SerializableWeights = match serde_json::from_str(&content) {
-            Ok(weights) => weights,
-            Err(e) => {
-                println!("Error parsing weights JSON: {}. Content starts with: {:?}", e, content.chars().take(50).collect::<String>());
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("JSON parse error: {}", e)));
-            }
-        };
-        
-        // Convert back to internal format
-        let weights = serializable.weights.into_iter().map(|(year, actions)| {
+        // Convert serializable weights to actual weights
+        let mut weights = HashMap::new();
+        for (year, serializable_year_weights) in &serializable.weights {
             let mut year_weights = HashMap::new();
-            for (action, weight) in actions {
-                let grid_action = match action.action_type.as_str() {
+            for (serializable_action, weight) in serializable_year_weights {
+                let action = match serializable_action.action_type.as_str() {
                     "AddGenerator" => {
-                        match action.generator_type {
-                            Some(gen_type) => match GeneratorType::from_str(&gen_type) {
-                                Ok(gen) => GridAction::AddGenerator(gen),
-                                Err(e) => {
-                                    println!("Error parsing generator type '{}': {}", gen_type, e);
-                                    continue;
-                                }
-                            },
-                            None => {
-                                println!("Missing generator type for AddGenerator action");
-                                continue;
-                            }
+                        if let Some(gen_type_str) = &serializable_action.generator_type {
+                            let gen_type = GeneratorType::from_str(gen_type_str)
+                                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                            GridAction::AddGenerator(gen_type)
+                        } else {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "AddGenerator action missing generator_type",
+                            ));
                         }
                     },
-                    "UpgradeEfficiency" => match action.generator_id {
-                        Some(id) => GridAction::UpgradeEfficiency(id),
-                        None => {
-                            println!("Missing generator ID for UpgradeEfficiency action");
-                            continue;
+                    "UpgradeEfficiency" => {
+                        if let Some(id) = &serializable_action.generator_id {
+                            GridAction::UpgradeEfficiency(id.clone())
+                        } else {
+                            GridAction::UpgradeEfficiency(String::new())
                         }
                     },
                     "AdjustOperation" => {
-                        match (action.generator_id, action.operation_percentage) {
-                            (Some(id), Some(percentage)) => GridAction::AdjustOperation(id, percentage),
-                            _ => {
-                                println!("Missing generator ID or percentage for AdjustOperation action");
-                                continue;
-                            }
+                        let id = serializable_action.generator_id.clone().unwrap_or_default();
+                        let percentage = serializable_action.operation_percentage.unwrap_or(0);
+                        GridAction::AdjustOperation(id, percentage)
+                    },
+                    "AddCarbonOffset" => {
+                        if let Some(offset_type) = &serializable_action.offset_type {
+                            GridAction::AddCarbonOffset(offset_type.clone())
+                        } else {
+                            GridAction::AddCarbonOffset("Forest".to_string())
                         }
                     },
-                    "AddCarbonOffset" => match action.offset_type {
-                        Some(offset_type) => GridAction::AddCarbonOffset(offset_type),
-                        None => {
-                            println!("Missing offset type for AddCarbonOffset action");
-                            continue;
+                    "CloseGenerator" => {
+                        if let Some(id) = &serializable_action.generator_id {
+                            GridAction::CloseGenerator(id.clone())
+                        } else {
+                            GridAction::CloseGenerator(String::new())
                         }
                     },
-                    "CloseGenerator" => match action.generator_id {
-                        Some(id) => GridAction::CloseGenerator(id),
-                        None => {
-                            println!("Missing generator ID for CloseGenerator action");
-                            continue;
-                        }
-                    },
+                    "DoNothing" => GridAction::DoNothing,
                     _ => {
-                        println!("Unknown action type: {}", action.action_type);
-                        continue;
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("Unknown action type: {}", serializable_action.action_type),
+                        ));
                     }
                 };
-                year_weights.insert(grid_action, weight);
+                year_weights.insert(action, *weight);
             }
-            (year, year_weights)
-        }).collect();
-
-        let best_weights = serializable.best_weights.map(|weights| {
-            weights.into_iter().map(|(year, actions)| {
+            weights.insert(*year, year_weights);
+        }
+        
+        // Convert serializable best weights to actual best weights
+        let best_weights = serializable.best_weights.map(|serializable_best_weights| {
+            let mut best_weights = HashMap::new();
+            for (year, serializable_year_weights) in &serializable_best_weights {
                 let mut year_weights = HashMap::new();
-                for (action, weight) in actions {
-                    let grid_action = match action.action_type.as_str() {
+                for (serializable_action, weight) in serializable_year_weights {
+                    let action = match serializable_action.action_type.as_str() {
                         "AddGenerator" => {
-                            match action.generator_type {
-                                Some(gen_type) => match GeneratorType::from_str(&gen_type) {
-                                    Ok(gen) => GridAction::AddGenerator(gen),
-                                    Err(e) => {
-                                        println!("Error parsing generator type '{}': {}", gen_type, e);
-                                        continue;
-                                    }
-                                },
-                                None => {
-                                    println!("Missing generator type for AddGenerator action");
-                                    continue;
+                            if let Some(gen_type_str) = &serializable_action.generator_type {
+                                match GeneratorType::from_str(gen_type_str) {
+                                    Ok(gen_type) => GridAction::AddGenerator(gen_type),
+                                    Err(_) => continue, // Skip invalid generator types
                                 }
-                            }
-                        },
-                        "UpgradeEfficiency" => match action.generator_id {
-                            Some(id) => GridAction::UpgradeEfficiency(id),
-                            None => {
-                                println!("Missing generator ID for UpgradeEfficiency action");
+                            } else {
                                 continue;
                             }
+                        },
+                        "UpgradeEfficiency" => {
+                            GridAction::UpgradeEfficiency(serializable_action.generator_id.clone().unwrap_or_default())
                         },
                         "AdjustOperation" => {
-                            match (action.generator_id, action.operation_percentage) {
-                                (Some(id), Some(percentage)) => GridAction::AdjustOperation(id, percentage),
-                                _ => {
-                                    println!("Missing generator ID or percentage for AdjustOperation action");
-                                    continue;
-                                }
-                            }
+                            let id = serializable_action.generator_id.clone().unwrap_or_default();
+                            let percentage = serializable_action.operation_percentage.unwrap_or(0);
+                            GridAction::AdjustOperation(id, percentage)
                         },
-                        "AddCarbonOffset" => match action.offset_type {
-                            Some(offset_type) => GridAction::AddCarbonOffset(offset_type),
-                            None => {
-                                println!("Missing offset type for AddCarbonOffset action");
-                                continue;
-                            }
+                        "AddCarbonOffset" => {
+                            GridAction::AddCarbonOffset(serializable_action.offset_type.clone().unwrap_or_else(|| "Forest".to_string()))
                         },
-                        "CloseGenerator" => match action.generator_id {
-                            Some(id) => GridAction::CloseGenerator(id),
-                            None => {
-                                println!("Missing generator ID for CloseGenerator action");
-                                continue;
-                            }
+                        "CloseGenerator" => {
+                            GridAction::CloseGenerator(serializable_action.generator_id.clone().unwrap_or_default())
                         },
-                        _ => {
-                            println!("Unknown action type: {}", action.action_type);
-                            continue;
-                        }
+                        "DoNothing" => GridAction::DoNothing,
+                        _ => continue, // Skip unknown action types
                     };
-                    year_weights.insert(grid_action, weight);
+                    year_weights.insert(action, *weight);
                 }
-                (year, year_weights)
-            }).collect()
+                best_weights.insert(*year, year_weights);
+            }
+            best_weights
+        });
+        
+        // Convert serializable best actions to actual best actions
+        let best_actions = serializable.best_actions.map(|serializable_best_actions| {
+            let mut best_actions = HashMap::new();
+            for (year, serializable_actions) in &serializable_best_actions {
+                let mut actions = Vec::new();
+                for serializable_action in serializable_actions {
+                    let action = match serializable_action.action_type.as_str() {
+                        "AddGenerator" => {
+                            if let Some(gen_type_str) = &serializable_action.generator_type {
+                                match GeneratorType::from_str(gen_type_str) {
+                                    Ok(gen_type) => GridAction::AddGenerator(gen_type),
+                                    Err(_) => continue, // Skip invalid generator types
+                                }
+                            } else {
+                                continue;
+                            }
+                        },
+                        "UpgradeEfficiency" => {
+                            GridAction::UpgradeEfficiency(serializable_action.generator_id.clone().unwrap_or_default())
+                        },
+                        "AdjustOperation" => {
+                            let id = serializable_action.generator_id.clone().unwrap_or_default();
+                            let percentage = serializable_action.operation_percentage.unwrap_or(0);
+                            GridAction::AdjustOperation(id, percentage)
+                        },
+                        "AddCarbonOffset" => {
+                            GridAction::AddCarbonOffset(serializable_action.offset_type.clone().unwrap_or_else(|| "Forest".to_string()))
+                        },
+                        "CloseGenerator" => {
+                            GridAction::CloseGenerator(serializable_action.generator_id.clone().unwrap_or_default())
+                        },
+                        "DoNothing" => GridAction::DoNothing,
+                        _ => continue, // Skip unknown action types
+                    };
+                    actions.push(action);
+                }
+                best_actions.insert(*year, actions);
+            }
+            best_actions
         });
 
         Ok(Self {
@@ -577,8 +913,10 @@ impl ActionWeights {
             learning_rate: serializable.learning_rate,
             best_metrics: serializable.best_metrics,
             best_weights,
+            best_actions,
             iteration_count: serializable.iteration_count,
             exploration_rate: serializable.exploration_rate,
+            current_run_actions: HashMap::new(),
         })
     }
     
@@ -620,10 +958,12 @@ impl ActionWeights {
                 if score_metrics(other_metrics) > score_metrics(current_metrics) {
                     self.best_metrics = Some(other_metrics.clone());
                     self.best_weights = other.best_weights.clone();
+                    self.best_actions = other.best_actions.clone();
                 }
             } else {
                 self.best_metrics = Some(other_metrics.clone());
                 self.best_weights = other.best_weights.clone();
+                self.best_actions = other.best_actions.clone();
             }
         }
     }
@@ -686,6 +1026,82 @@ impl ActionWeights {
     pub fn get_simulation_metrics(&self) -> Option<&SimulationMetrics> {
         self.best_metrics.as_ref()
     }
+
+    // Add a method to record an action in the current run
+    pub fn record_action(&mut self, year: u32, action: GridAction) {
+        self.current_run_actions.entry(year)
+            .or_insert_with(Vec::new)
+            .push(action);
+    }
+
+    // Method to apply contrast learning - penalize actions that differ from the best run
+    pub fn apply_contrast_learning(&mut self, current_metrics: &SimulationMetrics) {
+        // Only apply contrast learning if we have a best run to compare against
+        if let (Some(best_metrics), Some(best_actions)) = (&self.best_metrics, &self.best_actions) {
+            let best_score = score_metrics(best_metrics);
+            let current_score = score_metrics(current_metrics);
+            
+            // Calculate how much worse the current run is compared to the best
+            let deterioration = if best_score > 0.0 {
+                (best_score - current_score) / best_score
+            } else {
+                0.0
+            };
+            
+            // Only apply contrast learning if the current run is significantly worse (>5%)
+            if deterioration > DIVERGENCE_FOR_NEGATIVE_WEIGHT {
+                // Log the contrast learning application
+                println!("\n🔄 Applying contrast learning - current run is {:.1}% worse than best", deterioration * 100.0);
+                
+                // Calculate the penalty factor - more severe for worse runs
+                let penalty_factor = 1.0 / (1.0 + self.learning_rate * 2.0 * deterioration);
+                
+                // For each year, compare actions in the current run with the best run
+                for (year, best_year_actions) in best_actions {
+                    let current_year_actions = self.current_run_actions.get(year).cloned().unwrap_or_default();
+                    
+                    // Identify actions in the current run that differ from the best run
+                    if let Some(year_weights) = self.weights.get_mut(year) {
+                        // For each action in the current year
+                        for (i, current_action) in current_year_actions.iter().enumerate() {
+                            // Check if this action differs from the corresponding action in the best run
+                            let differs = if i < best_year_actions.len() {
+                                current_action != &best_year_actions[i]
+                            } else {
+                                // Extra actions not present in the best run - penalize
+                                true
+                            };
+                            
+                            if differs {
+                                // Apply penalty to the different action
+                                if let Some(weight) = year_weights.get_mut(current_action) {
+                                    *weight = (*weight * penalty_factor).max(MIN_WEIGHT);
+                                }
+                                
+                                // Boost the corresponding best action if available
+                                if i < best_year_actions.len() {
+                                    let best_action = &best_year_actions[i];
+                                    if let Some(weight) = year_weights.get_mut(best_action) {
+                                        *weight = (*weight * (1.0 + self.learning_rate * deterioration)).min(MAX_WEIGHT);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Get the best actions for a particular year
+    pub fn get_best_actions_for_year(&self, year: u32) -> Option<&Vec<GridAction>> {
+        self.best_actions.as_ref().and_then(|actions| actions.get(&year))
+    }
+    
+    // Check if we have best actions available to replay
+    pub fn has_best_actions(&self) -> bool {
+        self.best_actions.is_some() && !self.best_actions.as_ref().unwrap().is_empty()
+    }
 }
 
 pub fn score_metrics(metrics: &SimulationMetrics) -> f64 {
@@ -694,17 +1110,27 @@ pub fn score_metrics(metrics: &SimulationMetrics) -> f64 {
         // If we haven't achieved net zero, only focus on reducing emissions
         1.0 - (metrics.final_net_emissions / MAX_ACCEPTABLE_EMISSIONS).min(1.0)
     }
-    // Second priority: Optimize costs if they're above 800% of budget
-    else if metrics.total_cost > MAX_ACCEPTABLE_COST * 8.0 {
-        // We've achieved net zero, now focus on reducing cost
-        // Score will be between 1.0 and 2.0 to indicate we're in cost optimization phase
-        1.0 + (1.0 - (metrics.total_cost / (MAX_ACCEPTABLE_COST * 8.0)).min(1.0))
-    }
-    // Final priority: Optimize public opinion
+    // Second priority: Optimize costs after achieving net zero
     else {
-        // We've achieved net zero and costs are under 800%, now optimize public opinion
-        // Score will be between 2.0 and 3.0 to indicate we're in opinion optimization phase
-        2.0 + metrics.average_public_opinion
+        // Base score of 1.0 for achieving net zero
+        let base_score = 1.0;
+        
+        // Cost component - normalized and inverted so lower costs give higher scores
+        // Use log scale to differentiate between very high costs
+        let normalized_cost = (metrics.total_cost / MAX_ACCEPTABLE_COST).max(1.0);
+        let log_cost = normalized_cost.ln();
+        let max_expected_log_cost = (MAX_ACCEPTABLE_COST * 100.0 / MAX_ACCEPTABLE_COST).ln(); // Assume 100x budget is max
+        let cost_score = 1.0 - (log_cost / max_expected_log_cost).min(1.0);
+        
+        // Public opinion component
+        let opinion_score = metrics.average_public_opinion;
+        
+        // Combine scores with appropriate weights
+        // Cost is higher priority until it's reasonable
+        let cost_weight = if normalized_cost > 8.0 { 0.8 } else { 0.5 };
+        let opinion_weight = 1.0 - cost_weight;
+        
+        base_score + (cost_score * cost_weight + opinion_score * opinion_weight)
     }
 }
 
@@ -713,6 +1139,7 @@ pub struct ActionResult {
     pub net_emissions: f64,
     pub public_opinion: f64,
     pub power_balance: f64,
+    pub total_cost: f64,
 }
 
 pub fn evaluate_action_impact(
@@ -726,12 +1153,22 @@ pub fn evaluate_action_impact(
                                   current_state.net_emissions.abs().max(1.0);
         emissions_improvement
     }
-    // Note: We can't check cost here since ActionResult doesn't have cost info
-    // Cost optimization is handled through the SimulationMetrics scoring
     else {
-        // If we've achieved net zero, consider opinion improvements
-        // The cost check will be handled by the SimulationMetrics scoring
-        (new_state.public_opinion - current_state.public_opinion) /
-        current_state.public_opinion.abs().max(1.0)
+        // If we've achieved net zero, consider both cost and opinion improvements
+        
+        // Cost improvement (negative is better)
+        let cost_change = new_state.total_cost - current_state.total_cost;
+        let cost_improvement = -cost_change / current_state.total_cost.abs().max(1.0);
+        
+        // Opinion improvement
+        let opinion_improvement = (new_state.public_opinion - current_state.public_opinion) /
+                                current_state.public_opinion.abs().max(1.0);
+        
+        // Weight cost more heavily if it's very high
+        let cost_weight = if current_state.total_cost > MAX_ACCEPTABLE_COST * 8.0 { 0.8 } else { 0.5 };
+        let opinion_weight = 1.0 - cost_weight;
+        
+        // Combined improvement score
+        cost_improvement * cost_weight + opinion_improvement * opinion_weight
     }
-} 
+}

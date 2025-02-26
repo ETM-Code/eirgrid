@@ -1,6 +1,27 @@
 #[macro_use]
 extern crate lazy_static;
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::path::Path;
+use std::time::{Duration, Instant};
+use std::fs::File;
+use std::io::Write;
+use std::str::FromStr;
+use std::thread;
+use std::error::Error;
+use std::collections::HashMap;
+
+use clap::Parser;
+use rayon::prelude::*;
+use parking_lot::{self, RwLock};
+use anyhow::Context;
+use indicatif::{ProgressBar, ProgressStyle};
+use serde::Serialize;
+use rand::Rng;
+use chrono::Local;
+
+// Module declarations
 mod poi;
 mod generator;
 mod settlement;
@@ -15,41 +36,31 @@ mod settlements_loader;
 mod generators_loader;
 mod spatial_index;
 mod metal_location_search;
-pub mod logging;
+mod logging;
+mod csv_export;
 
-use std::fs::File;
-use std::io::Write;
-use chrono::Local;
-use rand::Rng;
-use crate::action_weights::{SimulationMetrics, score_metrics};
-use std::error::Error;
-use crate::const_funcs::calc_inflation_factor;
-use std::str::FromStr;
-use rayon::prelude::*;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-use std::path::Path;
-use clap::Parser;
-use parking_lot::RwLock;
-use std::collections::HashMap;
-use crate::logging::{
-    OperationCategory, PowerCalcType, WeightsUpdateType, FileIOType
-};
+// Import specific items from modules
+use crate::map_handler::Map;
+use crate::generator::{Generator, GeneratorType};
+use crate::action_weights::{ActionWeights, GridAction, SimulationMetrics, evaluate_action_impact, ActionResult, score_metrics};
+use crate::constants::*;
+use crate::logging::{OperationCategory, FileIOType, PowerCalcType, WeightsUpdateType};
+use crate::csv_export::CsvExporter;
+use crate::carbon_offset::{CarbonOffset, CarbonOffsetType};
 
+// Public exports as needed
 pub use poi::{POI, Coordinate};
-pub use generator::{Generator, GeneratorType};
 pub use settlement::Settlement;
-pub use map_handler::Map;
-pub use carbon_offset::{CarbonOffset, CarbonOffsetType};
 pub use simulation_config::SimulationConfig;
-pub use action_weights::{ActionWeights, GridAction, ActionResult, evaluate_action_impact};
-pub use constants::*;
 
 const SIMULATION_START_YEAR: u32 = 2025;
 const SIMULATION_END_YEAR: u32 = 2050;
+// Percentage of total runs that should be full runs (0-100)
+const FULL_RUN_PERCENTAGE: usize = 1;
+// Whether to replay the best strategy during full runs
+const REPLAY_BEST_STRATEGY_IN_FULL_RUNS: bool = true;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct YearlyMetrics {
     year: u32,
     total_population: u32,
@@ -71,6 +82,7 @@ struct YearlyMetrics {
     total_cost: f64,
 }
 
+#[derive(Clone)]
 struct SimulationResult {
     metrics: SimulationMetrics,
     output: String,
@@ -80,11 +92,12 @@ struct SimulationResult {
 fn run_simulation(
     map: &mut Map,
     mut action_weights: Option<&mut ActionWeights>,
-) -> Result<(String, Vec<(u32, GridAction)>), Box<dyn Error + Send + Sync>> {
+) -> Result<(String, Vec<(u32, GridAction)>, Vec<YearlyMetrics>), Box<dyn Error + Send + Sync>> {
     let _timing = logging::start_timing("run_simulation", OperationCategory::Simulation);
     
     let mut output = String::new();
     let mut recorded_actions = Vec::new();
+    let mut yearly_metrics_collection = Vec::new();
     
     let total_upgrade_costs = 0.0;
     let total_closure_costs = 0.0;
@@ -113,10 +126,12 @@ fn run_simulation(
             let net_emissions = map.calc_net_co2_emissions(year);
             let public_opinion = calculate_average_opinion(map, year);
             let power_balance = map.calc_total_power_generation(year, None) - map.calc_total_power_usage(year);
+            let total_cost = map.calc_total_capital_cost(year);
             ActionResult {
                 net_emissions,
                 public_opinion,
                 power_balance,
+                total_cost,
             }
         };
 
@@ -137,94 +152,58 @@ fn run_simulation(
             let _timing = logging::start_timing("apply_additional_action", OperationCategory::Simulation);
             let action = local_weights.sample_action(year);
             apply_action(map, &action, year)?;
-            recorded_actions.push((year, action));
+            recorded_actions.push((year, action.clone()));
+            // Record action in the weights
+            local_weights.record_action(year, action);
         }
 
-        if map.calc_total_power_generation(year, None) > map.calc_total_power_usage(year) {
-            let mut worst_ratio = -1.0;
-            let mut worst_generator_id: Option<String> = None;
-            for generator in map.get_generators() {
-                if generator.is_active() {
-                    let power = generator.get_current_power_output(None);
-                    if power > 0.0 {
-                        let ratio = generator.get_co2_output() / power;
-                        if ratio > worst_ratio {
-                            worst_ratio = ratio;
-                            worst_generator_id = Some(generator.get_id().to_string());
-                        }
-                    }
-                }
-            }
-            if let Some(id) = worst_generator_id {
-                let adjust_action = GridAction::AdjustOperation(id, 80);
-                apply_action(map, &adjust_action, year)?;
-                recorded_actions.push((year, adjust_action));
-            }
-        }
-
-        let metrics = calculate_yearly_metrics(map, year, total_upgrade_costs, total_closure_costs);
-        if year == SIMULATION_END_YEAR {
-            final_year_metrics = Some(metrics.clone());
-        }
+        // Calculate yearly metrics
+        let yearly_metrics = calculate_yearly_metrics(map, year, total_upgrade_costs, total_closure_costs);
         
-        // Calculate operating costs only for CSV export
-        let operating_cost_for_csv = map.calc_total_operating_cost(year);
+        // Collect yearly metrics for CSV export
+        yearly_metrics_collection.push(yearly_metrics.clone());
         
-        output.push_str(&format!(
-            "{},{},{:.2},{:.2},{:.2},{:.3},{:.2},{:.2},{:.3},{:.2},{:.2},{:.2},{},{:.2},{:.2},{:.2}\n",
-            metrics.year,
-            metrics.total_population,
-            metrics.total_power_usage,
-            metrics.total_power_generation,
-            metrics.power_balance,
-            metrics.average_public_opinion,
-            operating_cost_for_csv,
-            metrics.total_capital_cost,
-            metrics.inflation_factor,
-            metrics.total_co2_emissions,
-            metrics.total_carbon_offset,
-            metrics.net_co2_emissions,
-            metrics.active_generators,
-            metrics.upgrade_costs,
-            metrics.closure_costs,
-            metrics.total_cost
-        ));
-
         if action_weights.is_none() {
-            print_yearly_summary(&metrics);
+            print_yearly_summary(&yearly_metrics);
+        }
+        
+        // For the last year, save metrics for final output
+        if year == SIMULATION_END_YEAR {
+            final_year_metrics = Some(yearly_metrics);
+        }
+    }
+
+    if let Some(metrics) = final_year_metrics {
+        if action_weights.is_none() {
             print_generator_details(&metrics);
         }
         
-        if let Some(weights) = action_weights.as_deref_mut() {
-            weights.update_weights_from(&local_weights);
-        }
-    }
-
-    if let Some(final_metrics) = final_year_metrics.clone() {
-        let sim_metrics = SimulationMetrics {
-            final_net_emissions: final_metrics.net_co2_emissions,
-            average_public_opinion: final_metrics.average_public_opinion,
-            total_cost: final_metrics.total_cost,
-            power_reliability: if final_metrics.power_balance >= 0.0 { 1.0 } else { 0.0 },
-        };
-        let overall_improvement = score_metrics(&sim_metrics);
+        // Format the output string
+        let population = metrics.total_population;
+        let power_usage = metrics.total_power_usage;
+        let power_generation = metrics.total_power_generation;
+        let power_balance = metrics.power_balance;
+        let public_opinion = metrics.average_public_opinion;
+        let operating_cost = metrics.total_operating_cost;
+        let capital_cost = metrics.total_capital_cost;
+        let net_emissions = metrics.net_co2_emissions;
         
-        // Group actions by year and count them
-        let mut year_action_counts: HashMap<u32, u32> = HashMap::new();
-        for (year, _) in &recorded_actions {
-            *year_action_counts.entry(*year).or_insert(0) += 1;
-        }
-        
-        // Update weights for both actions and action counts
-        for (year, action) in recorded_actions.clone() {
-            local_weights.update_weights(&action, year, overall_improvement);
-            if let Some(count) = year_action_counts.get(&year) {
-                local_weights.update_action_count_weights(year, *count, overall_improvement);
-            }
-        }
+        output = format!(
+            "Population: {}\nPower usage: {:.2} MW\nPower generation: {:.2} MW\nPower balance: {:.2} MW\nPublic opinion: {:.2}%\nOperating cost: €{:.2}\nCapital cost: €{:.2}\nNet emissions: {:.2} tonnes",
+            population, power_usage, power_generation, power_balance, 
+            public_opinion * 100.0, operating_cost, capital_cost, net_emissions
+        );
     }
-
-    Ok((output, recorded_actions))
+    
+    // Update weights with the final state if we have weights
+    if let Some(weights) = action_weights {
+        let _timing = logging::start_timing("update_weights", 
+            OperationCategory::WeightsUpdate { subcategory: WeightsUpdateType::Other });
+        
+        *weights = local_weights;
+    }
+    
+    Ok((output, recorded_actions, yearly_metrics_collection))
 }
 
 fn handle_power_deficit(
@@ -292,10 +271,12 @@ fn handle_power_deficit(
             let net_emissions = map.calc_net_co2_emissions(year);
             let public_opinion = calculate_average_opinion(map, year);
             let power_balance = map.calc_total_power_generation(year, None) - map.calc_total_power_usage(year);
+            let total_cost = map.calc_total_capital_cost(year);
             ActionResult {
                 net_emissions,
                 public_opinion,
                 power_balance,
+                total_cost,
             }
         };
 
@@ -306,6 +287,9 @@ fn handle_power_deficit(
                 OperationCategory::Simulation,
             );
             apply_action(map, &action, year)?;
+            
+            // Record the action in the weights system
+            action_weights.record_action(year, action.clone());
 
             // Recalculate state after the action.
             let new_state = {
@@ -316,10 +300,12 @@ fn handle_power_deficit(
                 let net_emissions = map.calc_net_co2_emissions(year);
                 let public_opinion = calculate_average_opinion(map, year);
                 let power_balance = map.calc_total_power_generation(year, None) - map.calc_total_power_usage(year);
+                let total_cost = map.calc_total_capital_cost(year);
                 ActionResult {
                     net_emissions,
                     public_opinion,
                     power_balance,
+                    total_cost,
                 }
             };
 
@@ -434,14 +420,14 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), Box
             let offset = CarbonOffset::new(
                 format!("Offset_{}_{}_{}", offset_type, year, map.get_carbon_offset_count()),
                 location,
-                CarbonOffsetType::from_str(offset_type)?,
-                match CarbonOffsetType::from_str(offset_type)? {
+                CarbonOffsetType::from_str(offset_type).unwrap_or(CarbonOffsetType::Forest),
+                match CarbonOffsetType::from_str(offset_type).unwrap_or(CarbonOffsetType::Forest) {
                     CarbonOffsetType::Forest => FOREST_BASE_COST,
                     CarbonOffsetType::Wetland => WETLAND_BASE_COST,
                     CarbonOffsetType::ActiveCapture => ACTIVE_CAPTURE_BASE_COST,
                     CarbonOffsetType::CarbonCredit => CARBON_CREDIT_BASE_COST,
                 },
-                match CarbonOffsetType::from_str(offset_type)? {
+                match CarbonOffsetType::from_str(offset_type).unwrap_or(CarbonOffsetType::Forest) {
                     CarbonOffsetType::Forest => FOREST_OPERATING_COST,
                     CarbonOffsetType::Wetland => WETLAND_OPERATING_COST,
                     CarbonOffsetType::ActiveCapture => ACTIVE_CAPTURE_OPERATING_COST,
@@ -472,6 +458,9 @@ fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), Box
                 }
             }
             map.after_generator_modification();
+            Ok(())
+        },
+        GridAction::DoNothing => {
             Ok(())
         },
     }
@@ -564,7 +553,7 @@ fn calculate_yearly_metrics(map: &Map, year: u32, total_upgrade_costs: f64, tota
 
     let total_operating_cost = 0.0; // We'll only calculate this when needed for CSV export
     let total_capital_cost = map.calc_total_capital_cost(year);
-    let inflation_factor = calc_inflation_factor(year);
+    let inflation_factor = const_funcs::calc_inflation_factor(year);
     let total_cost = total_capital_cost;
 
     YearlyMetrics {
@@ -748,7 +737,10 @@ fn run_multi_simulation(
                 
                 if found_weights {
                     if let Some((best_score, _)) = merged_weights.get_best_metrics() {
-                        println!("Loaded and merged weights with best score: {:.4}", best_score);
+                        println!("\n{}", "=".repeat(80));
+                        println!("📊 LOADED AND MERGED WEIGHTS FROM PREVIOUS RUNS 📊");
+                        println!("Best score from loaded weights: {:.4}", best_score);
+                        println!("{}", "=".repeat(80));
                     }
                     merged_weights
                 } else {
@@ -799,16 +791,16 @@ fn run_multi_simulation(
                 // Get emissions metrics from the best metrics
                 let metrics_info = if let Some(best) = weights.get_simulation_metrics() {
                     let emissions_status = if best.final_net_emissions <= 0.0 {
-                        "✓ Net Zero Achieved".to_string()
+                        "✅ NET ZERO ACHIEVED".to_string()
                     } else {
                         format!("⚠ {:.1}% above target", 
                             (best.final_net_emissions / MAX_ACCEPTABLE_EMISSIONS) * 100.0)
                     };
                     
                     let cost_status = if best.total_cost <= MAX_ACCEPTABLE_COST {
-                        "✓ Within Budget".to_string()
+                        "✅ WITHIN BUDGET".to_string()
                     } else {
-                        format!("⚠ {:.1}% over budget", 
+                        format!("❌ {:.1}% OVER BUDGET", 
                             ((best.total_cost - MAX_ACCEPTABLE_COST) / MAX_ACCEPTABLE_COST) * 100.0)
                     };
                     
@@ -828,8 +820,9 @@ fn run_multi_simulation(
                 };
                 
                 println!(
-                    "\nProgress Update:\n\
-                    ----------------------------------------\n\
+                    "\n{}\n\
+                    📈 PROGRESS UPDATE 📈\n\
+                    {}\n\
                     Iterations: {}/{} ({:.1}%)\n\
                     Speed: {:.1} iterations/sec\n\
                     ETA: {:.1} minutes\n\
@@ -841,15 +834,19 @@ fn run_multi_simulation(
                     - Score < 1.0000: Working on reducing emissions\n\
                     - Score = 0.0000: Emissions at or above maximum\n\
                     - Score > 0.0000: Making progress on emissions\n\
-                    - [NET ZERO]: Achieved net zero, score is now public opinion",
+                    - [NET ZERO]: Achieved net zero, score is now public opinion\n\
+                    {}",
+                    "=".repeat(80),
+                    "=".repeat(80),
                     completed,
                     total_iterations,
                     (completed as f64 / total_iterations as f64) * 100.0,
                     iterations_per_second,
                     eta_seconds / 60.0,
                     best_score,
-                    if is_net_zero { "[NET ZERO]" } else { "" },
-                    metrics_info
+                    if is_net_zero { "✅ [NET ZERO]" } else { "" },
+                    metrics_info,
+                    "=".repeat(80)
                 );
             }
         });
@@ -907,15 +904,23 @@ fn run_multi_simulation(
                     map_clone.set_carbon_offsets(base_map.get_carbon_offsets().to_vec());
 
                     // Set simulation mode based on global progress
-                    let final_full_sim_count = num_iterations.min(20);
+                    let final_full_sim_count = (num_iterations * FULL_RUN_PERCENTAGE) / 100;
                     let total_completed = completed_iterations.load(Ordering::Relaxed);
-                    let use_fast = !force_full_simulation && 
-                                 cache_loaded && 
-                                 total_completed < num_iterations.saturating_sub(final_full_sim_count);
-                    map_clone.set_simulation_mode(use_fast);
+                    
+                    // A run should be a full run if:
+                    // 1. Full simulation is forced by command line
+                    // 2. We're in the final X% of iterations (based on FULL_RUN_PERCENTAGE)
+                    // 3. Cache isn't loaded (forcing full sim)
+                    let is_full_run = force_full_simulation || 
+                                      !cache_loaded || 
+                                      total_completed >= num_iterations.saturating_sub(final_full_sim_count);
+                    
+                    // Set simulation mode
+                    map_clone.set_simulation_mode(!is_full_run);
                     
                     if total_completed == num_iterations.saturating_sub(final_full_sim_count) {
-                        println!("\nSwitching to full simulation mode for final {} iterations", final_full_sim_count);
+                        println!("\nSwitching to full simulation mode for final {} iterations ({:.1}% of total)", 
+                                final_full_sim_count, FULL_RUN_PERCENTAGE as f64);
                     }
                     
                     // Create local weights and immediately drop the read lock
@@ -924,17 +929,22 @@ fn run_multi_simulation(
                         weights.clone()
                     }; // Read lock is dropped here
                     
-                    let result = run_iteration(i, map_clone, &mut local_weights)?;
+                    // Determine if we should replay the best strategy
+                    let replay_best_strategy = is_full_run && 
+                                              REPLAY_BEST_STRATEGY_IN_FULL_RUNS && 
+                                              local_weights.has_best_actions();
+                    
+                    // Log if we're replaying the best strategy
+                    if replay_best_strategy {
+                        println!("🔁 Iteration {} is replaying the best strategy for thorough analysis", i + 1);
+                    }
+                    
+                    let result = run_iteration(i, map_clone, &mut local_weights, replay_best_strategy)?;
                     
                     // Update best metrics immediately
                     {
                         let mut weights = parking_lot::RwLock::write(&*action_weights);
                         weights.update_best_strategy(result.metrics.clone());
-                    }
-                    
-                    // Only acquire write lock periodically to merge weights
-                    if (i + 1) % 10 == 0 {
-                        let mut weights = parking_lot::RwLock::write(&*action_weights);
                         weights.update_weights_from(&local_weights);
                     }
                     
@@ -962,13 +972,15 @@ fn run_multi_simulation(
                         println!("Saved checkpoint at iteration {} in {} (thread {})", i + 1, run_dir, thread_id);
                     }
                     
+                    // Return the result (clone not needed anymore since we're returning it)
                     Ok(result)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             
+            // Find the best result from all results AFTER the parallel execution completes
             for result in results {
                 if best_result.as_ref().map_or(true, |best| {
-                    score_metrics(&result.metrics) > score_metrics(&best.metrics)
+                    evaluate_action_impact(&metrics_to_action_result(&result.metrics), &metrics_to_action_result(&best.metrics)) > 0.0
                 }) {
                     best_result = Some(result);
                 }
@@ -984,34 +996,65 @@ fn run_multi_simulation(
                 map_clone.set_carbon_offsets(base_map.get_carbon_offsets().to_vec());
 
                 // Set simulation mode based on global progress
-                let final_full_sim_count = num_iterations.min(20);
+                let final_full_sim_count = (num_iterations * FULL_RUN_PERCENTAGE) / 100;
                 let total_completed = completed_iterations.load(Ordering::Relaxed);
-                let use_fast = !force_full_simulation && 
-                             cache_loaded && 
-                             total_completed < num_iterations.saturating_sub(final_full_sim_count);
-                map_clone.set_simulation_mode(use_fast);
+                
+                // A run should be a full run if:
+                // 1. Full simulation is forced by command line
+                // 2. We're in the final X% of iterations (based on FULL_RUN_PERCENTAGE)
+                // 3. Cache isn't loaded (forcing full sim)
+                let is_full_run = force_full_simulation || 
+                                  !cache_loaded || 
+                                  total_completed >= num_iterations.saturating_sub(final_full_sim_count);
+                
+                // Set simulation mode
+                map_clone.set_simulation_mode(!is_full_run);
                 
                 if total_completed == num_iterations.saturating_sub(final_full_sim_count) {
-                    println!("\nSwitching to full simulation mode for final {} iterations", final_full_sim_count);
+                    println!("\nSwitching to full simulation mode for final {} iterations ({:.1}% of total)", 
+                            final_full_sim_count, FULL_RUN_PERCENTAGE as f64);
                 }
                 
-                // Get a write lock to update the shared weights
-                let mut weights = parking_lot::RwLock::write(&*action_weights);
-                let result = run_iteration(i, map_clone, &mut weights)?;
+                // Create local weights and immediately drop the read lock
+                let mut local_weights = {
+                    let weights = action_weights.read();
+                    weights.clone()
+                }; // Read lock is dropped here
+                
+                // Determine if we should replay the best strategy
+                let replay_best_strategy = is_full_run && 
+                                          REPLAY_BEST_STRATEGY_IN_FULL_RUNS && 
+                                          local_weights.has_best_actions();
+                
+                // Log if we're replaying the best strategy
+                if replay_best_strategy {
+                    println!("🔁 Iteration {} is replaying the best strategy for thorough analysis", i + 1);
+                }
+                
+                let result = run_iteration(i, map_clone, &mut local_weights, replay_best_strategy)?;
+                
+                // Update best metrics immediately
+                {
+                    let mut weights = parking_lot::RwLock::write(&*action_weights);
+                    weights.update_best_strategy(result.metrics.clone());
+                    weights.update_weights_from(&local_weights);
+                }
+                
+                // Store each result for later comparison
+                let curr_result = result.clone();
                 
                 // Increment completed iterations counter
                 completed_iterations.fetch_add(1, Ordering::Relaxed);
                 
-                if best_result.as_ref().map_or(true, |best| {
-                    score_metrics(&result.metrics) > score_metrics(&best.metrics)
-                }) {
-                    best_result = Some(result);
-                }
-                
                 // Save checkpoint at intervals
                 if (i + 1) % checkpoint_interval == 0 {
                     let checkpoint_path = Path::new(&run_dir).join("latest_weights.json");
-                    weights.save_to_file(checkpoint_path.to_str().unwrap())?;
+                    
+                    // Get a write lock to save the weights
+                    {
+                        let weights = parking_lot::RwLock::write(&*action_weights);
+                        weights.save_to_file(checkpoint_path.to_str().unwrap())?;
+                    }
                     
                     // Save iteration number
                     let iteration_path = Path::new(&run_dir).join("checkpoint_iteration.txt");
@@ -1019,15 +1062,43 @@ fn run_multi_simulation(
                     
                     println!("Saved checkpoint at iteration {} in {}", i + 1, run_dir);
                 }
+                
+                // Check if this result is better than our best result
+                if best_result.as_ref().map_or(true, |best| {
+                    evaluate_action_impact(&metrics_to_action_result(&curr_result.metrics), &metrics_to_action_result(&best.metrics)) > 0.0
+                }) {
+                    best_result = Some(curr_result);
+                }
             }
         }
         
         if let Some(best) = best_result {
-            println!("\nBest simulation results:");
+            println!("\n{}", "=".repeat(80));
+            println!("🏆 BEST SIMULATION RESULTS SUMMARY 🏆");
+            println!("{}", "=".repeat(80));
             println!("Final net emissions: {:.2} tonnes", best.metrics.final_net_emissions);
-            println!("Average public opinion: {:.3}", best.metrics.average_public_opinion);
-            println!("Total cost: €{:.2}", best.metrics.total_cost);
-            println!("Power reliability: {:.3}", best.metrics.power_reliability);
+            
+            // Add emoji indicators for success/failure
+            let emissions_status = if best.metrics.final_net_emissions <= 0.0 {
+                "✅ NET ZERO ACHIEVED".to_string()
+            } else {
+                "❌ NET ZERO NOT ACHIEVED".to_string()
+            };
+            
+            let cost_status = if best.metrics.total_cost <= MAX_ACCEPTABLE_COST {
+                "✅ WITHIN BUDGET".to_string()
+            } else {
+                format!("❌ {:.1}% OVER BUDGET", 
+                    ((best.metrics.total_cost - MAX_ACCEPTABLE_COST) / MAX_ACCEPTABLE_COST) * 100.0)
+            };
+            
+            println!("Emissions Status: {}", emissions_status);
+            println!("Average public opinion: {:.1}%", best.metrics.average_public_opinion * 100.0);
+            println!("Total cost: €{:.2} billion/year ({})", 
+                    best.metrics.total_cost / 1_000_000_000.0,
+                    cost_status);
+            println!("Power reliability: {:.1}%", best.metrics.power_reliability * 100.0);
+            println!("{}", "=".repeat(80));
             
             // Save final results in the run directory
             let csv_filename = Path::new(&run_dir).join("best_simulation.csv");
@@ -1211,6 +1282,24 @@ fn run_multi_simulation(
                             continue; // Skip if generator not found
                         }
                     },
+                    GridAction::DoNothing => {
+                        (
+                            "Do Nothing",
+                            "".to_string(), // no details
+                            0.0,            // capital cost
+                            0.0,            // operating cost
+                            0.0,            // location_x
+                            0.0,            // location_y
+                            "".to_string(), // generator type
+                            0.0,            // power output
+                            0.0,            // efficiency
+                            0.0,            // co2 output
+                            0,              // operation percentage
+                            0,              // lifespan
+                            "".to_string(), // previous state
+                            "".to_string()  // impact description
+                        )
+                    },
                 };
                 
                 actions_file.write_all(format!(
@@ -1255,7 +1344,8 @@ fn run_multi_simulation(
 fn run_iteration(
     iteration: usize,
     mut map: Map,
-    mut weights: &mut ActionWeights,
+    weights: &mut ActionWeights,
+    replay_best_strategy: bool,
 ) -> Result<SimulationResult, Box<dyn Error + Send + Sync>> {
     let _timing = logging::start_timing("run_iteration", 
         OperationCategory::Simulation);
@@ -1264,8 +1354,14 @@ fn run_iteration(
         println!("\nStarting iteration {}", iteration + 1);
         weights.start_new_iteration();
 
-        
-        let (simulation_output, recorded_actions) = run_simulation(&mut map, Some(&mut weights))?;
+        let (simulation_output, recorded_actions, yearly_metrics) = if replay_best_strategy {
+            // When replaying the best strategy, we'll run the simulation with the best actions
+            println!("🔁 Replaying best strategy for thorough analysis");
+            run_simulation_with_best_actions(&mut map, weights)?
+        } else {
+            // Normal simulation run
+            run_simulation(&mut map, Some(weights))?
+        };
         
         // Calculate final metrics properly
         let final_emissions = map.calc_net_co2_emissions(2050);
@@ -1288,7 +1384,28 @@ fn run_iteration(
             power_reliability: 1.0 - power_deficit,
         };
         
-        weights.update_best_strategy(final_metrics.clone());
+        // Only update best strategy if we're not replaying (to avoid circular updates)
+        if !replay_best_strategy {
+            weights.update_best_strategy(final_metrics.clone());
+        }
+        
+        // Export to CSV if this is the best run so far or a replay
+        if weights.has_best_actions() && (replay_best_strategy || 
+            weights.get_best_metrics().map_or(false, |(best_score, _)| 
+                score_metrics(&final_metrics) >= best_score - 0.001)) {
+            
+            // Create CSV exporter
+            let exporter = CsvExporter::new("results");
+            
+            // Convert YearlyMetrics to csv_export::YearlyMetrics
+            let csv_yearly_metrics = convert_yearly_metrics(&yearly_metrics);
+            
+            // Export simulation results to CSV
+            match exporter.export_simulation_results(&map, &recorded_actions, &final_metrics, &csv_yearly_metrics) {
+                Ok(_) => println!("✅ Exported simulation results to CSV"),
+                Err(e) => eprintln!("⚠️ Failed to export simulation results to CSV: {}", e),
+            }
+        }
         
         Ok(SimulationResult {
             metrics: final_metrics,
@@ -1407,5 +1524,108 @@ fn initialize_map(map: &mut Map) {
             ));
         }
     }
+}
+
+// Function to run a simulation that replays the best actions from a previous run
+fn run_simulation_with_best_actions(
+    map: &mut Map,
+    weights: &mut ActionWeights,
+) -> Result<(String, Vec<(u32, GridAction)>, Vec<YearlyMetrics>), Box<dyn Error + Send + Sync>> {
+    let _timing = logging::start_timing("run_simulation_with_best_actions", OperationCategory::Simulation);
+    
+    let mut output = String::new();
+    let mut recorded_actions = Vec::new();
+    let mut yearly_metrics_collection = Vec::new();
+    
+    let total_upgrade_costs = 0.0;
+    let total_closure_costs = 0.0;
+
+    let mut final_year_metrics: Option<YearlyMetrics> = None;
+
+    println!("\nReplaying best strategy from previous runs");
+
+    for year in SIMULATION_START_YEAR..=SIMULATION_END_YEAR {
+        let _year_timing = logging::start_timing(&format!("simulate_year_{}", year), OperationCategory::Simulation);
+        
+        // Get the best actions for this year
+        if let Some(best_actions) = weights.get_best_actions_for_year(year) {
+            println!("Year {}: Applying {} best actions", year, best_actions.len());
+            
+            // Apply each of the best actions
+            for action in best_actions {
+                apply_action(map, action, year)?;
+                recorded_actions.push((year, action.clone()));
+            }
+        } else {
+            println!("Year {}: No best actions found", year);
+        }
+
+        // Calculate and save yearly metrics
+        let metrics = calculate_yearly_metrics(map, year, total_upgrade_costs, total_closure_costs);
+        yearly_metrics_collection.push(metrics.clone());
+        
+        print_yearly_summary(&metrics);
+        
+        // Save the final year metrics
+        if year == SIMULATION_END_YEAR {
+            final_year_metrics = Some(metrics);
+        }
+    }
+
+    if let Some(metrics) = final_year_metrics {
+        print_generator_details(&metrics);
+        
+        // Format the output string
+        let population = metrics.total_population;
+        let power_usage = metrics.total_power_usage;
+        let power_generation = metrics.total_power_generation;
+        let power_balance = metrics.power_balance;
+        let public_opinion = metrics.average_public_opinion;
+        let operating_cost = metrics.total_operating_cost;
+        let capital_cost = metrics.total_capital_cost;
+        let net_emissions = metrics.net_co2_emissions;
+        
+        output = format!(
+            "Population: {}\nPower usage: {:.2} MW\nPower generation: {:.2} MW\nPower balance: {:.2} MW\nPublic opinion: {:.2}%\nOperating cost: €{:.2}\nCapital cost: €{:.2}\nNet emissions: {:.2} tonnes",
+            population, power_usage, power_generation, power_balance, 
+            public_opinion * 100.0, operating_cost, capital_cost, net_emissions
+        );
+    }
+    
+    Ok((output, recorded_actions, yearly_metrics_collection))
+}
+
+// Fix the helper function for converting SimulationMetrics to ActionResult
+fn metrics_to_action_result(metrics: &SimulationMetrics) -> ActionResult {
+    ActionResult {
+        public_opinion: metrics.average_public_opinion,
+        net_emissions: metrics.final_net_emissions,
+        power_balance: 0.0, // Not available in SimulationMetrics
+        total_cost: metrics.total_cost,
+    }
+}
+
+// Add a conversion function for YearlyMetrics
+fn convert_yearly_metrics(metrics: &[YearlyMetrics]) -> Vec<csv_export::YearlyMetrics> {
+    metrics.iter().map(|m| csv_export::YearlyMetrics {
+        year: m.year,
+        total_population: m.total_population,
+        total_power_usage: m.total_power_usage,
+        total_power_generation: m.total_power_generation,
+        power_balance: m.power_balance,
+        average_public_opinion: m.average_public_opinion,
+        total_operating_cost: m.total_operating_cost,
+        total_capital_cost: m.total_capital_cost,
+        inflation_factor: m.inflation_factor,
+        total_co2_emissions: m.total_co2_emissions,
+        total_carbon_offset: m.total_carbon_offset,
+        net_co2_emissions: m.net_co2_emissions,
+        generator_efficiencies: m.generator_efficiencies.clone(),
+        generator_operations: m.generator_operations.clone(),
+        active_generators: m.active_generators,
+        upgrade_costs: m.upgrade_costs,
+        closure_costs: m.closure_costs,
+        total_cost: m.total_cost,
+    }).collect()
 }
 
