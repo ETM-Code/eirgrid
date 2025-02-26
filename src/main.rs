@@ -8,15 +8,11 @@ use std::time::{Duration, Instant};
 use std::fs::File;
 use std::io::Write;
 use std::str::FromStr;
-use std::thread;
 use std::error::Error;
-use std::collections::HashMap;
 
 use clap::Parser;
 use rayon::prelude::*;
 use parking_lot::{self, RwLock};
-use anyhow::Context;
-use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 use rand::Rng;
 use chrono::Local;
@@ -92,7 +88,7 @@ struct SimulationResult {
 
 fn run_simulation(
     map: &mut Map,
-    mut action_weights: Option<&mut ActionWeights>,
+    action_weights: Option<&mut ActionWeights>,
 ) -> Result<(String, Vec<(u32, GridAction)>, Vec<YearlyMetrics>), Box<dyn Error + Send + Sync>> {
     let _timing = logging::start_timing("run_simulation", OperationCategory::Simulation);
     
