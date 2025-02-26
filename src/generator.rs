@@ -444,10 +444,6 @@ impl Generator {
         }
     }
 
-    pub fn get_storage_system(&mut self) -> Option<&mut PowerStorageSystem> {
-        self.storage.as_mut()
-    }
-
     pub fn get_storage_capacity(&self) -> f64 {
         self.storage.as_ref().map_or(0.0, |s| s.capacity)
     }

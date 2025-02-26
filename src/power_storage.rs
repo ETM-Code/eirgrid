@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-use rand::Rng;
-use crate::generator::{Generator, GeneratorType};
 use crate::constants::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,69 +21,10 @@ impl PowerStorageSystem {
         }
     }
 
-    pub fn charge(&mut self, amount: f64) -> f64 {
-        let space_available = self.capacity - self.current_charge;
-        let actual_charge = amount.min(space_available) * self.efficiency;
-        self.current_charge += actual_charge;
-        actual_charge
-    }
-
     pub fn discharge(&mut self, amount: f64) -> f64 {
         let actual_discharge = amount.min(self.current_charge);
         self.current_charge -= actual_discharge;
         actual_discharge * self.efficiency
-    }
-}
-
-pub fn calculate_intermittent_output(generator: &Generator, hour: u8) -> f64 {
-    let base_output = generator.get_current_power_output(Some(hour));
-    
-    match generator.get_generator_type() {
-        GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => {
-            // Wind tends to be stronger at night
-            let time_factor = match hour {
-                0..=6 => 0.8,   // Early morning: moderate
-                7..=11 => 0.6,  // Morning: lower
-                12..=17 => 0.5, // Afternoon: lowest
-                18..=21 => 0.7, // Evening: picking up
-                _ => 0.8,       // Night: stronger
-            };
-            
-            // Add some randomness to simulate wind variability
-            let variability = rand::thread_rng().gen_range(0.4..=1.2);
-            base_output * time_factor * variability
-        },
-        
-        GeneratorType::UtilitySolar | GeneratorType::CommercialSolar | GeneratorType::DomesticSolar => {
-            // Solar follows a daily curve
-            let time_factor = match hour {
-                0..=5 => 0.0,   // Night: no generation
-                6..=7 => 0.2,   // Dawn: starting up
-                8..=9 => 0.5,   // Morning: ramping up
-                10..=14 => 1.0, // Midday: peak
-                15..=16 => 0.5, // Afternoon: ramping down
-                17..=18 => 0.2, // Dusk: winding down
-                _ => 0.0,       // Night: no generation
-            };
-            
-            // Add weather variability
-            let weather_factor = rand::thread_rng().gen_range(0.6..=1.0);
-            base_output * time_factor * weather_factor
-        },
-        
-        _ => base_output, // Non-intermittent sources
-    }
-}
-
-pub fn get_storage_capacity(gen_type: &GeneratorType) -> Option<PowerStorageSystem> {
-    match gen_type {
-        GeneratorType::PumpedStorage => Some(PowerStorageSystem::new(
-            PUMPED_STORAGE_CAPACITY,
-        )),
-        GeneratorType::BatteryStorage => Some(PowerStorageSystem::new(
-            BATTERY_STORAGE_CAPACITY,
-        )),
-        _ => None,
     }
 }
 

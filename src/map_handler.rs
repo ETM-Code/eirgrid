@@ -671,18 +671,6 @@ impl Map {
         settlement_usage * (1.0 + (year as f64 - 2024.0) * 0.02)
     }
 
-    pub fn get_storage_generators(&mut self) -> Vec<&mut Generator> {
-        self.generators.iter_mut()
-            .filter(|g| g.get_generator_type().is_storage())
-            .collect()
-    }
-
-    pub fn get_storage_generators_mut(&mut self) -> Vec<&mut Generator> {
-        self.generators.iter_mut()
-            .filter(|g| g.get_generator_type().is_storage())
-            .collect()
-    }
-
     pub fn calc_total_power_generation(&self, year: u32, hour: Option<u8>) -> f64 {
         let _timing = logging::start_timing("calc_total_power_generation", 
             OperationCategory::PowerCalculation { subcategory: PowerCalcType::Generation });
@@ -755,20 +743,6 @@ impl Map {
         remaining_deficit
     }
 
-    pub fn get_total_storage_capacity(&self) -> f64 {
-        self.generators.iter()
-            .filter(|g| g.get_generator_type().is_storage())
-            .map(|g| g.get_storage_capacity())
-            .sum()
-    }
-
-    pub fn get_current_storage_level(&self) -> f64 {
-        self.generators.iter()
-            .filter(|g| g.get_generator_type().is_storage())
-            .filter_map(|g| g.storage.as_ref())
-            .map(|s| s.current_charge)
-            .sum()
-    }
 
     pub fn calc_total_co2_emissions(&self) -> f64 {
         let _timing = logging::start_timing("calc_total_co2_emissions", 
@@ -819,21 +793,6 @@ impl Map {
         CONSTRUCTION_COST_WEIGHT * cost_opinion
     }
 
-    pub fn calc_total_operating_cost(&self, year: u32) -> f64 {
-        let _timing = logging::start_timing("calc_total_operating_cost", 
-            OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
-        
-        let generator_costs = self.generators.iter()
-            .map(|g| g.get_current_operating_cost(year))
-            .sum::<f64>();
-
-        let offset_costs = self.carbon_offsets.iter()
-            .map(|o| o.get_current_operating_cost(year))
-            .sum::<f64>();
-
-        generator_costs + offset_costs
-    }
-
     pub fn calc_total_capital_cost(&self, year: u32) -> f64 {
         let _timing = logging::start_timing("calc_total_capital_cost", 
             OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
@@ -877,10 +836,6 @@ impl Map {
         &self.carbon_offsets
     }
 
-    pub fn get_generator_grid_occupancy(&self) -> &HashMap<(i32, i32), f64> {
-        &self.grid_occupancy
-    }
-
     pub fn update_grid_occupancy(&mut self) {
         self.grid_occupancy.clear();
         for generator in &self.generators {
@@ -892,65 +847,9 @@ impl Map {
         }
     }
 
-    // Add a method to handle generator state changes
-    pub fn handle_generator_state_change(&mut self) {
-        self.update_grid_occupancy();
-        self.update_storage_cache();
-    }
-
     // Add method to be called after generator modifications
     pub fn after_generator_modification(&mut self) {
         self.update_grid_occupancy();
-    }
-
-    pub fn calculate_suitability(&self, location: &Coordinate, generator_type: &GeneratorType) -> f64 {
-        let mut score = match generator_type {
-            GeneratorType::OnshoreWind => {
-                let base = if self.is_coastal_region(location) { 0.7 } else { 0.5 };
-                if self.is_urban_area(location) { base * 0.3 } else { base }
-            },
-            GeneratorType::OffshoreWind => {
-                if self.is_offshore_region(location) { 0.8 } else { 0.0 }
-            },
-            GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => {
-                if self.is_offshore_region(location) { 0.8 } else { 0.0 }
-            },
-            GeneratorType::Nuclear => {
-                if self.is_urban_area(location) { 0.0 } else { 0.7 }
-            },
-            GeneratorType::DomesticSolar | GeneratorType::CommercialSolar => {
-                if self.is_urban_area(location) { 0.6 } else { 0.4 }
-            },
-            GeneratorType::UtilitySolar => {
-                if self.is_urban_area(location) { 0.3 } else { 0.5 }
-            },
-            GeneratorType::HydroDam | GeneratorType::PumpedStorage => {
-                if self.is_near_water(location) { 0.7 } else { 0.0 }
-            },
-            _ => {
-                if self.is_urban_area(location) { 0.3 } else { 0.5 }
-            }
-        };
-
-        // Reduce score based on proximity to other generators
-        let nearby_generators = self.get_nearby_generators(location, 5000.0);
-        if !nearby_generators.is_empty() {
-            score *= 0.8;
-        }
-
-        // Add bonus for coastal regions for certain types
-        if self.is_coastal_region(location) {
-            match generator_type {
-                GeneratorType::OnshoreWind => score *= 1.2,
-                GeneratorType::OffshoreWind | GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => score *= 1.3,
-                _ => {}
-            }
-        }
-
-        // Adjust score based on terrain suitability
-        score *= self.get_terrain_suitability(location, generator_type);
-
-        score
     }
 
     pub fn find_best_generator_location(&self, generator_type: &GeneratorType, size: f64) -> Option<Coordinate> {
