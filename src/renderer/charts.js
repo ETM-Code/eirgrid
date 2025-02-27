@@ -12,6 +12,24 @@ window.Charts = window.Charts || {};
 let emissionsChart = null;
 let powerChart = null;
 
+// Register the annotation plugin with Chart.js
+// This ensures the plugin is properly registered
+document.addEventListener('DOMContentLoaded', () => {
+    if (typeof Chart !== 'undefined' && Chart.register && typeof Chart.register === 'function') {
+        try {
+            // Check if the annotation plugin exists and register it
+            if (Chart.Annotation) {
+                Chart.register(Chart.Annotation);
+                console.log('Chart.js Annotation plugin registered successfully');
+            } else {
+                console.warn('Chart.js Annotation plugin not found, charts will not show year indicators');
+            }
+        } catch (error) {
+            console.error('Error registering Chart.js Annotation plugin:', error);
+        }
+    }
+});
+
 // Chart data
 let chartData = {
     years: [],
@@ -381,15 +399,21 @@ function updatePowerChart(currentYear) {
  * @param {number} currentYear - The current year to highlight
  */
 function addCurrentYearIndicator(chart, currentYear) {
-    // Check if annotations plugin is available in Chart.js
+    // Check if chart is valid
+    if (!chart || typeof chart !== 'object') {
+        console.warn('Invalid chart object, cannot add year indicator');
+        return;
+    }
+    
+    // Initialize plugins if not exists
     if (!chart.options.plugins) {
         chart.options.plugins = {};
     }
     
-    // Check if the annotation plugin exists
+    // Check if the annotation plugin exists and is registered
     const hasAnnotationPlugin = typeof Chart !== 'undefined' && 
-                               Chart.Annotation && 
-                               typeof Chart.Annotation === 'object';
+                                Chart.Annotation && 
+                                typeof Chart.Annotation === 'object';
     
     if (!hasAnnotationPlugin) {
         console.warn('Chart.js Annotation plugin not available, skipping year indicator');
@@ -407,7 +431,10 @@ function addCurrentYearIndicator(chart, currentYear) {
     
     // Get the index of the current year
     const yearIndex = chartData.years.indexOf(currentYear);
-    if (yearIndex === -1) return; // Year not found in data
+    if (yearIndex === -1) {
+        console.warn(`Current year ${currentYear} not found in chart data`);
+        return; // Year not found in data
+    }
     
     try {
         // Add annotation for current year
@@ -424,6 +451,7 @@ function addCurrentYearIndicator(chart, currentYear) {
                 backgroundColor: 'rgba(255, 0, 0, 0.7)'
             }
         };
+        console.log(`Year indicator added for ${currentYear}`);
     } catch (error) {
         console.error('Error adding year indicator to chart:', error);
     }

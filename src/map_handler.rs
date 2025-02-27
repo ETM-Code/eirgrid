@@ -808,6 +808,26 @@ impl Map {
         generator_costs + offset_costs
     }
 
+    /// Calculate only the capital cost for generators and offsets added in the current year
+    pub fn calc_yearly_capital_cost(&self, year: u32) -> f64 {
+        let _timing = logging::start_timing("calc_yearly_capital_cost", 
+            OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
+        
+        // Only include generators that were added in the current year
+        let generator_costs = self.generators.iter()
+            .filter(|g| g.get_build_year() == year)
+            .map(|g| g.get_current_cost(year))
+            .sum::<f64>();
+
+        // Only include carbon offsets that were added in the current year
+        let offset_costs = self.carbon_offsets.iter()
+            .filter(|o| o.get_start_year() == year)
+            .map(|o| o.get_current_cost(year))
+            .sum::<f64>();
+
+        generator_costs + offset_costs
+    }
+
     pub fn get_generators(&self) -> &[Generator] {
         &self.generators
     }
@@ -834,6 +854,10 @@ impl Map {
 
     pub fn get_carbon_offsets(&self) -> &[CarbonOffset] {
         &self.carbon_offsets
+    }
+
+    pub fn get_settlements_mut(&mut self) -> &mut Vec<Settlement> {
+        &mut self.settlements
     }
 
     pub fn update_grid_occupancy(&mut self) {

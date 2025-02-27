@@ -553,6 +553,20 @@ impl Generator {
         self.efficiency
     }
 
+    pub fn get_build_year(&self) -> u32 {
+        // Extract year from the ID for generators built during simulation
+        if self.id.starts_with("Gen_") {
+            let parts: Vec<&str> = self.id.split('_').collect();
+            if parts.len() >= 3 {
+                if let Ok(year) = parts[2].parse::<u32>() {
+                    return year;
+                }
+            }
+        }
+        // Default to 2025 for existing generators
+        2025
+    }
+
     pub fn get_operation_percentage(&self) -> u8 {
         (self.operation_percentage * 100.0) as u8
     }

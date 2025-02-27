@@ -125,6 +125,18 @@ impl CarbonOffset {
     pub fn get_power_consumption(&self) -> f64 {
         self.power_consumption
     }
+
+    pub fn get_start_year(&self) -> u32 {
+        if self.id.contains("_") {
+            let parts: Vec<&str> = self.id.split('_').collect();
+            if parts.len() >= 2 {
+                if let Ok(year) = parts[1].parse::<u32>() {
+                    return year;
+                }
+            }
+        }
+        2025
+    }
 }
 
 impl POI for CarbonOffset {

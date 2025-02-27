@@ -125,9 +125,10 @@ pub fn transform_lat_lon_to_grid(lat: f64, lon: f64) -> Option<Coordinate> {
         return None;
     }
 
-    // Normalize to our coordinate system
-    let x = ((lon - IRELAND_MIN_LON) / (IRELAND_MAX_LON - IRELAND_MIN_LON)) * MAP_MAX_X;
-    let y = ((lat - IRELAND_MIN_LAT) / (IRELAND_MAX_LAT - IRELAND_MIN_LAT)) * MAP_MAX_Y;
+    // Transform using the origin and scale from constants
+    // This follows the transformation matrix: [x, y] = [origin_x, origin_y] + [lon, lat] * [scale_x, scale_y]
+    let x = (lon - IRELAND_MIN_LON) * GRID_SCALE_X;
+    let y = (lat - IRELAND_MIN_LAT) * GRID_SCALE_Y;
 
     Some(Coordinate::new(x, y))
 }
