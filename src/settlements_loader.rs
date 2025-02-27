@@ -29,8 +29,15 @@ pub fn load_settlements(path: &str, base_year: u32) -> Result<Vec<Settlement>, B
     let mut settlements_vec = Vec::new();
     for s in settlements_list.settlements {
          let initial_power_usage = (s.population as f64) * const_funcs::calc_power_usage_per_capita(base_year);
-         let settlement = Settlement::new(s.name, Coordinate::new(s.lat, s.lon), s.population, initial_power_usage);
-         settlements_vec.push(settlement);
+         
+         // Transform lat/lon to grid coordinates
+         if let Some(grid_coord) = const_funcs::transform_lat_lon_to_grid(s.lat, s.lon) {
+             let settlement = Settlement::new(s.name, grid_coord, s.population, initial_power_usage);
+             settlements_vec.push(settlement);
+         } else {
+             eprintln!("Warning: Settlement {} has coordinates outside the valid range: ({}, {})", 
+                       s.name, s.lat, s.lon);
+         }
     }
     Ok(settlements_vec)
 } 

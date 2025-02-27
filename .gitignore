@@ -2,3 +2,7 @@
 mapScraper/__pycache__
 mapScraper/venv
 mapData/sourceData
+simulation_states
+checkpoints
+*.log
+src/temp.md

@@ -112,7 +112,7 @@ pub const BATTERY_OPINION_CHANGE: f64 = 0.003;     // Annual change in battery o
 
 // Scoring constants
 pub const MAX_ACCEPTABLE_EMISSIONS: f64 = 10_160_470.0;  // 10 million tonnes CO2 (converted from 10 million tons)
-pub const MAX_ACCEPTABLE_COST: f64 = 10_000_000_000.0;  // 10 billion euros
+pub const MAX_ACCEPTABLE_COST: f64 = 50_000_000_000.0;  // 50 billion euros
 
 // Decommissioning Costs
 pub const DECOMMISSION_COST_RATIO: f64 = 0.12; // 25% of base cost for decommissioning
@@ -126,8 +126,8 @@ pub const BIOMASS_CO2_RATE: f64 = 33_634_800.0;  // ~51 tonnes per MW (converted
 // Geographic Constants
 pub const IRELAND_MIN_LAT: f64 = 51.4;
 pub const IRELAND_MAX_LAT: f64 = 55.4;
-pub const IRELAND_MIN_LON: f64 = -10.5;
-pub const IRELAND_MAX_LON: f64 = -5.4;
+pub const IRELAND_MIN_LON: f64 = -10.6;
+pub const IRELAND_MAX_LON: f64 = -5.9;
 
 // Geographic Features
 pub const COASTAL_THRESHOLD: f64 = 0.1; // Proportion of map width to consider coastal 
@@ -249,3 +249,7 @@ pub const PRICE_PHASE2_START: f64 = 130.0;
 pub const PRICE_PHASE2_END: f64 = 300.0;
 pub const PRICE_PHASE2_START_YEAR: u32 = 2040;
 pub const PRICE_PHASE2_END_YEAR: u32 = 2050;
+
+// Transform Constants
+pub const GRID_SCALE_X: f64 = 10638.297872340427;
+pub const GRID_SCALE_Y: f64 = 12500.0;
