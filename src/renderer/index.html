@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Irish Power Grid Simulation Visualizer</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="favicon.ico">
+    
+    <!-- Critical inline styles to ensure basic UI works even if external CSS has issues -->
+    <style>
+        /* Essential styles for basic layout and functionality */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body, html { height: 100%; width: 100%; overflow: hidden; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f3f4f6;
+            color: #111827;
+            line-height: 1.5;
+        }
+        .container { display: flex; flex-direction: column; height: 100%; width: 100%; }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+        }
+        .load-button {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background-color: #2563eb;
+            color: #ffffff;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border: none;
+            cursor: pointer;
+        }
+        .content { display: flex; flex: 1; position: relative; overflow: hidden; }
+        .sidebar {
+            width: 320px;
+            background-color: #ffffff;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            z-index: 5;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+        .map-container { flex: 1; z-index: 1; }
+        .panel {
+            margin: 1rem;
+            background-color: #ffffff;
+            border-radius: 0.75rem;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+        }
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #2563eb;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    
+    <!-- Initialize logging system before any other scripts -->
+    <script>
+        // Initialize temporary logging until main.js loads
+        window.AppLog = window.AppLog || function(component, message, level = 'info') {
+            const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+            const prefix = `[${timestamp}] [${component}]`;
+            
+            switch (level) {
+                case 'warn':
+                    console.warn(`${prefix} ⚠️ ${message}`);
+                    break;
+                case 'error':
+                    console.error(`${prefix} 🛑 ${message}`);
+                    break;
+                case 'debug':
+                    console.debug(`${prefix} 🔍 ${message}`);
+                    break;
+                default:
+                    console.log(`${prefix} ℹ️ ${message}`);
+            }
+        };
+        
+        // Log initial page load
+        window.AppLog('Page', 'Irish Power Grid Simulation Visualizer starting');
+        window.AppLog('Page', `User agent: ${navigator.userAgent}`);
+        
+        // Initialize global objects for modules
+        window.GridCoordinates = window.GridCoordinates || {};
+        window.DataLoader = window.DataLoader || {};
+        window.SampleData = window.SampleData || {};
+        window.MapSetup = window.MapSetup || {};
+        window.Visualization = window.Visualization || {};
+        window.MetricsPanel = window.MetricsPanel || {};
+        window.Charts = window.Charts || {};
+        window.Timeline = window.Timeline || {};
+        
+        window.AppLog('Page', 'Global module objects initialized');
+    </script>
+    
+    <!-- Third-party libraries -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nouislider@14.6.3/distribute/nouislider.min.css">
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0/dist/chartjs-plugin-annotation.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/nouislider@14.6.3/distribute/nouislider.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.0/papaparse.min.js"></script>
+</head>
+<body>
+    <!-- Loading overlay -->
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-message">Loading simulation data...</div>
+    </div>
+    
+    <!-- Main container -->
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Irish Power Grid Simulation</h1>
+            <div class="data-source" id="data-source">Loading data...</div>
+        </header>
+        
+        <!-- Main content area -->
+        <div class="content">
+            <!-- Sidebar -->
+            <div id="sidebar" class="sidebar">
+                <!-- Metrics panel -->
+                <div class="panel" id="metrics-panel">
+                    <h2>Year <span id="current-year">2023</span> Overview</h2>
+                    <div class="metrics-grid">
+                        <div class="metric">
+                            <div class="metric-label">Population</div>
+                            <div class="metric-value" id="population">-</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Power Generation</div>
+                            <div class="metric-value" id="power-generation">-</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Power Usage</div>
+                            <div class="metric-value" id="power-usage">-</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Power Balance</div>
+                            <div class="metric-value" id="power-balance">-</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">CO2 Emissions</div>
+                            <div class="metric-value" id="emissions">-</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Carbon Offset</div>
+                            <div class="metric-value" id="carbon-offset">-</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Net Emissions</div>
+                            <div class="metric-value" id="net-emissions">-</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Public Opinion</div>
+                            <div class="metric-value" id="opinion">-</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Charts panel -->
+                <div class="panel" id="charts-panel">
+                    <h2>Trends</h2>
+                    <div class="chart-container">
+                        <canvas id="emissions-chart"></canvas>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="power-chart"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Legend panel -->
+                <div class="panel" id="legend-panel">
+                    <h2>Legend</h2>
+                    <div class="legend-item">
+                        <div class="legend-color settlement"></div>
+                        <div class="legend-label">Settlement</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color generator wind"></div>
+                        <div class="legend-label">Wind Generator</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color generator solar"></div>
+                        <div class="legend-label">Solar Generator</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color generator hydro"></div>
+                        <div class="legend-label">Hydro Generator</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color generator nuclear"></div>
+                        <div class="legend-label">Nuclear Generator</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color generator fossil"></div>
+                        <div class="legend-label">Fossil Fuel Generator</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color offset"></div>
+                        <div class="legend-label">Carbon Offset</div>
+                    </div>
+                </div>
+                
+                <!-- Settings panel -->
+                <div class="panel" id="settings-panel">
+                    <h2>Settings</h2>
+                    <div class="settings-item">
+                        <label>
+                            <input type="checkbox" id="show-settlements" checked> 
+                            Show Settlements
+                        </label>
+                    </div>
+                    <div class="settings-item">
+                        <label>
+                            <input type="checkbox" id="show-generators" checked> 
+                            Show Generators
+                        </label>
+                    </div>
+                    <div class="settings-item">
+                        <label>
+                            <input type="checkbox" id="show-offsets" checked> 
+                            Show Carbon Offsets
+                        </label>
+                    </div>
+                    <div class="settings-item">
+                        <label>
+                            <input type="checkbox" id="debug-toggle"> 
+                            Debug Mode
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Toggle button -->
+                <button id="sidebar-toggle">
+                    <span class="toggle-icon">◀</span>
+                </button>
+            </div>
+            
+            <!-- Map container -->
+            <div id="map" class="map-container"></div>
+        </div>
+        
+        <!-- Timeline -->
+        <div class="timeline-container">
+            <div class="timeline-controls">
+                <button id="play-pause"><span class="play-icon">▶</span></button>
+                <button id="reset">⟲</button>
+            </div>
+            <div class="timeline">
+                <div id="timeline-slider"></div>
+                <div class="timeline-labels"></div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Irish Power Grid Simulation Visualizer | Copyright © 2023</p>
+        </footer>
+    </div>
+    
+    <!-- Tooltip for map elements -->
+    <div id="tooltip" class="tooltip" style="display: none;"></div>
+    
+    <!-- Application scripts -->
+    <script src="grid-coordinates.js"></script>
+    <script src="sample-data.js"></script>
+    <script src="data-loader.js"></script>
+    <script src="map-setup.js"></script>
+    <script src="visualization.js"></script>
+    <script src="metrics-panel.js"></script>
+    <script src="charts.js"></script>
+    <script src="timeline.js"></script>
+    <script src="main.js"></script>
+</body>
+</html> 
