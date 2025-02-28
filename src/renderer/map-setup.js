@@ -99,6 +99,12 @@ function setupSvgOverlay() {
   
   // Create layer groups for different types of elements
   const svg = d3.select(state.svgOverlay._container);
+  // Set z-index to ensure SVG is above map tiles
+  svg
+    .style('z-index', '650')
+    .style('position', 'relative')
+    .style('pointer-events', 'auto');
+  
   svg.append('g').attr('class', 'settlements-layer');
   svg.append('g').attr('class', 'generators-layer');
   svg.append('g').attr('class', 'offsets-layer');
@@ -107,12 +113,12 @@ function setupSvgOverlay() {
 }
 
 /**
- * Convert grid coordinates to map point
+ * Convert lat/lng coordinates to map point
  * @param {number} lat - Latitude
  * @param {number} lng - Longitude
  * @returns {Object} Point object with x, y coordinates
  */
-window.MapSetup.gridToMapPoint = function(lat, lng) {
+window.MapSetup.latLngToMapPoint = function(lat, lng) {
   if (!state.map) {
     log('Map not initialized', 'error');
     return { x: 0, y: 0 };

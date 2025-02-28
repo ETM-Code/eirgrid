@@ -158,38 +158,40 @@
                 <!-- Metrics panel -->
                 <div class="panel" id="metrics-panel">
                     <h2>Year <span id="current-year">2023</span> Overview</h2>
-                    <div class="metrics-grid">
-                        <div class="metric">
-                            <div class="metric-label">Population</div>
-                            <div class="metric-value" id="population">-</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-label">Power Generation</div>
-                            <div class="metric-value" id="power-generation">-</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-label">Power Usage</div>
-                            <div class="metric-value" id="power-usage">-</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-label">Power Balance</div>
-                            <div class="metric-value" id="power-balance">-</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-label">CO2 Emissions</div>
-                            <div class="metric-value" id="emissions">-</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-label">Carbon Offset</div>
-                            <div class="metric-value" id="carbon-offset">-</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-label">Net Emissions</div>
-                            <div class="metric-value" id="net-emissions">-</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-label">Public Opinion</div>
-                            <div class="metric-value" id="opinion">-</div>
+                    <div class="panel-content">
+                        <div class="metrics-grid">
+                            <div class="metric">
+                                <div class="metric-label">Population</div>
+                                <div class="metric-value" id="population">-</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Power Generation</div>
+                                <div class="metric-value" id="power-generation">-</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Power Usage</div>
+                                <div class="metric-value" id="power-usage">-</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Power Balance</div>
+                                <div class="metric-value" id="power-balance">-</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">CO2 Emissions</div>
+                                <div class="metric-value" id="emissions">-</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Carbon Offset</div>
+                                <div class="metric-value" id="carbon-offset">-</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Net Emissions</div>
+                                <div class="metric-value" id="net-emissions">-</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Public Opinion</div>
+                                <div class="metric-value" id="opinion">-</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -197,11 +199,10 @@
                 <!-- Charts panel -->
                 <div class="panel" id="charts-panel">
                     <h2>Trends</h2>
-                    <div class="chart-container">
-                        <canvas id="emissions-chart"></canvas>
-                    </div>
-                    <div class="chart-container">
-                        <canvas id="power-chart"></canvas>
+                    <div class="panel-content">
+                        <div class="chart-container">
+                            <canvas id="emissions-chart"></canvas>
+                        </div>
                     </div>
                 </div>
                 
@@ -231,6 +232,10 @@
                     <div class="legend-item">
                         <div class="legend-color generator fossil"></div>
                         <div class="legend-label">Fossil Fuel Generator</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color generator gas"></div>
+                        <div class="legend-label">Gas Peaker Generator</div>
                     </div>
                     <div class="legend-item">
                         <div class="legend-color offset"></div>
@@ -265,6 +270,7 @@
                             Debug Mode
                         </label>
                     </div>
+                    <div style="padding-bottom: 200px;"></div>
                 </div>
                 
                 <!-- Toggle button -->

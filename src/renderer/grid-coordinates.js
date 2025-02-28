@@ -1,7 +1,7 @@
 /**
  * Grid Coordinates Module
  * 
- * This module handles coordinate conversions between Irish grid coordinates and lat/lng
+ * This module handles marker sizing and related grid utilities
  */
 
 // Helper function to log from this module
@@ -26,61 +26,6 @@ window.GridCoordinates.IRELAND_BOUNDS = [
 log('Grid coordinates module initialized with Ireland bounds: SW: [-10.67, 51.33], NE: [-5.34, 55.41]');
 
 /**
- * Irish grid to WGS84 conversion
- * @param {number} x - Grid x coordinate (east-west)
- * @param {number} y - Grid y coordinate (north-south)
- * @returns {Object} - {lat, lng}
- */
-window.GridCoordinates.gridToLatLng = function(x, y) {
-    log(`Converting grid coordinates (${x}, ${y}) to lat/lng`, 'debug');
-    
-    // Simple linear mapping for sample purposes
-    // In a real implementation, this would use proper Irish Grid coordinate system
-    const bounds = window.GridCoordinates.IRELAND_BOUNDS;
-    
-    // Calculate normalized position (0-1) in the grid
-    const normX = x / 100; // Assuming grid is 0-100 in x direction
-    const normY = y / 100; // Assuming grid is 0-100 in y direction
-    
-    // Map to lat/lng using linear interpolation
-    const lng = bounds[0] + normX * (bounds[2] - bounds[0]);
-    const lat = bounds[1] + normY * (bounds[3] - bounds[1]);
-    
-    log(`Converted to lat/lng: (${lat.toFixed(6)}, ${lng.toFixed(6)})`, 'debug');
-    return { lat, lng };
-};
-
-/**
- * WGS84 to Irish grid conversion
- * @param {number} lat - Latitude
- * @param {number} lng - Longitude
- * @returns {Object} - {x, y}
- */
-window.GridCoordinates.latLngToGrid = function(lat, lng) {
-    log(`Converting lat/lng (${lat}, ${lng}) to grid coordinates`, 'debug');
-    
-    // Simple linear mapping for sample purposes
-    // In a real implementation, this would use proper Irish Grid coordinate system
-    const bounds = window.GridCoordinates.IRELAND_BOUNDS;
-    
-    // Check if coordinates are within Ireland bounds
-    if (lng < bounds[0] || lng > bounds[2] || lat < bounds[1] || lat > bounds[3]) {
-        log('Warning: Coordinates outside Ireland bounds', 'warn');
-    }
-    
-    // Calculate normalized position (0-1) in lat/lng space
-    const normLng = (lng - bounds[0]) / (bounds[2] - bounds[0]);
-    const normLat = (lat - bounds[1]) / (bounds[3] - bounds[1]);
-    
-    // Map to grid coordinates using linear interpolation
-    const x = Math.floor(normLng * 100); // Assuming grid is 0-100 in x direction
-    const y = Math.floor(normLat * 100); // Assuming grid is 0-100 in y direction
-    
-    log(`Converted to grid: (${x}, ${y})`, 'debug');
-    return { x, y };
-};
-
-/**
  * Calculate appropriate marker radius based on value and type
  * @param {number} value - Value to scale marker by (e.g., population, power output)
  * @param {string} type - Type of marker (settlement, generator, or offset)
@@ -92,24 +37,32 @@ window.GridCoordinates.calculateMarkerRadius = function(value, type, zoom) {
     const maxRadius = 25;
     let scaleFactor = 1;
     
-    if (!value || value < 0) {
-        log(`Invalid value for marker radius calculation: ${value}`, 'warn');
+    // Make sure value is a valid number
+    value = Number(value);
+    if (isNaN(value) || value <= 0) {
+        log(`Invalid value for marker radius calculation: ${value}, using default minimum radius`, 'warn');
         return minRadius;
     }
     
     // Scale factor based on marker type
     switch (type.toLowerCase()) {
         case 'settlement':
-            // Population-based scaling, logarithmic
-            scaleFactor = Math.log(value / 1000) * 1.5;
+            // Population-based scaling, logarithmic, with better handling for small values
+            scaleFactor = value < 1000 ? 1 : Math.log(value / 1000) * 1.5;
+            // Ensure scale factor is reasonable
+            if (scaleFactor < 0) scaleFactor = 1;
             break;
         case 'generator':
             // Power output-based scaling (MWh)
             scaleFactor = Math.log(value + 1) * 1.2;
+            // Ensure scale factor is reasonable
+            if (scaleFactor < 0) scaleFactor = 1;
             break;
         case 'offset':
             // CO2 offset-based scaling (tonnes)
-            scaleFactor = Math.log(value) * 0.5;
+            scaleFactor = Math.log(value + 1) * 0.5;
+            // Ensure scale factor is reasonable
+            if (scaleFactor < 0) scaleFactor = 1;
             break;
         default:
             log(`Unknown marker type: ${type}, using default scale factor`, 'warn');
@@ -123,5 +76,6 @@ window.GridCoordinates.calculateMarkerRadius = function(value, type, zoom) {
     const radius = Math.max(minRadius, Math.min(maxRadius, scaleFactor * zoomFactor));
     
     log(`Calculated radius for ${type}: ${radius.toFixed(2)}px (scale factor: ${scaleFactor.toFixed(2)}, zoom factor: ${zoomFactor.toFixed(2)})`, 'debug');
+    
     return radius;
 }; 

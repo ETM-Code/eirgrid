@@ -49,16 +49,21 @@ window.App = window.App || {
       const yearlyMetrics = [];
       
       yearsList.forEach(year => {
-        const data = window.DataLoader.getYearData(year);
+        const data = window.DataLoader.getYearData(Number(year));
         if (data) {
-          // Calculate metrics for the year
-          const totalEmissions = data.generators.reduce((total, gen) => total + (gen.emissions || 0), 0);
-          const totalOffsets = data.carbonOffsets.reduce((total, offset) => total + (offset.offsetAmount || 0), 0);
-          const totalGeneration = data.generators.reduce((total, gen) => total + (gen.output || 0), 0);
-          const totalUsage = data.settlements.reduce((total, settlement) => total + (settlement.powerUsage || 0), 0);
+          // Ensure data arrays exist
+          const generators = Array.isArray(data.generators) ? data.generators : [];
+          const settlements = Array.isArray(data.settlements) ? data.settlements : [];
+          const carbonOffsets = Array.isArray(data.carbonOffsets) ? data.carbonOffsets : [];
+          
+          // Calculate metrics with proper fallbacks
+          const totalEmissions = generators.reduce((total, gen) => total + (Number(gen.emissions) || 0), 0);
+          const totalOffsets = carbonOffsets.reduce((total, offset) => total + (Number(offset.offsetAmount) || 0), 0);
+          const totalGeneration = generators.reduce((total, gen) => total + (Number(gen.output) || 0), 0);
+          const totalUsage = settlements.reduce((total, settlement) => total + (Number(settlement.powerUsage) || 0), 0);
           
           yearlyMetrics.push({
-            year,
+            year: Number(year),
             co2Emissions: totalEmissions,
             carbonOffset: totalOffsets,
             netEmissions: totalEmissions - totalOffsets,
@@ -69,8 +74,13 @@ window.App = window.App || {
         }
       });
       
+      // Sort metrics by year to ensure proper chronological order
+      yearlyMetrics.sort((a, b) => a.year - b.year);
+      
       // Update charts with new data
-      window.Charts.init(yearlyMetrics);
+      if (typeof window.Charts.init === 'function') {
+        window.Charts.init(yearlyMetrics);
+      }
     }
     
     log('Application refreshed with new data');
@@ -255,6 +265,16 @@ function initCharts() {
       const yearsList = window.DataLoader.getYearsList();
       const yearlyMetrics = [];
       
+      if (!yearsList || yearsList.length === 0) {
+        log('No years data available for charts', 'warn');
+        // Initialize charts with empty data
+        window.Charts.init([]);
+        resolve();
+        return;
+      }
+      
+      log(`Generating metrics for ${yearsList.length} years`);
+      
       yearsList.forEach(year => {
         const data = window.DataLoader.getYearData(year);
         if (data) {
@@ -288,12 +308,23 @@ function initCharts() {
         }
       });
       
-      window.Charts.init(yearlyMetrics);
+      if (yearlyMetrics.length === 0) {
+        log('No yearly metrics were generated for charts', 'warn');
+        // Initialize charts with empty data rather than failing
+        window.Charts.init([]);
+      } else {
+        log(`Generated metrics for ${yearlyMetrics.length} years`);
+        window.Charts.init(yearlyMetrics);
+      }
+      
       log('Charts initialized successfully');
       resolve();
     } catch (error) {
       log(`Charts initialization failed: ${error.message}`, 'error');
-      reject(error);
+      // Don't reject the promise, just log the error and continue
+      // This prevents charts errors from breaking the entire application
+      window.Charts.init([]);
+      resolve();
     }
   });
 }
@@ -385,10 +416,29 @@ function updateTimelineLabels(minYear, maxYear) {
 }
 
 /**
- * Handle year change events from the timeline
+ * Handle the year change event
  * @param {number} year - New year value
  */
 function handleYearChange(year) {
+  if (!year || isNaN(Number(year))) {
+    log('Invalid year provided to handleYearChange', 'warn');
+    return;
+  }
+  
+  year = Number(year);
+  
+  // Check if year is in range
+  const minYear = window.DataLoader.getMinYear();
+  const maxYear = window.DataLoader.getMaxYear();
+  
+  if (minYear !== null && year < minYear) {
+    log(`Year ${year} is below minimum year ${minYear}, setting to minimum`, 'warn');
+    year = minYear;
+  } else if (maxYear !== null && year > maxYear) {
+    log(`Year ${year} is above maximum year ${maxYear}, setting to maximum`, 'warn');
+    year = maxYear;
+  }
+  
   log(`Year changed to ${year}`);
   
   window.App.currentYear = year;
@@ -404,10 +454,37 @@ function handleYearChange(year) {
   if (yearData) {
     window.App.yearData = yearData;
     
+    // Debug logging to check for summaryMetrics
+    if (yearData.summaryMetrics) {
+      log(`Found summaryMetrics for year ${year} with ${Object.keys(yearData.summaryMetrics).length} keys`, 'debug');
+      log(`Summary metrics sample values - population: ${yearData.summaryMetrics.population}, powerGeneration: ${yearData.summaryMetrics.powerGeneration}`, 'debug');
+    } else {
+      log(`No summaryMetrics found for year ${year}!`, 'warn');
+    }
+    
     // Ensure all required arrays exist to prevent errors
     yearData.settlements = Array.isArray(yearData.settlements) ? yearData.settlements : [];
     yearData.generators = Array.isArray(yearData.generators) ? yearData.generators : [];
     yearData.carbonOffsets = Array.isArray(yearData.carbonOffsets) ? yearData.carbonOffsets : [];
+    
+    // Ensure the year is properly set in the year data
+    yearData.year = Number(year);
+    
+    // Make sure all latitude and longitude values are numbers
+    yearData.settlements.forEach(settlement => {
+      settlement.lat = Number(settlement.lat) || 0;
+      settlement.lng = Number(settlement.lng) || 0;
+    });
+    
+    yearData.generators.forEach(generator => {
+      generator.lat = Number(generator.lat) || 0;
+      generator.lng = Number(generator.lng) || 0;
+    });
+    
+    yearData.carbonOffsets.forEach(offset => {
+      offset.lat = Number(offset.lat) || 0;
+      offset.lng = Number(offset.lng) || 0;
+    });
     
     // Update UI with new data
     updateUI(yearData);
@@ -424,7 +501,19 @@ function handleYearChange(year) {
  * @param {Object} data - Data for the current year
  */
 function updateUI(data) {
-  log(`Updating UI with data for year ${data.year}`);
+  if (!data) {
+    log('No data provided to updateUI', 'warn');
+    return;
+  }
+  
+  const yearDisplay = data.year ? data.year : window.App.currentYear || 'unknown';
+  log(`Updating UI with data for year ${yearDisplay}`);
+  
+  // Update year in page title if needed
+  const yearTitleElement = document.getElementById('year-title');
+  if (yearTitleElement) {
+    yearTitleElement.textContent = `Year ${yearDisplay} Overview`;
+  }
   
   // Update visualization
   window.Visualization.update(data);
@@ -471,9 +560,13 @@ function setupUiListeners() {
  * Set up layer visibility toggles
  */
 function setupLayerToggles() {
+  // Ensure all layers are visible by default
+  document.body.classList.remove('hide-settlements', 'hide-generators', 'hide-offsets');
+  
   // Settlement visibility
   const showSettlements = document.getElementById('show-settlements');
   if (showSettlements) {
+    showSettlements.checked = true; // Set to checked by default
     showSettlements.addEventListener('change', function() {
       document.body.classList.toggle('hide-settlements', !this.checked);
     });
@@ -482,6 +575,7 @@ function setupLayerToggles() {
   // Generator visibility
   const showGenerators = document.getElementById('show-generators');
   if (showGenerators) {
+    showGenerators.checked = true; // Set to checked by default
     showGenerators.addEventListener('change', function() {
       document.body.classList.toggle('hide-generators', !this.checked);
     });
@@ -490,10 +584,14 @@ function setupLayerToggles() {
   // Offsets visibility
   const showOffsets = document.getElementById('show-offsets');
   if (showOffsets) {
+    showOffsets.checked = true; // Set to checked by default
     showOffsets.addEventListener('change', function() {
       document.body.classList.toggle('hide-offsets', !this.checked);
     });
   }
+  
+  // Debug message
+  log('Layer toggles initialized - all layers set to visible', 'debug');
 }
 
 /**

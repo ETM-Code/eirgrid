@@ -519,8 +519,30 @@ impl Map {
                 println!("  Available spaces: {}", analysis.get_remaining_spaces(generator.get_generator_type()));
                 
                 if analysis.try_reserve_space(generator.get_generator_type()) {
-                    // In fast mode, we don't care about actual coordinates
-                    generator.coordinate = Coordinate::new(0.0, 0.0);
+                    // In fast mode, we still want to distribute generators across the map
+                    // Generate a deterministic but well-distributed coordinate based on generator type and ID
+                    let id_hash: u32 = generator.get_id().chars().fold(0, |acc, c| acc + c as u32);
+                    
+                    // Use the hash to create a semi-random position that depends on the generator type
+                    // This ensures different generator types are spread out
+                    let gen_type_factor = match generator.get_generator_type() {
+                        GeneratorType::OnshoreWind => 0.2,
+                        GeneratorType::OffshoreWind => 0.4,
+                        GeneratorType::UtilitySolar => 0.6,
+                        GeneratorType::CommercialSolar => 0.65,
+                        GeneratorType::DomesticSolar => 0.7,
+                        GeneratorType::Nuclear => 0.8,
+                        GeneratorType::CoalPlant => 0.85,
+                        GeneratorType::GasCombinedCycle => 0.9,
+                        _ => (id_hash % 10) as f64 * 0.1,
+                    };
+                    
+                    // Calculate a distributed position based on the hash
+                    // Scale to 10-90% of the map to avoid edges
+                    let x = 5000.0 + (MAP_MAX_X - 10000.0) * ((id_hash % 100) as f64 / 100.0 + gen_type_factor) / 2.0;
+                    let y = 5000.0 + (MAP_MAX_Y - 10000.0) * (((id_hash / 100) % 100) as f64 / 100.0 + gen_type_factor) / 2.0;
+                    
+                    generator.coordinate = Coordinate::new(x, y);
                     self.generators.push(generator);
                 } else if analysis.any_types_exhausted() {
                     // If we've exhausted locations for any generator type, switch to full mode
@@ -544,6 +566,50 @@ impl Map {
                     self.add_generator(generator);
                 }
                 return;
+            }
+        } else {
+            // Full simulation mode - check if the generator has default coordinates
+            let has_default_coords = generator.get_coordinate().x == 0.0 && generator.get_coordinate().y == 0.0;
+            
+            // If coordinates are at or very close to (0,0), generate better coordinates
+            if has_default_coords || 
+               (generator.get_coordinate().x.abs() < 1000.0 && generator.get_coordinate().y.abs() < 1000.0) {
+                
+                // Generate deterministic but well-distributed coordinates based on generator ID
+                let id_hash: u32 = generator.get_id().chars().fold(0, |acc, c| acc + c as u32);
+                
+                // Get the bounds of Ireland to use for coordinate distribution
+                let bounds = self.get_ireland_bounds();
+                let width = bounds.max.x - bounds.min.x;
+                let height = bounds.max.y - bounds.min.y;
+                
+                // Use a more distributed pattern that covers the map evenly
+                // Ensure generators of different types are distributed based on their characteristics
+                // while still maintaining good coverage of the map
+                let type_factor = match generator.get_generator_type() {
+                    GeneratorType::OnshoreWind => 0.0,  // Spread throughout land areas
+                    GeneratorType::OffshoreWind => 0.8, // Coastal areas 
+                    GeneratorType::UtilitySolar => 0.2, // Rural inland
+                    GeneratorType::CommercialSolar => 0.3, // Near settlements
+                    GeneratorType::DomesticSolar => 0.4, // Near settlements
+                    GeneratorType::Nuclear => 0.5, // Coastal but not too close
+                    GeneratorType::CoalPlant => 0.6, // Near infrastructure
+                    GeneratorType::GasCombinedCycle => 0.7, // Near infrastructure
+                    _ => 0.0, // Default - spread anywhere
+                };
+                
+                // Create a pseudo-random but deterministic distribution
+                // Use a prime number multiplication to get good distribution
+                let x_factor = ((id_hash * 73) % 100) as f64 / 100.0;
+                let y_factor = ((id_hash * 151) % 100) as f64 / 100.0;
+                
+                // Adjust with type factor but ensure good distribution
+                let x = bounds.min.x + width * (0.05 + 0.9 * (x_factor * 0.8 + type_factor * 0.2));
+                let y = bounds.min.y + height * (0.05 + 0.9 * (y_factor * 0.8 + type_factor * 0.2));
+                
+                // Update the generator's coordinates
+                generator.coordinate = Coordinate::new(x, y);
+                println!("Updated generator coordinates from (0,0) to ({:.1}, {:.1})", x, y);
             }
         }
         
@@ -881,11 +947,43 @@ impl Map {
             OperationCategory::LocationSearch { subcategory: LocationSearchType::GeneratorPlacement });
         
         if self.use_fast_simulation {
-            // In fast simulation mode, just return a dummy coordinate if space is available
+            // In fast simulation mode, return a well-distributed coordinate if space is available
             if let Some(analysis) = &self.location_analysis {
                 if analysis.get_remaining_spaces(generator_type) > 0 {
-                    // Return a placeholder coordinate - actual location doesn't matter in fast mode
-                    return Some(Coordinate::new(0.0, 0.0));
+                    // Get the current count of this generator type for distribution
+                    let type_count = self.generators.iter()
+                        .filter(|g| g.generator_type == *generator_type)
+                        .count();
+                    
+                    // Get the bounds of Ireland's grid
+                    let bounds = self.get_ireland_bounds();
+                    
+                    // Create a deterministic hash based on the generator type and count
+                    // Use different prime numbers for good distribution
+                    let type_hash = generator_type.to_string().chars().fold(0, |acc, c| acc + c as u32);
+                    let combined_hash = type_hash * 31 + type_count as u32 * 17;
+                    
+                    // Generate coordinates that fully utilize the map space
+                    let width = bounds.max.x - bounds.min.x;
+                    let height = bounds.max.y - bounds.min.y;
+                    
+                    // Use prime numbers for better distribution
+                    let x_offset = ((combined_hash * 127) % 90 + 5) as f64 / 100.0;
+                    let y_offset = ((combined_hash * 163) % 90 + 5) as f64 / 100.0;
+                    
+                    // Apply type-specific positioning bias based on generator characteristics
+                    let type_bias_x = match generator_type {
+                        GeneratorType::OffshoreWind => 0.8, // More towards the west coast
+                        GeneratorType::Nuclear => 0.5,     // More central/coastal
+                        GeneratorType::OnshoreWind => 0.4, // Widely distributed
+                        _ => 0.5, // Default - evenly distributed
+                    };
+                    
+                    // Calculate final position with some randomness but biased by type
+                    let x = bounds.min.x + width * (x_offset * 0.7 + type_bias_x * 0.3);
+                    let y = bounds.min.y + height * y_offset;
+                    
+                    return Some(Coordinate::new(x, y));
                 }
                 return None;
             }
@@ -1025,10 +1123,13 @@ impl Map {
     }
 
     fn get_ireland_bounds(&self) -> Bounds {
-        // Return bounds for Ireland's territory
+        // Return the grid bounds representing Ireland's territory in our grid coordinate system
+        // This should match the transformation used in transform_lat_lon_to_grid and transform_grid_to_lat_lon
+        // For Ireland: latitude 51.4 to 55.4, longitude -10.6 to -5.9
+        // The grid coordinates should span from (0,0) to (MAP_MAX_X, MAP_MAX_Y)
         Bounds {
-            min: Coordinate::new(-100000.0, -100000.0),
-            max: Coordinate::new(100000.0, 100000.0)
+            min: Coordinate::new(0.0, 0.0),
+            max: Coordinate::new(MAP_MAX_X, MAP_MAX_Y)
         }
     }
 

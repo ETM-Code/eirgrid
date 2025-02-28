@@ -8,10 +8,18 @@ use crate::map_handler::Map;
 use crate::action_weights::{GridAction, SimulationMetrics};
 use crate::settlement::Settlement;
 use crate::carbon_offset::{CarbonOffset, CarbonOffsetType};
-use crate::constants::{BASE_YEAR, END_YEAR};
+use crate::constants::{BASE_YEAR, END_YEAR, IRELAND_MIN_LAT, IRELAND_MAX_LAT, IRELAND_MIN_LON, IRELAND_MAX_LON, GRID_SCALE_X, GRID_SCALE_Y};
 use crate::poi::POI;
 use crate::generator::{Generator, GeneratorType};
 use crate::const_funcs;
+
+/// Function to transform grid coordinates back to lat/lon
+fn transform_grid_to_lat_lon(x: f64, y: f64) -> (f64, f64) {
+    // This is the inverse of the transform_lat_lon_to_grid function in const_funcs.rs
+    let lon = (x / GRID_SCALE_X) + IRELAND_MIN_LON;
+    let lat = (y / GRID_SCALE_Y) + IRELAND_MIN_LAT;
+    (lon, lat) // Return as (longitude, latitude) for consistent ordering
+}
 
 /// Main struct for handling CSV export
 pub struct CsvExporter {
@@ -317,6 +325,20 @@ impl CsvExporter {
             }
         };
         
+        // Helper function to sanitize settlement names by removing non-alphabetic characters
+        let sanitize_name = |name: &str| -> String {
+            name.chars()
+                .filter(|c| c.is_alphabetic() || c.is_whitespace())
+                .collect()
+        };
+        
+        // Helper function to sanitize IDs by removing non-alphabetic and non-numeric characters
+        let sanitize_id = |id: &str| -> String {
+            id.chars()
+                .filter(|c| c.is_alphanumeric() || c.is_whitespace() || *c == '_')
+                .collect()
+        };
+        
         // Initialize base year population and power usage data
         let mut base_year_population = std::collections::HashMap::new();
         let mut base_year_power_usage = std::collections::HashMap::new();
@@ -381,11 +403,18 @@ impl CsvExporter {
                 let name = settlement.get_name();
                 let coordinate = settlement.get_coordinate();
                 
-                // Escape the name to handle commas
-                let escaped_name = escape_csv_field(name.split(',').next().unwrap_or(name).trim());
+                // Convert grid coordinates to lat/lon
+                let (lon, lat) = transform_grid_to_lat_lon(coordinate.x, coordinate.y);
+                
+                // Sanitize and escape the name to handle commas
+                let sanitized_name = sanitize_name(name);
+                let escaped_name = escape_csv_field(&sanitized_name);
                 
                 // Get population from the calculated map or use current population as fallback
                 let population = *population_map.get(id).unwrap_or(&settlement.get_population());
+                
+                // Sanitize the ID for CSV output (keeping the underscore character)
+                let sanitized_id = sanitize_id(id);
                 
                 // Calculate growth rate compared to previous year
                 let growth_rate = if year > BASE_YEAR {
@@ -420,14 +449,13 @@ impl CsvExporter {
                 let settlement_index = settlements.iter().position(|s| s.get_id() == id).unwrap_or(0);
                 if settlement_index % 10 == 0 {
                     println!(
-                        "DEBUG Settlement {}/{} - Year: {}, ID: {}, Name: {}, Coords: ({:.6},{:.6}), Population: {}, Growth: {:.2}%, Power: {:.2} MW, Per Capita: {:.3} kW",
+                        "DEBUG Settlement {}/{} - Year: {}, ID: {}, LatLon: ({:.6},{:.6}), Population: {}, Growth: {:.2}%, Power: {:.2} MW, Per Capita: {:.3} kW",
                         settlement_index + 1,
                         settlements.len(),
                         year,
                         id,
-                        escaped_name,
-                        coordinate.x,
-                        coordinate.y,
+                        lon,    
+                        lat,
                         population,
                         growth_rate,
                         power_usage,
@@ -438,12 +466,12 @@ impl CsvExporter {
                 // Write CSV row with each field properly escaped and formatted
                 writeln!(
                     settlements_file,
-                    "{},{},{},{:.6},{:.6},{},{:.2}%,{:.2},{:.3}",
+                    "{},{},{},{:.6},{:.6},{},{:.2},{:.2},{:.3}",
                     year,
-                    id,
+                    sanitized_id,
                     escaped_name,
-                    coordinate.x,
-                    coordinate.y,
+                    lon,
+                    lat,
                     population,
                     growth_rate,
                     power_usage,
@@ -469,7 +497,7 @@ impl CsvExporter {
         // Write generators header with comprehensive information
         writeln!(
             generators_file,
-            "Year,Generator ID,Type,X,Y,Power Output (MW),Efficiency (%),Operation (%),CO2 Output (tonnes),Is Active,Commissioning Year,End of Life Year,Size,Capital Cost (€),Operating Cost (€),Total Annual Cost (€),Reliability Factor"
+            "Year,Generator ID,Type,Longitude,Latitude,Power Output (MW),Efficiency (%),Operation (%),CO2 Output (tonnes),Is Active,Commissioning Year,End of Life Year,Size,Capital Cost (€),Operating Cost (€),Total Annual Cost (€),Reliability Factor"
         )?;
         
         // Get generators from map
@@ -483,6 +511,13 @@ impl CsvExporter {
             writeln!(generators_file, "NOTE,No generators found in the simulation")?;
             return Ok(());
         }
+        
+        // Helper function to sanitize IDs by removing non-alphabetic and non-numeric characters
+        let sanitize_id = |id: &str| -> String {
+            id.chars()
+                .filter(|c| c.is_alphanumeric() || c.is_whitespace() || *c == '_')
+                .collect()
+        };
         
         // Create a map of all generators by ID for quick lookups
         let generator_map: std::collections::HashMap<&str, &Generator> = generators
@@ -626,6 +661,10 @@ impl CsvExporter {
                 // Get generator details
                 let generator_type = generator.get_generator_type().to_string();
                 let coordinate = generator.get_coordinate();
+                
+                // Convert grid coordinates to lat/lon
+                let (lon, lat) = transform_grid_to_lat_lon(coordinate.x, coordinate.y);
+                
                 let size = generator.get_size();
                 
                 // Get efficiency from map or use default
@@ -668,11 +707,14 @@ impl CsvExporter {
                     GeneratorType::WaveEnergy => 0.40,
                 };
                 
+                // Sanitize the ID for CSV output
+                let sanitized_id = sanitize_id(generator_id);
+                
                 // Debug output for a sample of generators
                 if generators.len() < 10 || generator_id.contains("0") {
                     println!(
-                        "Writing generator from map: Year={}, ID={}, Type={}, Coords=({:.6},{:.6}), Power={:.2} MW", 
-                        year, generator_id, generator_type, coordinate.x, coordinate.y, 
+                        "Writing generator from map: Year={}, ID={}, Type={}, LatLon=({:.6},{:.6}), Power={:.2} MW", 
+                        year, generator_id, generator_type, lon, lat,
                         generator.get_current_power_output(None)
                     );
                 }
@@ -682,10 +724,10 @@ impl CsvExporter {
                     generators_file,
                     "{},{},{},{:.6},{:.6},{:.2},{:.2},{:.2},{:.2},{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2}",
                     year,
-                    generator_id,
+                    sanitized_id,
                     generator_type,
-                    coordinate.x,
-                    coordinate.y,
+                    lon,  // Longitude
+                    lat,  // Latitude
                     generator.get_current_power_output(None),
                     efficiency,
                     operation,
@@ -728,6 +770,9 @@ impl CsvExporter {
                         let id_hash: u32 = id.chars().fold(0, |acc, c| acc + c as u32);
                         let x = (id_hash % 1000) as f64 / 1000.0 * 2.0 - 1.0; // Range: -1.0 to 1.0
                         let y = ((id_hash / 1000) % 1000) as f64 / 1000.0 * 2.0 - 1.0; // Range: -1.0 to 1.0
+                        
+                        // Convert grid coordinates to lat/lon
+                        let (lon, lat) = transform_grid_to_lat_lon(x, y);
                         
                         // Calculate reliability factor based on generator type
                         let reliability_factor = match gen_type.as_str() {
@@ -779,10 +824,13 @@ impl CsvExporter {
                         // Estimate operating costs (usually 2-5% of capital cost annually)
                         let operating_cost = capital_cost * 0.03; // 3% of capital cost
                         
+                        // Sanitize the ID for CSV output
+                        let sanitized_id = sanitize_id(id);
+                        
                         // Debug output for generators found only in metrics
                         println!(
-                            "Writing generator from metrics: Year={}, ID={}, Type={}, Efficiency={:.2}%, Operation={:.2}%", 
-                            year, id, gen_type, efficiency * 100.0, operation
+                            "Writing generator from metrics: Year={}, ID={}, Type={}, Grid=({:.6},{:.6}), LatLon=({:.6},{:.6}), Efficiency={:.2}%, Operation={:.2}%", 
+                            year, id, gen_type, x, y, lon, lat, efficiency * 100.0, operation
                         );
                         
                         // Write generator data to CSV with the information we have
@@ -790,10 +838,10 @@ impl CsvExporter {
                             generators_file,
                             "{},{},{},{:.6},{:.6},{:.2},{:.2},{:.2},{:.2},{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2}",
                             year,
-                            id,
+                            sanitized_id,
                             gen_type,
-                            x,
-                            y,
+                            lon,  // Longitude
+                            lat,  // Latitude
                             power_output,
                             efficiency * 100.0,
                             operation,
@@ -842,9 +890,16 @@ impl CsvExporter {
             println!("No carbon offsets found in the simulation");
         }
         
+        // Helper function to sanitize IDs by removing non-alphabetic and non-numeric characters
+        let sanitize_id = |id: &str| -> String {
+            id.chars()
+                .filter(|c| c.is_alphanumeric() || c.is_whitespace() || *c == '_')
+                .collect()
+        };
+        
         // Loop through all years first, then offsets - ensures we include all years in the simulation
         for year in BASE_YEAR..=END_YEAR {
-        for offset in offsets {
+            for offset in offsets {
                 // Extract the year from the offset ID (assuming format like "Offset_Forest_2023_0")
                 let id_parts: Vec<&str> = offset.get_id().split('_').collect();
                 let creation_year = if id_parts.len() >= 3 {
@@ -861,6 +916,10 @@ impl CsvExporter {
                 if year < creation_year {
                     continue;
                 }
+                
+                // Get coordinate and convert to lat/lon
+                let coordinate = offset.get_coordinate();
+                let (lon, lat) = transform_grid_to_lat_lon(coordinate.x, coordinate.y);
                 
                 // Calculate carbon offset for this year
                 let co2_offset = offset.calc_carbon_offset(year);
@@ -886,15 +945,19 @@ impl CsvExporter {
                     0.0
                 };
                 
+                // Sanitize offset ID for CSV output
+                let offset_id = offset.get_id();
+                let sanitized_offset_id = sanitize_id(offset_id);
+                
                 // Write data for this offset and year
                 writeln!(
                     offsets_file,
                     "{},{},{},{:.6},{:.6},{},{:.2},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2}",
                     year,
-                    offset.get_id(),
+                    sanitized_offset_id,
                     offset.get_offset_type_string(),
-                    offset.get_coordinate().x,
-                    offset.get_coordinate().y,
+                    lon,
+                    lat,
                     offset.get_size_value(),
                     offset.get_capture_efficiency_value() * 100.0,
                     offset.get_power_consumption(),
@@ -1210,6 +1273,8 @@ pub struct YearlyMetrics {
     pub net_co2_emissions: f64,
     pub yearly_carbon_credit_revenue: f64,
     pub total_carbon_credit_revenue: f64,
+    pub yearly_energy_sales_revenue: f64,
+    pub total_energy_sales_revenue: f64,
     pub generator_efficiencies: Vec<(String, f64)>,
     pub generator_operations: Vec<(String, f64)>,
     pub active_generators: usize,
@@ -1217,7 +1282,7 @@ pub struct YearlyMetrics {
     pub yearly_closure_costs: f64,
     pub yearly_total_cost: f64,
     pub total_cost: f64,
-} 
+}
 
 /// Function to convert from main.rs YearlyMetrics to our YearlyMetrics
 /// Takes a vector of metrics with compatible fields
@@ -1248,6 +1313,8 @@ where
             yearly_closure_costs: m.get_yearly_closure_costs(),
             yearly_total_cost: m.get_yearly_total_cost(),
             total_cost: m.get_total_cost(),
+            yearly_energy_sales_revenue: m.get_yearly_energy_sales_revenue(),
+            total_energy_sales_revenue: m.get_total_energy_sales_revenue(),
         }
     }).collect()
 }
@@ -1275,6 +1342,8 @@ pub trait YearlyMetricsLike {
     fn get_yearly_closure_costs(&self) -> f64;
     fn get_yearly_total_cost(&self) -> f64;
     fn get_total_cost(&self) -> f64;
+    fn get_yearly_energy_sales_revenue(&self) -> f64;
+    fn get_total_energy_sales_revenue(&self) -> f64;
 }
 
 // Implementation of this trait can be added in main.rs for the main YearlyMetrics struct
