@@ -26,6 +26,9 @@ const MATCHING_ACTION_REWARD: f64 = 0.1; // Additional reward factor for actions
 const FORCE_REPLAY_THRESHOLD: u32 = 1000; // After this many iterations without improvement, start forcing replay
 const ITERATIONS_FOR_RANDOMIZATION: u32 = 1000; // After this many iterations without improvement, apply randomization
 
+// Constant for minimal improvement during exploration when emissions reduction isn't primary
+const EXPLORATION_MINIMAL_IMPROVEMENT: f64 = 0.01;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GridAction {
     AddGenerator(GeneratorType),
@@ -1994,7 +1997,9 @@ impl ActionWeights {
 }
 
 pub fn score_metrics(metrics: &SimulationMetrics) -> f64 {
-    // First priority: Reach net zero emissions
+    // First priority: Reach net zero emissions by 2050
+    // This scoring remains unchanged - we still prioritize reaching net zero emissions
+    // as the primary goal, but intermediate emissions reductions aren't incentivized
     if metrics.final_net_emissions > 0.0 {
         // If we haven't achieved net zero, only focus on reducing emissions
         1.0 - (metrics.final_net_emissions / MAX_ACCEPTABLE_EMISSIONS).min(1.0)
@@ -2037,10 +2042,14 @@ pub fn evaluate_action_impact(
 ) -> f64 {
     // Calculate immediate impact score based on priorities
     if current_state.net_emissions > 0.0 {
-        // First priority: If we haven't achieved net zero, only consider emissions
-        let emissions_improvement = (current_state.net_emissions - new_state.net_emissions) / 
-                                  current_state.net_emissions.abs().max(1.0);
-        emissions_improvement
+        // First priority: If we haven't achieved net zero, focus on emissions at 2050
+        // We don't care about intermediate emissions reductions - only final result matters
+        // Allow the model to explore actions that might not immediately reduce emissions
+        
+        // Use a minimal improvement score to encourage exploration of various strategies
+        // This avoids penalizing actions that might increase emissions temporarily but 
+        // could lead to better long-term strategies
+        EXPLORATION_MINIMAL_IMPROVEMENT
     }
     else {
         // If we've achieved net zero, consider both cost and opinion improvements
@@ -2054,7 +2063,7 @@ pub fn evaluate_action_impact(
                                 current_state.public_opinion.abs().max(1.0);
         
         // Weight cost more heavily if it's very high
-        let cost_weight = if current_state.total_cost > MAX_ACCEPTABLE_COST * 8.0 { 0.8 } else { 0.5 };
+        let cost_weight = if current_state.total_cost > MAX_ACCEPTABLE_COST * 5.0 { 0.8 } else { 0.5 };
         let opinion_weight = 1.0 - cost_weight;
         
         // Combined improvement score

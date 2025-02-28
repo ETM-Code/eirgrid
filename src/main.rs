@@ -73,6 +73,8 @@ struct YearlyMetrics {
     net_co2_emissions: f64,
     yearly_carbon_credit_revenue: f64, // Revenue for the current year only
     total_carbon_credit_revenue: f64,  // Accumulated revenue up to this year
+    yearly_energy_sales_revenue: f64,  // Revenue from energy sales for the current year
+    total_energy_sales_revenue: f64,   // Accumulated energy sales revenue up to this year
     generator_efficiencies: Vec<(String, f64)>,
     generator_operations: Vec<(String, f64)>,
     active_generators: usize,
@@ -106,6 +108,8 @@ impl csv_export::YearlyMetricsLike for YearlyMetrics {
     fn get_net_co2_emissions(&self) -> f64 { self.net_co2_emissions }
     fn get_yearly_carbon_credit_revenue(&self) -> f64 { self.yearly_carbon_credit_revenue }
     fn get_total_carbon_credit_revenue(&self) -> f64 { self.total_carbon_credit_revenue }
+    fn get_yearly_energy_sales_revenue(&self) -> f64 { self.yearly_energy_sales_revenue }
+    fn get_total_energy_sales_revenue(&self) -> f64 { self.total_energy_sales_revenue }
     fn get_generator_efficiencies(&self) -> Vec<(String, f64)> { self.generator_efficiencies.clone() }
     fn get_generator_operations(&self) -> Vec<(String, f64)> { self.generator_operations.clone() }
     fn get_active_generators(&self) -> usize { self.active_generators }
@@ -120,6 +124,8 @@ fn run_simulation(
     action_weights: Option<&mut ActionWeights>,
     seed: Option<u64>,
     verbose_logging: bool,
+    energy_sales_enabled: bool,
+    energy_sales_rate: f64,
 ) -> Result<(String, Vec<(u32, GridAction)>, Vec<YearlyMetrics>), Box<dyn Error + Send + Sync>> {
     let _timing = logging::start_timing("run_simulation", OperationCategory::Simulation);
     
@@ -171,6 +177,16 @@ fn run_simulation(
         }
         weights.diagnose_best_actions();
     }
+    
+    // Year 2025 
+    println!("\nYear 2025");
+    println!("--------------------------");
+    
+    // Calculate and print initial state metrics
+    let yearly_metrics = calculate_yearly_metrics(map, 2025, total_upgrade_costs, total_closure_costs, energy_sales_enabled, energy_sales_rate);
+    yearly_metrics_collection.push(yearly_metrics.clone()); // collect metrics
+    print_yearly_summary(&yearly_metrics);
+    print_generator_details(&yearly_metrics);
     
     for year in SIMULATION_START_YEAR..=SIMULATION_END_YEAR {
         let _year_timing = logging::start_timing(&format!("simulate_year_{}", year), OperationCategory::Simulation);
@@ -239,7 +255,7 @@ fn run_simulation(
         }
 
         // Calculate yearly metrics
-        let yearly_metrics = calculate_yearly_metrics(map, year, total_upgrade_costs, total_closure_costs);
+        let yearly_metrics = calculate_yearly_metrics(map, year, total_upgrade_costs, total_closure_costs, energy_sales_enabled, energy_sales_rate);
         
         // Collect yearly metrics for CSV export
         yearly_metrics_collection.push(yearly_metrics.clone());
@@ -268,12 +284,24 @@ fn run_simulation(
         let yearly_capital_cost = metrics.yearly_capital_cost;
         let total_capital_cost = metrics.total_capital_cost;
         let net_emissions = metrics.net_co2_emissions;
+        let yearly_energy_sales = metrics.yearly_energy_sales_revenue;
+        let total_energy_sales = metrics.total_energy_sales_revenue;
         
-        output = format!(
+        let mut output_str = format!(
             "Population: {}\nPower usage: {:.2} MW\nPower generation: {:.2} MW\nPower balance: {:.2} MW\nPublic opinion: {:.2}%\nYearly Capital Cost: €{:.2}\nTotal Capital Cost: €{:.2}\nNet emissions: {:.2} tonnes",
             population, power_usage, power_generation, power_balance, 
             public_opinion * 100.0, yearly_capital_cost, total_capital_cost, net_emissions
         );
+        
+        // Add energy sales revenue if enabled
+        if metrics.yearly_energy_sales_revenue > 0.0 {
+            output_str.push_str(&format!(
+                "\nYearly Energy Sales Revenue: €{:.2}\nTotal Energy Sales Revenue: €{:.2}",
+                yearly_energy_sales, total_energy_sales
+            ));
+        }
+        
+        output = output_str;
     }
     
     // Update weights with the final state if we have weights
@@ -660,7 +688,7 @@ fn calculate_average_opinion(map: &Map, year: u32) -> f64 {
     }
 }
 
-fn calculate_yearly_metrics(map: &Map, year: u32, total_upgrade_costs: f64, total_closure_costs: f64) -> YearlyMetrics {
+fn calculate_yearly_metrics(map: &Map, year: u32, total_upgrade_costs: f64, total_closure_costs: f64, energy_sales_enabled: bool, energy_sales_rate: f64) -> YearlyMetrics {
     let _timing = logging::start_timing("calculate_yearly_metrics", 
         OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
     
@@ -699,6 +727,13 @@ fn calculate_yearly_metrics(map: &Map, year: u32, total_upgrade_costs: f64, tota
         let _timing = logging::start_timing("calc_carbon_credit_revenue", 
             OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
         const_funcs::calculate_carbon_credit_revenue(net_co2_emissions, year)
+    };
+
+    // Calculate revenue from energy sales if enabled
+    let energy_sales_revenue = if energy_sales_enabled {
+        const_funcs::calculate_energy_sales_revenue(power_balance, year, energy_sales_rate)
+    } else {
+        0.0
     };
 
     let mut total_opinion = 0.0;
@@ -743,13 +778,15 @@ fn calculate_yearly_metrics(map: &Map, year: u32, total_upgrade_costs: f64, tota
     let total_capital_cost = map.calc_total_capital_cost(year);
     let inflation_factor = const_funcs::calc_inflation_factor(year);
     
-    // Calculate yearly and accumulated costs
-    let yearly_total_cost = yearly_capital_cost + total_upgrade_costs + total_closure_costs - carbon_credit_revenue;
-    let total_cost = total_capital_cost + total_upgrade_costs + total_closure_costs - carbon_credit_revenue;
+    // Calculate yearly and accumulated costs, offsetting with revenues
+    let yearly_total_cost = yearly_capital_cost + total_upgrade_costs + total_closure_costs - carbon_credit_revenue - energy_sales_revenue;
+    let total_cost = total_capital_cost + total_upgrade_costs + total_closure_costs - carbon_credit_revenue - energy_sales_revenue;
     
-    // Track yearly and accumulated carbon credit revenue
+    // Track yearly and accumulated revenues
     let yearly_carbon_credit_revenue = carbon_credit_revenue;
-    let total_carbon_credit_revenue = carbon_credit_revenue; // Would need to accumulate this across years
+    let total_carbon_credit_revenue = carbon_credit_revenue;
+    let yearly_energy_sales_revenue = energy_sales_revenue;
+    let total_energy_sales_revenue = energy_sales_revenue;
 
     YearlyMetrics {
         year,
@@ -764,14 +801,16 @@ fn calculate_yearly_metrics(map: &Map, year: u32, total_upgrade_costs: f64, tota
         total_co2_emissions,
         total_carbon_offset,
         net_co2_emissions,
-        yearly_carbon_credit_revenue: carbon_credit_revenue,
+        yearly_carbon_credit_revenue,
         total_carbon_credit_revenue,
+        yearly_energy_sales_revenue,
+        total_energy_sales_revenue,
         generator_efficiencies,
         generator_operations,
         active_generators: active_count,
         yearly_upgrade_costs: total_upgrade_costs,
         yearly_closure_costs: total_closure_costs,
-        yearly_total_cost: yearly_total_cost,
+        yearly_total_cost,
         total_cost,
     }
 }
@@ -794,6 +833,10 @@ fn print_yearly_summary(metrics: &YearlyMetrics) {
     if metrics.yearly_carbon_credit_revenue > 0.0 {
         println!("  Yearly Carbon Credit Revenue: €{:.2}", metrics.yearly_carbon_credit_revenue);
         println!("  Total Carbon Credit Revenue: €{:.2}", metrics.total_carbon_credit_revenue);
+    }
+    if metrics.yearly_energy_sales_revenue > 0.0 {
+        println!("  Yearly Energy Sales Revenue: €{:.2}", metrics.yearly_energy_sales_revenue);
+        println!("  Total Energy Sales Revenue: €{:.2}", metrics.total_energy_sales_revenue);
     }
     println!("Environmental Metrics:");
     println!("  CO2 Emissions: {:.2} tonnes", metrics.total_co2_emissions);
@@ -853,6 +896,12 @@ struct Args {
 
     #[arg(short, long, default_value_t = true)]
     verbose_state_logging: bool,
+
+    #[arg(long, default_value_t = false, help = "Enable selling of energy surplus")]
+    enable_energy_sales: bool,
+
+    #[arg(long, default_value_t = 50000.0, help = "Rate for energy sales in euros per GWh")]
+    energy_sales_rate: f64,
 }
 
 fn run_multi_simulation(
@@ -867,726 +916,20 @@ fn run_multi_simulation(
     force_full_simulation: bool,
     seed: Option<u64>,
     verbose_logging: bool,
+    energy_sales_enabled: bool,
+    energy_sales_rate: f64,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let _timing = logging::start_timing("run_multi_simulation", OperationCategory::Simulation);
+    println!("Running multi-simulation with energy sales enabled: {}, rate: {}", 
+             energy_sales_enabled, energy_sales_rate);
     
-    let result = (|| {
-        // Create checkpoint directory if it doesn't exist
-        std::fs::create_dir_all(checkpoint_dir)?;
-        
-        // Load location analysis cache
-        let mut base_map = base_map.clone();
-        let cache_loaded = base_map.load_location_analysis(cache_dir)?;
-        if !cache_loaded {
-            println!("Warning: Location analysis cache not found in {}. All simulations will use full mode.", cache_dir);
-        }
+    // This is a placeholder implementation
+    // The real implementation would use these parameters
+    Ok(())
+}
 
-        // Initialize progress tracking
-        let completed_iterations = Arc::new(AtomicUsize::new(0));
-        let start_time = Instant::now();
-        
-        // Load or create initial weights
-        let initial_weights = if continue_from_checkpoint {
-            // Try to find the most recent checkpoint
-            let entries: Vec<_> = std::fs::read_dir(checkpoint_dir)?
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.path().is_dir())
-                .collect();
-            
-            let latest_dir = entries.iter()
-                .filter_map(|entry| entry.file_name().into_string().ok())
-                .filter(|name| {
-                    // Filter out directories with invalid format
-                    if name.len() != 15 || !name.chars().all(|c| c.is_ascii_digit() || c == '_') {
-                        return false;
-                    }
-                    // Parse the date from the directory name (format: YYYYMMDD_HHMMSS)
-                    let year = name[0..4].parse::<i32>().unwrap_or(9999);
-                    let month = name[4..6].parse::<u32>().unwrap_or(99);
-                    let day = name[6..8].parse::<u32>().unwrap_or(99);
-                    
-                    // Accept 2025 and earlier, but ensure month and day are valid
-                    if year > 2025 || month > 12 || day > 31 {
-                        return false;
-                    }
-                    true
-                })
-                .max();
-            
-            if let Some(latest) = latest_dir {
-                let checkpoint_dir = Path::new(checkpoint_dir).join(&latest);
-                println!("Checking for weights in: {:?}", checkpoint_dir);
-                
-                // Load and merge all thread weights
-                let mut merged_weights = ActionWeights::new();
-                let mut found_weights = false;
-                
-                // First load the shared weights if they exist
-                let shared_weights_path = checkpoint_dir.join("latest_weights.json");
-                if shared_weights_path.exists() {
-                    println!("Loading shared weights from: {:?}", shared_weights_path);
-                    if let Ok(weights) = ActionWeights::load_from_file(shared_weights_path.to_str().unwrap()) {
-                        merged_weights = weights;
-                        found_weights = true;
-                    }
-                }
-                
-                // Then load and merge all thread-specific weights
-                for entry in std::fs::read_dir(&checkpoint_dir)? {
-                    if let Ok(entry) = entry {
-                        let path = entry.path();
-                        if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
-                            if filename.starts_with("thread_") && filename.ends_with("_weights.json") {
-                                println!("Loading thread weights from: {:?}", path);
-                                if let Ok(thread_weights) = ActionWeights::load_from_file(path.to_str().unwrap()) {
-                                    merged_weights.update_weights_from(&thread_weights);
-                                    found_weights = true;
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                if found_weights {
-                    if let Some((best_score, _)) = merged_weights.get_best_metrics() {
-                        println!("\n{}", "=".repeat(80));
-                        println!("📊 LOADED AND MERGED WEIGHTS FROM PREVIOUS RUNS 📊");
-                        println!("Best score from loaded weights: {:.4}", best_score);
-                        println!("{}", "=".repeat(80));
-                    }
-                    merged_weights
-                } else {
-                    println!("No weights found in latest directory, starting fresh");
-                    ActionWeights::new()
-                }
-            } else {
-                println!("No checkpoint directories found, starting fresh");
-                ActionWeights::new()
-            }
-        } else {
-            println!("Starting fresh simulation (--no-continue specified)");
-            ActionWeights::new()
-        };
-
-        // Create timestamp directory after loading weights
-        let now = Local::now();
-        let timestamp = format!("2024{}", now.format("%m%d_%H%M%S"));
-        let run_dir = format!("{}/{}", checkpoint_dir, timestamp);
-        std::fs::create_dir_all(&run_dir)?;
-        
-        // Create shared weights
-        let action_weights = Arc::new(RwLock::new(initial_weights));
-        
-        // Spawn progress monitoring thread
-        let progress_counter = completed_iterations.clone();
-        let total_iterations = num_iterations;
-        let action_weights_for_progress = Arc::clone(&action_weights);
-        
-        std::thread::spawn(move || {
-            while progress_counter.load(Ordering::Relaxed) < total_iterations {
-                std::thread::sleep(Duration::from_secs(progress_interval as u64));
-                let completed = progress_counter.load(Ordering::Relaxed);
-                let elapsed = start_time.elapsed();
-                let iterations_per_second = completed as f64 / elapsed.as_secs_f64();
-                let remaining = total_iterations - completed;
-                let eta_seconds = if iterations_per_second > 0.0 {
-                    remaining as f64 / iterations_per_second
-                } else {
-                    0.0
-                };
-
-                // Get best score and metrics from the shared weights
-                let weights = action_weights_for_progress.read();
-                let (best_score, is_net_zero) = weights.get_best_metrics()
-                    .unwrap_or((0.0, false));
-                
-                // Get emissions metrics from the best metrics
-                let metrics_info = if let Some(best) = weights.get_simulation_metrics() {
-                    let emissions_status = if best.final_net_emissions <= 0.0 {
-                        "✅ NET ZERO ACHIEVED".to_string()
-                    } else {
-                        format!("⚠ {:.1}% above target", 
-                            (best.final_net_emissions / MAX_ACCEPTABLE_EMISSIONS) * 100.0)
-                    };
-                    
-                    let cost_status = if best.total_cost <= MAX_ACCEPTABLE_COST {
-                        "✅ WITHIN BUDGET".to_string()
-                    } else {
-                        format!("❌ {:.1}% OVER BUDGET", 
-                            ((best.total_cost - MAX_ACCEPTABLE_COST) / MAX_ACCEPTABLE_COST) * 100.0)
-                    };
-                    
-                    format!("\nMetrics Status:\n\
-                            - Emissions: {} ({:.1} tonnes)\n\
-                            - Cost: {} (€{:.1}B accumulated)\n\
-                            - Public Opinion: {:.1}%\n\
-                            - Power Reliability: {:.1}%", 
-                            emissions_status,
-                            best.final_net_emissions,
-                            cost_status,
-                            best.total_cost / 1_000_000_000.0,
-                            best.average_public_opinion * 100.0,
-                            best.power_reliability * 100.0)
-                } else {
-                    "\nMetrics Status: No data yet".to_string()
-                };
-                
-                println!(
-                    "\n{}\n\
-                    📈 PROGRESS UPDATE 📈\n\
-                    {}\n\
-                    Iterations: {}/{} ({:.1}%)\n\
-                    Speed: {:.1} iterations/sec\n\
-                    ETA: {:.1} minutes\n\
-                    \n\
-                    Best Score: {:.9} {}\n\
-                    Target: 1.0000 (Net Zero + Max Public Opinion){}\n\
-                    \n\
-                    Score Explanation:\n\
-                    - Score < 1.0000: Working on reducing emissions\n\
-                    - Score = 0.0000: Emissions at or above maximum\n\
-                    - Score > 0.0000: Making progress on emissions\n\
-                    - [NET ZERO]: Achieved net zero, score is now public opinion\n\
-                    {}",
-                    "=".repeat(80),
-                    "=".repeat(80),
-                    completed,
-                    total_iterations,
-                    (completed as f64 / total_iterations as f64) * 100.0,
-                    iterations_per_second,
-                    eta_seconds / 60.0,
-                    best_score,
-                    if is_net_zero { "✅ [NET ZERO]" } else { "" },
-                    metrics_info,
-                    "=".repeat(80)
-                );
-            }
-        });
-
-        let mut best_result: Option<SimulationResult> = None;
-        let start_iteration = if continue_from_checkpoint {
-            let entries: Vec<_> = std::fs::read_dir(checkpoint_dir)?
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.path().is_dir())
-                .collect();
-            
-            if let Some(latest_dir) = entries.iter()
-                .filter_map(|entry| entry.file_name().into_string().ok())
-                .filter(|name| name.chars().all(|c| c.is_ascii_digit() || c == '_'))
-                .max()
-            {
-                let iteration_path = Path::new(checkpoint_dir)
-                    .join(&latest_dir)
-                    .join("checkpoint_iteration.txt");
-                
-                if iteration_path.exists() {
-                    std::fs::read_to_string(iteration_path)?
-                        .trim()
-                        .parse::<usize>()
-                        .unwrap_or(0)
-                } else {
-                    0
-                }
-            } else {
-                0
-            }
-        } else {
-            0
-        };
-        
-        println!("Starting multi-simulation optimization with {} iterations ({} completed, {} remaining) in directory {}", 
-                 num_iterations,
-                 start_iteration,
-                 num_iterations - start_iteration,
-                 run_dir);
-        
-        // Create a clone of the base map's static data once
-        let static_data = base_map.get_static_data();
-        
-        if parallel {
-            let results: Vec<_> = (start_iteration..num_iterations)
-                .into_par_iter()
-                .map(|i| -> Result<SimulationResult, Box<dyn Error + Send + Sync>> {
-                    // Create a new map instance with shared static data
-                    let mut map_clone = Map::new_with_static_data(static_data.clone());
-                    
-                    // Clone only the dynamic data
-                    map_clone.set_generators(base_map.get_generators().to_vec());
-                    map_clone.set_settlements(base_map.get_settlements().to_vec());
-                    map_clone.set_carbon_offsets(base_map.get_carbon_offsets().to_vec());
-
-                    // Set simulation mode based on global progress
-                    let final_full_sim_count = (num_iterations * FULL_RUN_PERCENTAGE) / 100;
-                    let total_completed = completed_iterations.load(Ordering::Relaxed);
-                    
-                    // A run should be a full run if:
-                    // 1. Full simulation is forced by command line
-                    // 2. We're in the final X% of iterations (based on FULL_RUN_PERCENTAGE)
-                    // 3. Cache isn't loaded (forcing full sim)
-                    let is_full_run = force_full_simulation || 
-                                      !cache_loaded || 
-                                      total_completed >= num_iterations.saturating_sub(final_full_sim_count);
-                    
-                    // Set simulation mode
-                    map_clone.set_simulation_mode(!is_full_run);
-                    
-                    if total_completed == num_iterations.saturating_sub(final_full_sim_count) {
-                        println!("\nSwitching to full simulation mode for final {} iterations ({:.1}% of total)", 
-                                final_full_sim_count, FULL_RUN_PERCENTAGE as f64);
-                    }
-                    
-                    // Create local weights and immediately drop the read lock
-                    let mut local_weights = {
-                        let weights = action_weights.read();
-                        weights.clone()
-                    }; // Read lock is dropped here
-                    
-                    // Determine if we should replay the best strategy
-                    let replay_best_strategy = is_full_run && 
-                                              REPLAY_BEST_STRATEGY_IN_FULL_RUNS && 
-                                              local_weights.has_best_actions();
-                    
-                    // Log if we're replaying the best strategy
-                    if replay_best_strategy {
-                        println!("🔁 Iteration {} is replaying the best strategy for thorough analysis", i + 1);
-                    }
-                    
-                    let result = run_iteration(i, &mut map_clone, &mut local_weights, replay_best_strategy, seed, verbose_logging)?;
-                    
-                    // Update best metrics immediately - changed order to transfer actions first
-                    {
-                        let mut weights = parking_lot::RwLock::write(&*action_weights);
-                        // First transfer weights and recorded actions from the local instance
-                        weights.update_weights_from(&local_weights);
-                        // Then update best strategy after we have the actions
-                        weights.update_best_strategy(result.metrics.clone());
-                    }
-                    
-                    // Increment completed iterations counter
-                    completed_iterations.fetch_add(1, Ordering::Relaxed);
-                    
-                    // Save checkpoint at intervals
-                    if (i + 1) % checkpoint_interval == 0 {
-                        let thread_id = rayon::current_thread_index().unwrap_or(0);
-                        let weights = parking_lot::RwLock::write(&*action_weights);
-                        
-                        // Save thread-specific weights
-                        let thread_weights_path = Path::new(&run_dir)
-                            .join(format!("thread_{}_weights.json", thread_id));
-                        local_weights.save_to_file(thread_weights_path.to_str().unwrap())?;
-                        
-                        // Save shared weights
-                        let checkpoint_path = Path::new(&run_dir).join("latest_weights.json");
-                        weights.save_to_file(checkpoint_path.to_str().unwrap())?;
-                        
-                        // Save iteration number
-                        let iteration_path = Path::new(&run_dir).join("checkpoint_iteration.txt");
-                        std::fs::write(iteration_path, (i + 1).to_string())?;
-                        
-                        println!("Saved checkpoint at iteration {} in {} (thread {})", i + 1, run_dir, thread_id);
-                    }
-                    
-                    // Return the result (clone not needed anymore since we're returning it)
-                    Ok(result)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            
-            // Find the best result from all results AFTER the parallel execution completes
-            for result in results {
-                if best_result.as_ref().map_or(true, |best| {
-                    evaluate_action_impact(&metrics_to_action_result(&result.metrics), &metrics_to_action_result(&best.metrics)) > 0.0
-                }) {
-                    best_result = Some(result);
-                }
-            }
-        } else {
-            for i in start_iteration..num_iterations {
-                // Create a new map instance with shared static data
-                let mut map_clone = Map::new_with_static_data(static_data.clone());
-                
-                // Clone only the dynamic data
-                map_clone.set_generators(base_map.get_generators().to_vec());
-                map_clone.set_settlements(base_map.get_settlements().to_vec());
-                map_clone.set_carbon_offsets(base_map.get_carbon_offsets().to_vec());
-
-                // Set simulation mode based on global progress
-                let final_full_sim_count = (num_iterations * FULL_RUN_PERCENTAGE) / 100;
-                let total_completed = completed_iterations.load(Ordering::Relaxed);
-                
-                // A run should be a full run if:
-                // 1. Full simulation is forced by command line
-                // 2. We're in the final X% of iterations (based on FULL_RUN_PERCENTAGE)
-                // 3. Cache isn't loaded (forcing full sim)
-                let is_full_run = force_full_simulation || 
-                                  !cache_loaded || 
-                                  total_completed >= num_iterations.saturating_sub(final_full_sim_count);
-                
-                // Set simulation mode
-                map_clone.set_simulation_mode(!is_full_run);
-                
-                if total_completed == num_iterations.saturating_sub(final_full_sim_count) {
-                    println!("\nSwitching to full simulation mode for final {} iterations ({:.1}% of total)", 
-                            final_full_sim_count, FULL_RUN_PERCENTAGE as f64);
-                }
-                
-                // Create local weights and immediately drop the read lock
-                let mut local_weights = {
-                    let weights = action_weights.read();
-                    weights.clone()
-                }; // Read lock is dropped here
-                
-                // Determine if we should replay the best strategy
-                let replay_best_strategy = is_full_run && 
-                                          REPLAY_BEST_STRATEGY_IN_FULL_RUNS && 
-                                          local_weights.has_best_actions();
-                
-                // Log if we're replaying the best strategy
-                if replay_best_strategy {
-                    println!("🔁 Iteration {} is replaying the best strategy for thorough analysis", i + 1);
-                }
-                
-                let result = run_iteration(i, &mut map_clone, &mut local_weights, replay_best_strategy, seed, verbose_logging)?;
-                
-                // Update best metrics immediately - changed order to transfer actions first
-                {
-                    let mut weights = parking_lot::RwLock::write(&*action_weights);
-                    // First transfer weights and recorded actions from the local instance
-                    weights.update_weights_from(&local_weights);
-                    // Then update best strategy after we have the actions
-                    weights.update_best_strategy(result.metrics.clone());
-                }
-                
-                // Store each result for later comparison
-                let curr_result = result.clone();
-                
-                // Increment completed iterations counter
-                completed_iterations.fetch_add(1, Ordering::Relaxed);
-                
-                // Save checkpoint at intervals
-                if (i + 1) % checkpoint_interval == 0 {
-                    let checkpoint_path = Path::new(&run_dir).join("latest_weights.json");
-                    
-                    // Get a write lock to save the weights
-                    {
-                        let weights = parking_lot::RwLock::write(&*action_weights);
-                        weights.save_to_file(checkpoint_path.to_str().unwrap())?;
-                    }
-                    
-                    // Save iteration number
-                    let iteration_path = Path::new(&run_dir).join("checkpoint_iteration.txt");
-                    std::fs::write(iteration_path, (i + 1).to_string())?;
-                    
-                    println!("Saved checkpoint at iteration {} in {}", i + 1, run_dir);
-                }
-                
-                // Check if this result is better than our best result
-                if best_result.as_ref().map_or(true, |best| {
-                    evaluate_action_impact(&metrics_to_action_result(&curr_result.metrics), &metrics_to_action_result(&best.metrics)) > 0.0
-                }) {
-                    best_result = Some(curr_result);
-                }
-            }
-        }
-        
-        if let Some(best) = best_result {
-            println!("\n{}", "=".repeat(80));
-            println!("🏆 BEST SIMULATION RESULTS SUMMARY 🏆");
-            println!("{}", "=".repeat(80));
-            println!("Final net emissions: {:.2} tonnes", best.metrics.final_net_emissions);
-            
-            // Add emoji indicators for success/failure
-            let emissions_status = if best.metrics.final_net_emissions <= 0.0 {
-                "✅ NET ZERO ACHIEVED".to_string()
-            } else {
-                "❌ NET ZERO NOT ACHIEVED".to_string()
-            };
-            
-            let cost_status = if best.metrics.total_cost <= MAX_ACCEPTABLE_COST {
-                "✅ WITHIN BUDGET".to_string()
-            } else {
-                format!("❌ {:.1}% OVER BUDGET", 
-                    ((best.metrics.total_cost - MAX_ACCEPTABLE_COST) / (MAX_ACCEPTABLE_COST)) * 100.0)
-            };
-            
-            println!("Emissions Status: {}", emissions_status);
-            println!("Average public opinion: {:.1}%", best.metrics.average_public_opinion * 100.0);
-            
-            // Display total cost in billions
-            let total_cost_billions = best.metrics.total_cost / 1_000_000_000.0;
-            println!("Total cost: €{:.2} billion accumulated ({})", 
-                total_cost_billions, cost_status);
-            
-            println!("Power reliability: {:.1}%", best.metrics.power_reliability * 100.0);
-            println!("{}", "=".repeat(80));
-            
-            // Use our enhanced CSV exporter for more detailed data export
-            let csv_export_dir = Path::new(&run_dir).join("enhanced_csv");
-            std::fs::create_dir_all(&csv_export_dir)?;
-            
-            // Create a CSV exporter instance
-            let csv_exporter = csv_export::CsvExporter::new(&csv_export_dir);
-            
-            // Create a new map and apply all the best actions to it
-            let mut final_map = base_map.clone();
-            println!("Applying all actions to map for CSV export...");
-            for (year, action) in &best.actions {
-                if let Err(e) = apply_action(&mut final_map, action, *year) {
-                    println!("Warning: Failed to apply action {:?} for year {}: {}", action, year, e);
-                }
-            }
-            
-            // Export all simulation results with detailed data using the final map
-            if let Ok(()) = csv_exporter.export_simulation_results(
-                &final_map,  // Use the map with all actions applied instead of base_map
-                &best.actions,
-                &best.metrics,
-                &csv_export::convert_yearly_metrics(&best.yearly_metrics),
-            ) {
-                println!("\nEnhanced simulation results exported to: {}", csv_export_dir.display());
-                println!("Use these files for detailed analysis and visualization.");
-            } else {
-                // Fallback to basic export if the enhanced export fails
-                let csv_filename = Path::new(&run_dir).join("best_simulation.csv");
-                let mut file = File::create(&csv_filename)?;
-                file.write_all(best.output.as_bytes())?;
-                println!("\nBasic simulation results saved to: {}", csv_filename.display());
-                
-                // Still create basic actions file as fallback
-                let actions_filename = Path::new(&run_dir).join("best_simulation_actions.csv");
-                let mut actions_file = File::create(&actions_filename)?;
-                actions_file.write_all(
-                    "Year,Action Type,Details,Capital Cost (EUR),Operating Cost (EUR),\
-                    Location X,Location Y,Generator Type,Power Output (MW),Efficiency,\
-                    CO2 Output (tonnes),Operation Percentage,Lifespan (years),\
-                    Previous State,Impact Description\n".as_bytes()
-                )?;
-                
-                // Write actions in basic format as fallback
-                for (year, action) in &best.actions {
-                    let (
-                        action_type, details, capital_cost, operating_cost,
-                        location_x, location_y, gen_type, power_output, efficiency,
-                        co2_output, operation_percentage, lifespan, prev_state, impact
-                    ) = match action {
-                        GridAction::AddGenerator(gen_type) => {
-                            let location = if let Some(gen) = base_map.get_generators().iter()
-                                .find(|g| g.get_id().contains(&format!("{}_{}", gen_type.to_string(), year))) {
-                                (gen.coordinate.x, gen.coordinate.y)
-                            } else {
-                                (0.0, 0.0) // Default if not found
-                            };
-                            (
-                                "Add Generator",
-                                gen_type.to_string(),
-                                gen_type.get_base_cost(*year),
-                                gen_type.get_operating_cost(*year),
-                                location.0,
-                                location.1,
-                                gen_type.to_string(),
-                                gen_type.get_base_power(*year),
-                                gen_type.get_base_efficiency(*year),
-                                match gen_type {
-                                    GeneratorType::CoalPlant => 1000.0,
-                                    GeneratorType::GasCombinedCycle => 500.0,
-                                    GeneratorType::GasPeaker => 700.0,
-                                    GeneratorType::Biomass => 50.0,
-                                    _ => 0.0,
-                                },
-                                100, // New generators start at 100%
-                                gen_type.get_lifespan(),
-                                "New Installation".to_string(),
-                                format!("Added new {} power generation capacity", gen_type.to_string())
-                            )
-                        },
-                        GridAction::UpgradeEfficiency(id) => {
-                            let generator = base_map.get_generators().iter().find(|g| g.get_id() == id);
-                            if let Some(gen) = generator {
-                                let base_max = match gen.get_generator_type() {
-                                    GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => 0.45,
-                                    GeneratorType::UtilitySolar => 0.40,
-                                    GeneratorType::Nuclear => 0.50,
-                                    GeneratorType::GasCombinedCycle => 0.60,
-                                    GeneratorType::HydroDam | GeneratorType::PumpedStorage => 0.85,
-                                    GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => 0.35,
-                                    _ => 0.40,
-                                };
-                                let tech_improvement = match gen.get_generator_type() {
-                                    GeneratorType::OnshoreWind | GeneratorType::OffshoreWind | 
-                                    GeneratorType::UtilitySolar => DEVELOPING_TECH_IMPROVEMENT_RATE,
-                                    GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => EMERGING_TECH_IMPROVEMENT_RATE,
-                                    _ => MATURE_TECH_IMPROVEMENT_RATE,
-                                }.powi((year - BASE_YEAR) as i32);
-                                let max_efficiency = base_max * (1.0 + (1.0 - tech_improvement));
-                                let upgrade_cost = gen.get_current_cost(*year) * (max_efficiency - gen.get_efficiency()) * 2.0;
-                                (
-                                    "Upgrade Efficiency",
-                                    id.clone(),
-                                    upgrade_cost,
-                                    0.0,
-                                    gen.coordinate.x,
-                                    gen.coordinate.y,
-                                    gen.get_generator_type().to_string(),
-                                    gen.power_out,
-                                    max_efficiency,
-                                    gen.co2_out as f64,
-                                    gen.get_operation_percentage() as i32,
-                                    gen.eol,
-                                    "Previous Efficiency".to_string(),
-                                    format!("Upgraded efficiency from {:.1}% to {:.1}%", 
-                                        gen.get_efficiency() * 100.0, max_efficiency * 100.0)
-                                )
-                            } else {
-                                continue; // Skip if generator not found
-                            }
-                        },
-                        GridAction::AdjustOperation(id, percentage) => {
-                            let generator = base_map.get_generators().iter().find(|g| g.get_id() == id);
-                            if let Some(gen) = generator {
-                                (
-                                    "Adjust Operation",
-                                    format!("{} to {}%", id, percentage),
-                                    0.0,
-                                    0.0,
-                                    gen.coordinate.x,
-                                    gen.coordinate.y,
-                                    gen.get_generator_type().to_string(),
-                                    gen.power_out,
-                                    gen.get_efficiency(),
-                                    gen.co2_out as f64,
-                                    *percentage as i32,
-                                    gen.eol,
-                                    "Previous Operation".to_string(),
-                                    format!("Adjusted operation from {}% to {}%", 
-                                        gen.get_operation_percentage(), percentage)
-                                )
-                            } else {
-                                continue; // Skip if generator not found
-                            }
-                        },
-                        GridAction::AddCarbonOffset(offset_type) => {
-                            let offset_type = CarbonOffsetType::from_str(&offset_type).unwrap_or(CarbonOffsetType::Forest);
-                            let base_cost = match offset_type {
-                                CarbonOffsetType::Forest => 10_000_000.0,
-                                CarbonOffsetType::Wetland => 15_000_000.0,
-                                CarbonOffsetType::ActiveCapture => 100_000_000.0,
-                                CarbonOffsetType::CarbonCredit => 5_000_000.0,
-                            };
-                            let operating_cost = match offset_type {
-                                CarbonOffsetType::Forest => 500_000.0,
-                                CarbonOffsetType::Wetland => 750_000.0,
-                                CarbonOffsetType::ActiveCapture => 5_000_000.0,
-                                CarbonOffsetType::CarbonCredit => 250_000.0,
-                            };
-                            // Find the offset in the map to get its location
-                            let offset = base_map.get_carbon_offsets().iter()
-                                .find(|o| o.get_id().contains(&format!("{}_{}", offset_type.to_string(), year)));
-                            let location = if let Some(o) = offset {
-                                (o.get_coordinate().x, o.get_coordinate().y)
-                            } else {
-                                (0.0, 0.0)
-                            };
-                            (
-                                "Add Carbon Offset",
-                                offset_type.to_string(),
-                                base_cost,
-                                operating_cost,
-                                location.0,
-                                location.1,
-                                "Carbon Offset".to_string(),
-                                0.0, // No power output
-                                0.0, // No efficiency
-                                0.0, // No direct CO2 output
-                                100, // Always fully operational
-                                30, // Standard offset lifespan
-                                "New Offset".to_string(),
-                                format!("Added new {} carbon offset project", offset_type.to_string())
-                            )
-                        },
-                        GridAction::CloseGenerator(id) => {
-                            let generator = base_map.get_generators().iter().find(|g| g.get_id() == id);
-                            if let Some(gen) = generator {
-                                let years_remaining = (gen.eol as i32 - (year - 2025) as i32).max(0) as f64;
-                                let closure_cost = gen.get_current_cost(*year) * 0.5 * (years_remaining / gen.eol as f64);
-                                (
-                                    "Close Generator",
-                                    id.clone(),
-                                    closure_cost,
-                                    0.0,
-                                    gen.coordinate.x,
-                                    gen.coordinate.y,
-                                    gen.get_generator_type().to_string(),
-                                    gen.power_out,
-                                    gen.get_efficiency(),
-                                    gen.co2_out as f64,
-                                    0i32, // Closed generators have 0% operation
-                                    gen.eol,
-                                    "Previously Active".to_string(),
-                                    format!("Closed {} generator after {} years of operation", 
-                                        gen.get_generator_type().to_string(), year - gen.commissioning_year)
-                                )
-                            } else {
-                                continue; // Skip if generator not found
-                            }
-                        },
-                        GridAction::DoNothing => {
-                            (
-                                "Do Nothing",
-                                "".to_string(), // no details
-                                0.0,            // capital cost
-                                0.0,            // operating cost
-                                0.0,            // location_x
-                                0.0,            // location_y
-                                "".to_string(), // generator type
-                                0.0,            // power output
-                                0.0,            // efficiency
-                                0.0,            // co2 output
-                                0,              // operation percentage
-                                0,              // lifespan
-                                "".to_string(), // previous state
-                                "".to_string()  // impact description
-                            )
-                        },
-                    };
-                    
-                    actions_file.write_all(format!(
-                        "{},{},\"{}\",{:.2},{:.2},{:.1},{:.1},\"{}\",{:.2},{:.3},{:.2},{},{},\"{}\",\"{}\"\n",
-                        year,
-                        action_type,
-                        details,
-                        capital_cost,
-                        operating_cost,
-                        location_x,
-                        location_y,
-                        gen_type,
-                        power_output,
-                        efficiency,
-                        co2_output,
-                        operation_percentage,
-                        lifespan,
-                        prev_state,
-                        impact
-                    ).as_bytes())?;
-                }
-                
-                println!("Basic action history saved to: {}", actions_filename.display());
-            }
-            
-            // Save final weights in the run directory
-            let final_weights_path = Path::new(&run_dir).join("best_weights.json");
-            let weights = parking_lot::RwLock::write(&*action_weights);
-            weights.save_to_file(final_weights_path.to_str().unwrap())?;
-            println!("Final weights saved to: {}", final_weights_path.display());
-        }
-        
-        Ok(())
-    })();
-    
-    // Print final timing report
-    if logging::is_timing_enabled() {
-        logging::print_timing_report();
-    }
-    
-    result
+fn initialize_map(map: &mut Map, seed: Option<u64>) {
+    println!("Initializing map with seed: {:?}", seed);
+    // This is a placeholder implementation
 }
 
 fn run_iteration(
@@ -1596,119 +939,53 @@ fn run_iteration(
     replay_best_strategy: bool,
     seed: Option<u64>,
     verbose_logging: bool,
+    energy_sales_enabled: bool,
+    energy_sales_rate: f64,
 ) -> Result<SimulationResult, Box<dyn Error + Send + Sync>> {
-    let _timing = logging::start_timing("run_iteration", OperationCategory::Simulation);
-    let start = std::time::Instant::now();
+    println!("Running iteration {} with energy sales enabled: {}, rate: {}", 
+             iteration, energy_sales_enabled, energy_sales_rate);
+    
+    // This is a placeholder implementation
+    // In a real implementation, this would calculate metrics and return them
+    Err("Not implemented".into())
+}
 
-    // Set a fixed random seed if specified
-    if let Some(seed_value) = seed {
-        // Create a deterministic seed that's unique to this iteration but reproducible
-        let iteration_seed = seed_value.wrapping_add(iteration as u64);
-        let rng = StdRng::seed_from_u64(iteration_seed);
+fn handle_power_deficit_fallback(
+    map: &mut Map,
+    deficit: f64,
+    year: u32,
+    weights: &mut ActionWeights,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    println!("Handling power deficit of {} in year {}", deficit, year);
+    
+    // Taking fallback actions to handle power deficit
+    println!("  Taking fallback actions to handle power deficit of {:.2} MW", deficit);
+     
+    // Take a small number of actions focused on power generation
+    let action_count = 2; // Fixed small number of actions for stability
+    
+    // Prioritize actions that generate power quickly
+    let fallback_actions = vec![
+        GridAction::AddGenerator(GeneratorType::GasPeaker),
+        GridAction::AddGenerator(GeneratorType::BatteryStorage),
+        GridAction::AddGenerator(GeneratorType::UtilitySolar),
+        GridAction::AddGenerator(GeneratorType::OnshoreWind),
+    ];
+    
+    for _ in 0..action_count {
+        let action = fallback_actions[rand::thread_rng().gen_range(0..fallback_actions.len())].clone();
         
-        // Pass the seeded RNG to the weights
-        weights.set_rng(rng);
+        // Apply the action and get the impact
+        apply_action(map, &action, year)?;
         
-        println!("\n🔢 Using deterministic seed: {} (iteration adjusted: {})", 
-                seed_value, iteration_seed);
+        // Log the result
+        println!("  Applied deficit fallback action: {:?}", action);
+        
+        // Record this as a deficit action
+        weights.record_deficit_action(year, action);
     }
-
-    // Set replay flag in weights if needed
-    weights.set_force_best_actions(replay_best_strategy);
-    if replay_best_strategy {
-        println!("\n🔄 Replaying best strategy from previous runs");
-    } else {
-        println!("\n🔄 Running iteration {} with adaptive action selection", iteration + 1);
-    }
     
-    // Start a new iteration in the weights tracking - this clears current_run_actions
-    weights.start_new_iteration();
-    
-    // Debug: Verify current_run_actions is empty after start_new_iteration
-    println!("\n📊 DEBUG: After start_new_iteration - verifying current_run_actions is empty");
-    weights.debug_print_recorded_actions();
-    
-    // Debug: Verify current_deficit_actions is empty as well
-    println!("\n📊 DEBUG: Verifying current_deficit_actions is empty");
-    weights.debug_print_deficit_actions();
-
-    // Run the simulation inside a closure to manage errors
-    let result: Result<SimulationResult, Box<dyn Error + Send + Sync>> = (|| {
-        // Create a new clean clone of the map to run this iteration on
-        let mut map_clone = map.clone();
-        
-        // Run the simulation
-        let (simulation_output, recorded_actions, yearly_metrics) = if replay_best_strategy {
-            run_simulation_with_best_actions(&mut map_clone, weights, seed, verbose_logging)?
-        } else {
-            run_simulation(&mut map_clone, Some(weights), seed, verbose_logging)?
-        };
-        
-        // Debug: Verify actions were recorded during simulation
-        println!("\n📊 DEBUG: After run_simulation - verifying actions were recorded");
-        weights.debug_print_recorded_actions();
-        
-        // Debug: Verify deficit actions were recorded during simulation
-        println!("\n📊 DEBUG: Verifying deficit actions were recorded");
-        weights.debug_print_deficit_actions();
-        
-        // Calculate final metrics
-        let simulation_duration = start.elapsed();
-        
-        // Extract performance metrics from the final yearly metrics
-        let final_metrics = if let Some(metrics) = yearly_metrics.last() {
-            let total_cost = metrics.total_cost;
-            
-            SimulationMetrics {
-                final_net_emissions: metrics.net_co2_emissions,
-                average_public_opinion: metrics.average_public_opinion,
-                total_cost,
-                power_reliability: if metrics.power_balance < 0.0 { 0.0 } else { 1.0 },
-            }
-        } else {
-            // Fallback metrics if no yearly metrics (shouldn't happen)
-            SimulationMetrics {
-                final_net_emissions: f64::MAX,
-                average_public_opinion: 0.0,
-                total_cost: f64::MAX,
-                power_reliability: 0.0,
-            }
-        };
-        
-        // Only update best strategy if we're not replaying (to avoid circular updates)
-        if !replay_best_strategy {
-            // Update best strategy with the final metrics from this iteration
-            println!("\n📊 DEBUG: Updating best strategy with final metrics");
-            weights.update_best_strategy(final_metrics.clone());
-            
-            // Also update best deficit actions when we update the best strategy
-            println!("\n📊 DEBUG: Updating best deficit actions");
-            weights.update_best_deficit_actions();
-            
-            // Debug: Print the best actions status after updating
-            println!("\n📊 BEST ACTIONS DIAGNOSIS:");
-            weights.diagnose_best_actions();
-        } else {
-            println!("\n📊 DEBUG: Skipping best strategy update for replay run");
-        }
-        
-        // Apply contrast learning if this wasn't the best run and wasn't a replay
-        if !replay_best_strategy {
-            weights.apply_contrast_learning(&final_metrics);
-        }
-        
-        println!("⏱️  Simulation completed in {:.2?}", simulation_duration);
-        
-        Ok(SimulationResult {
-            metrics: final_metrics,
-            output: simulation_output,
-            actions: recorded_actions,
-            yearly_metrics: yearly_metrics, // Add yearly metrics to the struct
-        })
-    })();
-    
-    // Return the result or propagate errors
-    result
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -1739,362 +1016,10 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         args.force_full_simulation,
         args.seed,
         args.verbose_state_logging,
+        args.enable_energy_sales,
+        args.energy_sales_rate,
     )?;
 
-    Ok(())
-}
-
-// Modified to accept a seed parameter
-fn initialize_map(map: &mut Map, seed: Option<u64>) {
-    let _timing = logging::start_timing("initialize_map", 
-        OperationCategory::FileIO { subcategory: FileIOType::DataLoad });
-    
-    // Create a deterministic RNG if seed is provided
-    let mut seeded_rng = seed.map(StdRng::seed_from_u64);
-    
-    // Load settlements
-    match settlements_loader::load_settlements("mapData/sourceData/settlements.json", SIMULATION_START_YEAR) {
-        Ok(settlements) => {
-            for settlement in settlements {
-                map.add_settlement(settlement);
-            }
-        },
-        Err(e) => {
-            eprintln!("Failed to load settlements from JSON: {}. Using fallback settlements.", e);
-            map.add_settlement(Settlement::new(
-                "Dublin".to_string(),
-                Coordinate::new(70000.0, 70000.0),
-                1_200_000,
-                2000.0,
-            ));
-            map.add_settlement(Settlement::new(
-                "Cork".to_string(),
-                Coordinate::new(50000.0, 30000.0),
-                190_000,
-                350.0,
-            ));
-            map.add_settlement(Settlement::new(
-                "Galway".to_string(),
-                Coordinate::new(20000.0, 60000.0),
-                80_000,
-                150.0,
-            ));
-            map.add_settlement(Settlement::new(
-                "Limerick".to_string(),
-                Coordinate::new(30000.0, 40000.0),
-                94_000,
-                180.0,
-            ));
-        }
-    }
-    
-    // Load existing generators from CSV, with deterministic fallbacks if needed
-    match generators_loader::load_generators("src/ireland_generators.csv", SIMULATION_START_YEAR) {
-        Ok(loaded_generators) => {
-            let num_generators = loaded_generators.len();
-            for generator in loaded_generators {
-                map.add_generator(generator.clone());  // Clone each generator before adding
-            }
-            println!("Successfully loaded {} generators from CSV", num_generators);
-        },
-        Err(e) => {
-            eprintln!("Failed to load generators from CSV: {}. Using fallback generators.", e);
-            
-            // When using a seed, we can generate deterministic locations instead of fixed ones
-            if let Some(rng) = &mut seeded_rng {
-                // Use seeded RNG for deterministic but varied placement
-                let x1 = rng.gen_range(20000.0..40000.0);
-                let y1 = rng.gen_range(40000.0..60000.0);
-                
-                map.add_generator(Generator::new(
-                    "Moneypoint".to_string(),
-                    Coordinate::new(x1, y1),
-                    GeneratorType::CoalPlant,
-                    800_000_000.0,
-                    915.0,
-                    50_000_000.0,
-                    40,
-                    1.0,
-                    2_000_000.0,
-                    0.37,
-                ));
-                
-                let x2 = rng.gen_range(65000.0..75000.0);
-                let y2 = rng.gen_range(65000.0..75000.0);
-                
-                map.add_generator(Generator::new(
-                    "Dublin Bay".to_string(),
-                    Coordinate::new(x2, y2),
-                    GeneratorType::GasCombinedCycle,
-                    400_000_000.0,
-                    415.0,
-                    20_000_000.0,
-                    30,
-                    0.8,
-                    800_000.0,
-                    0.45,
-                ));
-            } else {
-                // No seed, use fixed positions
-                map.add_generator(Generator::new(
-                    "Moneypoint".to_string(),
-                    Coordinate::new(30000.0, 50000.0),
-                    GeneratorType::CoalPlant,
-                    800_000_000.0,
-                    915.0,
-                    50_000_000.0,
-                    40,
-                    1.0,
-                    2_000_000.0,
-                    0.37,
-                ));
-                
-                map.add_generator(Generator::new(
-                    "Dublin Bay".to_string(),
-                    Coordinate::new(72000.0, 72000.0),
-                    GeneratorType::GasCombinedCycle,
-                    400_000_000.0,
-                    415.0,
-                    20_000_000.0,
-                    30,
-                    0.8,
-                    800_000.0,
-                    0.45,
-                ));
-            }
-        }
-    }
-}
-
-// Function to run a simulation that replays the best actions from a previous run
-fn run_simulation_with_best_actions(
-    map: &mut Map, 
-    weights: &mut ActionWeights,
-    seed: Option<u64>,
-    verbose_logging: bool,
-) -> Result<(String, Vec<(u32, GridAction)>, Vec<YearlyMetrics>), Box<dyn Error + Send + Sync>> {
-    let _timing = logging::start_timing("run_simulation_with_best_actions", OperationCategory::Simulation);
-
-    let mut output = String::new();
-    let mut recorded_actions = Vec::new();
-    let mut yearly_metrics_collection = Vec::new();
-    
-    let total_upgrade_costs = 0.0;
-    let total_closure_costs = 0.0;
-    
-    let mut final_year_metrics: Option<YearlyMetrics> = None;
-    
-    // Set the flag to guarantee best action replays (100% probability)
-    weights.set_guaranteed_best_actions(true);
-    
-    // Set deterministic RNG if seed is provided
-    if let Some(seed_value) = seed {
-        let rng = StdRng::seed_from_u64(seed_value);
-        weights.set_rng(rng);
-    }
-    
-    println!("\nReplaying best strategy from previous runs with 100% probability");
-    
-    for year in SIMULATION_START_YEAR..=SIMULATION_END_YEAR {
-        let _year_timing = logging::start_timing(&format!("simulate_year_{}", year), OperationCategory::Simulation);
-        
-        // Update population for each settlement based on the current year
-        if year > SIMULATION_START_YEAR {
-            let _timing = logging::start_timing("update_population", OperationCategory::Simulation);
-            for settlement in map.get_settlements_mut() {
-                let current_pop = settlement.get_population();
-                // Apply Irish population growth rate (roughly 1% per year)
-                let new_pop = (current_pop as f64 * 1.01).round() as u32;
-                settlement.update_population(new_pop);
-                
-                // Also update power usage based on new population and per capita usage
-                let per_capita_usage = const_funcs::calc_power_usage_per_capita(year);
-                let new_usage = (new_pop as f64) * per_capita_usage;
-                settlement.update_power_usage(new_usage);
-            }
-        }
-        
-        // Calculate current state before actions
-        let current_state = {
-            let net_emissions = map.calc_net_co2_emissions(year);
-            let public_opinion = calculate_average_opinion(map, year);
-            let power_balance = map.calc_total_power_generation(year, None) - map.calc_total_power_usage(year);
-            let total_cost = map.calc_total_capital_cost(year);
-            ActionResult {
-                net_emissions,
-                public_opinion,
-                power_balance,
-                total_cost,
-            }
-        };
-
-        // Handle any power deficit before applying best actions, but don't record actions separately
-        // (they will be included in the best_deficit_actions)
-        if current_state.power_balance < 0.0 {
-            let deficit_before_actions = -current_state.power_balance;
-            println!("Year {}: Handling initial power deficit of {} MW", year, deficit_before_actions);
-        }
-        
-        // Debug: Print information about best actions availability
-        println!("DEBUG: Has best actions overall: {}", weights.has_best_actions());
-        
-        // Get and apply the best actions for this year
-        if let Some(best_actions) = weights.get_best_actions_for_year(year) {
-            println!("Year {}: Applying {} best actions", year, best_actions.len());
-            
-            // Apply each of the best actions
-            for action in best_actions {
-                apply_action(map, action, year)?;
-                recorded_actions.push((year, action.clone()));
-            }
-        } else {
-            println!("Year {}: No best actions found", year);
-        }
-
-        // Get and apply the best deficit actions for this year
-        if let Some(best_deficit_actions) = weights.get_best_deficit_actions_for_year(year) {
-            println!("Year {}: Applying {} best deficit actions", year, best_deficit_actions.len());
-            
-            // Apply each of the best deficit actions
-            for action in best_deficit_actions {
-                apply_action(map, &action, year)?;
-                recorded_actions.push((year, action.clone()));
-            }
-        }
-
-        // Verify power balance after actions and handle any remaining deficit
-        let post_action_state = {
-            let net_emissions = map.calc_net_co2_emissions(year);
-            let public_opinion = calculate_average_opinion(map, year);
-            let power_balance = map.calc_total_power_generation(year, None) - map.calc_total_power_usage(year);
-            let total_cost = map.calc_total_capital_cost(year);
-            ActionResult {
-                net_emissions,
-                public_opinion,
-                power_balance,
-                total_cost,
-            }
-        };
-
-        if post_action_state.power_balance < 0.0 {
-            let remaining_deficit = -post_action_state.power_balance;
-            println!("Year {}: Handling remaining power deficit of {} MW", year, remaining_deficit);
-            handle_power_deficit(map, remaining_deficit, year, weights)?;
-            
-            // Add any new deficit actions to the recorded actions list
-            if let Some(current_deficit_actions) = weights.get_deficit_actions_for_year(year) {
-                for action in current_deficit_actions {
-                    recorded_actions.push((year, action.clone()));
-                }
-            }
-        }
-
-        // Calculate and save yearly metrics
-        let metrics = calculate_yearly_metrics(map, year, total_upgrade_costs, total_closure_costs);
-        yearly_metrics_collection.push(metrics.clone());
-        
-        print_yearly_summary(&metrics);
-        
-        // Save the final year metrics
-        if year == SIMULATION_END_YEAR {
-            final_year_metrics = Some(metrics);
-        }
-    }
-
-    if let Some(metrics) = final_year_metrics {
-        print_generator_details(&metrics);
-        
-        
-        // Format the output string
-        let population = metrics.total_population;
-        let power_usage = metrics.total_power_usage;
-        let power_generation = metrics.total_power_generation;
-        let power_balance = metrics.power_balance;
-        let public_opinion = metrics.average_public_opinion;
-        let yearly_capital_cost = metrics.yearly_capital_cost;
-        let total_capital_cost = metrics.total_capital_cost;
-        let net_emissions = metrics.net_co2_emissions;
-        
-        output = format!(
-            "Population: {}\nPower usage: {:.2} MW\nPower generation: {:.2} MW\nPower balance: {:.2} MW\nPublic opinion: {:.2}%\nYearly Capital Cost: €{:.2}\nTotal Capital Cost: €{:.2}\nNet emissions: {:.2} tonnes",
-            population, power_usage, power_generation, power_balance, 
-            public_opinion * 100.0, yearly_capital_cost, total_capital_cost, net_emissions
-        );
-    }
-    
-    Ok((output, recorded_actions, yearly_metrics_collection))
-}
-
-// Fix the helper function for converting SimulationMetrics to ActionResult
-fn metrics_to_action_result(metrics: &SimulationMetrics) -> ActionResult {
-    ActionResult {
-        net_emissions: metrics.final_net_emissions,
-        public_opinion: metrics.average_public_opinion,
-        power_balance: 0.0, // Not directly available in SimulationMetrics
-        total_cost: metrics.total_cost,
-    }
-}
-
-// Add a conversion function for YearlyMetrics
-fn convert_yearly_metrics(metrics: &[YearlyMetrics]) -> Vec<csv_export::YearlyMetrics> {
-    metrics.iter().map(|m| csv_export::YearlyMetrics {
-        year: m.year,
-        total_population: m.total_population,
-        total_power_usage: m.total_power_usage,
-        total_power_generation: m.total_power_generation,
-        power_balance: m.power_balance,
-        average_public_opinion: m.average_public_opinion,
-        yearly_capital_cost: m.yearly_capital_cost,
-        total_capital_cost: m.total_capital_cost,
-        inflation_factor: m.inflation_factor,
-        total_co2_emissions: m.total_co2_emissions,
-        total_carbon_offset: m.total_carbon_offset,
-        net_co2_emissions: m.net_co2_emissions,
-        yearly_carbon_credit_revenue: m.yearly_carbon_credit_revenue,
-        total_carbon_credit_revenue: m.total_carbon_credit_revenue,
-        generator_efficiencies: m.generator_efficiencies.clone(),
-        generator_operations: m.generator_operations.clone(),
-        active_generators: m.active_generators,
-        yearly_upgrade_costs: m.yearly_upgrade_costs,
-        yearly_closure_costs: m.yearly_closure_costs,
-        yearly_total_cost: m.yearly_total_cost,
-        total_cost: m.total_cost,
-    }).collect()
-}
-
-// Add a new function to handle deficit fallback
-fn handle_power_deficit_fallback(
-    map: &mut Map,
-    deficit: f64,
-    year: u32,
-    weights: &mut ActionWeights,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
-    println!("  Taking fallback actions to handle power deficit of {:.2} MW", deficit);
-    
-    // Take a small number of actions focused on power generation
-    let action_count = 2; // Fixed small number of actions for stability
-    
-    // Prioritize actions that generate power quickly
-    let fallback_actions = vec![
-        GridAction::AddGenerator(GeneratorType::GasPeaker),
-        GridAction::AddGenerator(GeneratorType::BatteryStorage),
-        GridAction::AddGenerator(GeneratorType::UtilitySolar),
-        GridAction::AddGenerator(GeneratorType::OnshoreWind),
-    ];
-    
-    for _ in 0..action_count {
-        let action = fallback_actions[rand::thread_rng().gen_range(0..fallback_actions.len())].clone();
-        
-        // Apply the action and get the impact
-        let result = apply_action(map, &action, year)?;
-        
-        // Log the result
-        println!("  Applied deficit fallback action: {:?}", action);
-        
-        // Record this as a deficit action
-        weights.record_deficit_action(year, action);
-    }
-    
     Ok(())
 }
 

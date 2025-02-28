@@ -253,3 +253,7 @@ pub const PRICE_PHASE2_END_YEAR: u32 = 2050;
 // Transform Constants
 pub const GRID_SCALE_X: f64 = 10638.297872340427;
 pub const GRID_SCALE_Y: f64 = 12500.0;
+
+// Energy Sales Constants
+pub const DEFAULT_ENERGY_SALES_RATE: f64 = 50_000.0;  // €50k per GWh
+pub const MW_TO_GWH_CONVERSION: f64 = 8.76;  // Convert MW (power) to GWh/year (energy), 8760 hours per year / 1000

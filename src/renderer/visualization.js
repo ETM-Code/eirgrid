@@ -23,8 +23,64 @@ window.Visualization.state = window.Visualization.state || {
   svg: null,
   currentData: null,
   tooltip: null,
-  pendingData: null
+  pendingData: null,
+  previousEntities: {
+    generators: new Set(),
+    offsets: new Set()
+  }
 };
+
+// Map specific generator types to general categories
+function mapGeneratorTypeToCategory(type) {
+  const typeStr = String(type).toLowerCase();
+  
+  if (typeStr.includes('wind')) {
+    return 'wind';
+  } else if (typeStr.includes('solar')) {
+    return 'solar';
+  } else if (typeStr.includes('hydro') || typeStr.includes('pumped') || 
+             typeStr.includes('tidal') || typeStr.includes('wave')) {
+    return 'hydro';
+  } else if (typeStr.includes('nuclear')) {
+    return 'nuclear';
+  } else if (typeStr.includes('coal')) {
+    return 'coal';
+  } else if (typeStr.includes('gas')) {
+    return 'gas';
+  } else if (typeStr.includes('biomass')) {
+    return 'biomass';
+  } else if (typeStr.includes('battery') || typeStr.includes('storage')) {
+    return 'storage';
+  } else {
+    return 'unknown';
+  }
+}
+
+// Track which entities are new
+function identifyNewEntities(data) {
+  const newGenerators = new Set();
+  const newOffsets = new Set();
+  
+  if (Array.isArray(data.generators)) {
+    data.generators.forEach(generator => {
+      if (!window.Visualization.state.previousEntities.generators.has(generator.id)) {
+        newGenerators.add(generator.id);
+        window.Visualization.state.previousEntities.generators.add(generator.id);
+      }
+    });
+  }
+  
+  if (Array.isArray(data.carbonOffsets)) {
+    data.carbonOffsets.forEach(offset => {
+      if (!window.Visualization.state.previousEntities.offsets.has(offset.id)) {
+        newOffsets.add(offset.id);
+        window.Visualization.state.previousEntities.offsets.add(offset.id);
+      }
+    });
+  }
+  
+  return { newGenerators, newOffsets };
+}
 
 /**
  * Initialize the visualization
@@ -69,6 +125,12 @@ function createSvgLayers() {
     const svgOverlay = L.svg().addTo(window.Visualization.state.map);
     window.Visualization.state.svg = d3.select(svgOverlay._container);
     
+    // Set z-index to ensure SVG is above map tiles
+    window.Visualization.state.svg
+      .style('z-index', '650')
+      .style('position', 'relative')
+      .style('pointer-events', 'auto');
+    
     // Create layer groups
     window.Visualization.state.svg.append('g').attr('class', 'settlements-layer');
     window.Visualization.state.svg.append('g').attr('class', 'generators-layer');
@@ -101,6 +163,9 @@ window.Visualization.update = function(data) {
   
   window.Visualization.state.currentData = data;
   
+  // Identify new entities that have been added in this update
+  const { newGenerators, newOffsets } = identifyNewEntities(data);
+  
   // Update each layer with new data
   try {
     if (Array.isArray(data.settlements)) {
@@ -108,11 +173,11 @@ window.Visualization.update = function(data) {
     }
     
     if (Array.isArray(data.generators)) {
-      updateGeneratorsLayer(data.generators);
+      updateGeneratorsLayer(data.generators, newGenerators);
     }
     
     if (Array.isArray(data.carbonOffsets)) {
-      updateOffsetsLayer(data.carbonOffsets);
+      updateOffsetsLayer(data.carbonOffsets, newOffsets);
     }
     
     // Update marker positions in case the map has moved
@@ -232,8 +297,9 @@ function updateSettlementsLayer(settlements) {
 /**
  * Update the generators layer
  * @param {Array} generators - Array of generator objects
+ * @param {Set} newGenerators - Set of IDs for newly added generators
  */
-function updateGeneratorsLayer(generators) {
+function updateGeneratorsLayer(generators, newGenerators) {
   if (!window.Visualization.state.map || !window.Visualization.state.svg) return;
   
   log(`Updating generators layer with ${generators.length} generators`, 'debug');
@@ -256,22 +322,37 @@ function updateGeneratorsLayer(generators) {
   generatorMarkers.exit().remove();
   
   // Add new markers
-  generatorMarkers.enter()
+  const newMarkers = generatorMarkers.enter()
     .append('circle')
-    .attr('class', d => `generator-marker ${d.type}-marker`)
+    .attr('class', d => {
+      // Map the specific generator type to a general category for CSS styling
+      const category = mapGeneratorTypeToCategory(d.type);
+      // Check if this is a new generator to add highlight class
+      const isNew = newGenerators && newGenerators.has(d.id);
+      return `generator-marker ${category}-marker${isNew ? ' new-entity' : ''}`;
+    })
     .merge(generatorMarkers)
     .attr('cx', d => latLngToPoint(d.lat, d.lng).x)
     .attr('cy', d => latLngToPoint(d.lat, d.lng).y)
     .attr('r', d => window.GridCoordinates.calculateMarkerRadius(d.output, 'generator', zoom))
     .on('mouseover', showGeneratorTooltip)
     .on('mouseout', hideTooltip);
+  
+  // Remove the highlight class after a delay
+  if (newGenerators && newGenerators.size > 0) {
+    setTimeout(() => {
+      generatorsLayer.selectAll('.new-entity')
+        .classed('new-entity', false);
+    }, 2000); // Remove highlight after 2 seconds
+  }
 }
 
 /**
  * Update the carbon offsets layer
  * @param {Array} offsets - Array of carbon offset objects
+ * @param {Set} newOffsets - Set of IDs for newly added offsets
  */
-function updateOffsetsLayer(offsets) {
+function updateOffsetsLayer(offsets, newOffsets) {
   if (!window.Visualization.state.map || !window.Visualization.state.svg) return;
   
   log(`Updating offsets layer with ${offsets.length} carbon offsets`, 'debug');
@@ -296,13 +377,25 @@ function updateOffsetsLayer(offsets) {
   // Add new markers
   offsetMarkers.enter()
     .append('circle')
-    .attr('class', 'offset-marker')
+    .attr('class', d => {
+      // Check if this is a new offset to add highlight class
+      const isNew = newOffsets && newOffsets.has(d.id);
+      return `offset-marker${isNew ? ' new-entity' : ''}`;
+    })
     .merge(offsetMarkers)
     .attr('cx', d => latLngToPoint(d.lat, d.lng).x)
     .attr('cy', d => latLngToPoint(d.lat, d.lng).y)
     .attr('r', d => window.GridCoordinates.calculateMarkerRadius(d.offsetAmount, 'offset', zoom))
     .on('mouseover', showOffsetTooltip)
     .on('mouseout', hideTooltip);
+  
+  // Remove the highlight class after a delay
+  if (newOffsets && newOffsets.size > 0) {
+    setTimeout(() => {
+      offsetsLayer.selectAll('.new-entity')
+        .classed('new-entity', false);
+    }, 2000); // Remove highlight after 2 seconds
+  }
 }
 
 /**

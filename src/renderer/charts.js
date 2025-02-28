@@ -13,20 +13,52 @@ let emissionsChart = null;
 let powerChart = null;
 
 // Register the annotation plugin with Chart.js
-// This ensures the plugin is properly registered
 document.addEventListener('DOMContentLoaded', () => {
-    if (typeof Chart !== 'undefined' && Chart.register && typeof Chart.register === 'function') {
-        try {
-            // Check if the annotation plugin exists and register it
-            if (Chart.Annotation) {
-                Chart.register(Chart.Annotation);
-                console.log('Chart.js Annotation plugin registered successfully');
-            } else {
-                console.warn('Chart.js Annotation plugin not found, charts will not show year indicators');
-            }
-        } catch (error) {
-            console.error('Error registering Chart.js Annotation plugin:', error);
+    try {
+        if (typeof Chart === 'undefined') {
+            console.error('Chart.js not loaded');
+            return;
         }
+        
+        // First check if the annotation plugin is available in the global scope
+        if (typeof chartjs_plugin_annotation !== 'undefined') {
+            if (Chart.register) {
+                Chart.register(chartjs_plugin_annotation);
+                console.log('Registered Chart.js Annotation plugin from global scope');
+            }
+        } 
+        // Then check if it's available via Chart.Annotation
+        else if (Chart.Annotation) {
+            if (Chart.register) {
+                Chart.register(Chart.Annotation);
+                console.log('Registered Chart.js Annotation plugin from Chart.Annotation');
+            }
+        } 
+        // If we can't find it, try to load it from the CDN dynamically
+        else {
+            console.warn('Chart.js Annotation plugin not found, attempting to load it dynamically');
+            
+            // Create a script element to load the plugin
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0/dist/chartjs-plugin-annotation.min.js';
+            script.onload = function() {
+                console.log('Chart.js Annotation plugin loaded dynamically');
+                if (Chart.register && typeof chartjs_plugin_annotation !== 'undefined') {
+                    Chart.register(chartjs_plugin_annotation);
+                    console.log('Registered Chart.js Annotation plugin after dynamic loading');
+                    
+                    // If charts were already created, update them
+                    if (emissionsChart) updateEmissionsChart(window.DataLoader?.state?.currentYear);
+                    if (powerChart) updatePowerChart(window.DataLoader?.state?.currentYear);
+                }
+            };
+            script.onerror = function() {
+                console.error('Failed to load Chart.js Annotation plugin dynamically');
+            };
+            document.head.appendChild(script);
+        }
+    } catch (error) {
+        console.error('Error registering Chart.js Annotation plugin:', error);
     }
 });
 
@@ -138,6 +170,13 @@ function createEmissionsChart() {
         if (typeof Chart === 'undefined') {
             console.error('Chart.js library not available');
             return;
+        }
+        
+        // Destroy existing chart before creating a new one
+        if (emissionsChart) {
+            console.log('Destroying existing emissions chart');
+            emissionsChart.destroy();
+            emissionsChart = null;
         }
         
         emissionsChart = new Chart(ctx, {
@@ -253,6 +292,13 @@ function createPowerChart() {
         if (typeof Chart === 'undefined') {
             console.error('Chart.js library not available');
             return;
+        }
+        
+        // Destroy existing chart before creating a new one
+        if (powerChart) {
+            console.log('Destroying existing power chart');
+            powerChart.destroy();
+            powerChart = null;
         }
         
         powerChart = new Chart(ctx, {
@@ -399,65 +445,85 @@ function updatePowerChart(currentYear) {
  * @param {number} currentYear - The current year to highlight
  */
 function addCurrentYearIndicator(chart, currentYear) {
-    // Check if chart is valid
     if (!chart || typeof chart !== 'object') {
-        console.warn('Invalid chart object, cannot add year indicator');
+        console.warn('Invalid chart object provided to addCurrentYearIndicator');
         return;
     }
     
-    // Initialize plugins if not exists
-    if (!chart.options.plugins) {
-        chart.options.plugins = {};
-    }
-    
-    // Check if the annotation plugin exists and is registered
-    const hasAnnotationPlugin = typeof Chart !== 'undefined' && 
-                                Chart.Annotation && 
-                                typeof Chart.Annotation === 'object';
-    
-    if (!hasAnnotationPlugin) {
-        console.warn('Chart.js Annotation plugin not available, skipping year indicator');
-        return;
-    }
-    
-    // Remove any existing annotation
-    if (chart.options.plugins.annotation) {
-        chart.options.plugins.annotation.annotations = {};
-    } else {
-        chart.options.plugins.annotation = {
-            annotations: {}
-        };
-    }
-    
-    // Get the index of the current year
-    const yearIndex = chartData.years.indexOf(currentYear);
-    if (yearIndex === -1) {
-        console.warn(`Current year ${currentYear} not found in chart data`);
-        return; // Year not found in data
-    }
+    // Convert to number to ensure proper comparison
+    currentYear = Number(currentYear);
     
     try {
-        // Add annotation for current year
-        chart.options.plugins.annotation.annotations.currentYear = {
-            type: 'line',
-            xMin: currentYear,
-            xMax: currentYear,
-            borderColor: 'rgba(255, 0, 0, 0.7)',
-            borderWidth: 2,
-            label: {
-                enabled: true,
-                content: 'Current Year',
-                position: 'top',
-                backgroundColor: 'rgba(255, 0, 0, 0.7)'
+        // Remove any existing annotations
+        if (chart.options.plugins.annotation && chart.options.plugins.annotation.annotations) {
+            chart.options.plugins.annotation.annotations = {};
+        }
+        
+        if (!chart.options.plugins) {
+            chart.options.plugins = {};
+        }
+        
+        if (!chart.options.plugins.annotation) {
+            chart.options.plugins.annotation = {};
+        }
+        
+        // Find index of current year in the labels
+        let yearIndex = -1;
+        if (chart.data && chart.data.labels) {
+            yearIndex = chart.data.labels.findIndex(year => Number(year) === currentYear);
+        }
+        
+        if (yearIndex === -1) {
+            console.warn(`Year ${currentYear} not found in chart data`);
+            return;
+        }
+        
+        // Add annotation
+        chart.options.plugins.annotation.annotations = {
+            line1: {
+                type: 'line',
+                xMin: yearIndex,
+                xMax: yearIndex,
+                borderColor: 'rgba(255, 0, 0, 0.7)',
+                borderWidth: 2,
+                label: {
+                    content: `Current Year (${currentYear})`,
+                    display: true,
+                    position: 'top'
+                }
             }
         };
-        console.log(`Year indicator added for ${currentYear}`);
+        
+        console.log(`Added year indicator for ${currentYear}`);
     } catch (error) {
-        console.error('Error adding year indicator to chart:', error);
+        console.error('Error adding year indicator:', error);
     }
 }
 
-// Export the charts functionality - DO NOT redefine the entire window.Charts object
-// Instead, assign the functions to the existing object
-window.Charts.init = initializeCharts;
-window.Charts.update = updateCharts; 
+/**
+ * Initialize Charts Module with metrics data
+ * @param {Array} metrics - Array of yearly metric objects
+ */
+window.Charts.init = function(metrics) {
+    initializeCharts(metrics);
+};
+
+/**
+ * Update Charts with current year indicator
+ * @param {Array} metrics - Array of yearly metric objects (optional)
+ * @param {number} currentYear - Current year to highlight
+ */
+window.Charts.update = function(metrics, currentYear) {
+    if (metrics) {
+        // If new metrics provided, update the whole chart
+        updateCharts(metrics, currentYear);
+    } else {
+        // Just update the year indicator on existing charts
+        if (emissionsChart) {
+            updateEmissionsChart(currentYear);
+        }
+        if (powerChart) {
+            updatePowerChart(currentYear);
+        }
+    }
+}; 

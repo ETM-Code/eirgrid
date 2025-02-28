@@ -63,6 +63,15 @@ window.MetricsPanel.update = function(data) {
   
   log(`Updating metrics panel with data for year ${data.year || 'unknown'}`);
   
+  // Add detailed debug logging to check the structure of the data
+  log(`Data structure check - data keys: ${Object.keys(data).join(', ')}`, 'debug');
+  if (data.summaryMetrics) {
+    log(`Found summaryMetrics with keys: ${Object.keys(data.summaryMetrics).join(', ')}`, 'debug');
+    log(`Sample values - population: ${data.summaryMetrics.population}, powerGeneration: ${data.summaryMetrics.powerGeneration}`, 'debug');
+  } else {
+    log('No summaryMetrics found in data', 'warn');
+  }
+  
   try {
     updateMetrics(data);
     if (elements.yearInfoEl) {
@@ -79,33 +88,64 @@ window.MetricsPanel.update = function(data) {
  * @param {Object} data - Simulation data for the current year
  */
 function updateMetrics(data) {
-  // Calculate metrics
-  const totalPopulation = data.settlements ? data.settlements.reduce((total, settlement) => total + (settlement.population || 0), 0) : 0;
+  let totalPopulation, totalGeneration, totalUsage, powerBalance;
+  let totalEmissions, totalOffsets, netEmissions, publicOpinion;
   
-  const totalGeneration = data.generators ? data.generators.reduce((total, generator) => total + (generator.output || 0), 0) : 0;
-  
-  const totalUsage = data.settlements ? data.settlements.reduce((total, settlement) => total + (settlement.powerUsage || 0), 0) : 0;
-  
-  const powerBalance = totalGeneration - totalUsage;
-  
-  const totalEmissions = data.generators ? data.generators.reduce((total, generator) => total + (generator.emissions || 0), 0) : 0;
-  
-  const totalOffsets = data.carbonOffsets ? data.carbonOffsets.reduce((total, offset) => total + (offset.offsetAmount || 0), 0) : 0;
-  
-  const netEmissions = totalEmissions - totalOffsets;
-  
-  // Public opinion calculation (simplified)
-  const renewablePercentage = totalGeneration > 0 ? 
-    data.generators
-      .filter(gen => ['wind', 'solar', 'hydro', 'tidal', 'geothermal'].includes((gen.type || '').toLowerCase()))
-      .reduce((total, generator) => total + (generator.output || 0), 0) / totalGeneration * 100 
-    : 0;
+  // Use pre-calculated metrics from the simulation_summary.csv if available
+  if (data.summaryMetrics && Object.keys(data.summaryMetrics).length > 0) {
+    log('Using pre-calculated metrics from simulation_summary.csv');
     
-  const carbonNeutralScore = netEmissions <= 0 ? 100 : Math.max(0, 100 - (netEmissions / totalEmissions * 100));
+    // Log the available metrics for debugging
+    log(`Available summary metrics: ${Object.keys(data.summaryMetrics).join(', ')}`, 'debug');
+    
+    // Get metrics with fallbacks for different possible field names
+    totalPopulation = data.summaryMetrics.population || data.summaryMetrics.Population || 0;
+    totalGeneration = data.summaryMetrics.powerGeneration || data.summaryMetrics.PowerGeneration || 0;
+    totalUsage = data.summaryMetrics.powerUsage || data.summaryMetrics.PowerUsage || 0;
+    powerBalance = data.summaryMetrics.powerBalance || data.summaryMetrics.PowerBalance || 0;
+    totalEmissions = data.summaryMetrics.co2Emissions || data.summaryMetrics.CO2Emissions || 0;
+    totalOffsets = data.summaryMetrics.carbonOffset || data.summaryMetrics.CarbonOffset || 0;
+    netEmissions = data.summaryMetrics.netEmissions || data.summaryMetrics.NetEmissions || 0;
+    publicOpinion = data.summaryMetrics.publicOpinion || data.summaryMetrics.PublicOpinion || 0;
+    
+    // Convert public opinion from decimal to percentage if needed
+    if (publicOpinion > 0 && publicOpinion < 1) {
+      publicOpinion = Math.round(publicOpinion * 100);
+    }
+    
+    log(`Using metrics - Population: ${totalPopulation}, Generation: ${totalGeneration}, Usage: ${totalUsage}, Emissions: ${totalEmissions}, Offsets: ${totalOffsets}, Opinion: ${publicOpinion}`, 'debug');
+  } else {
+    // Fall back to calculating metrics if summary data is not available
+    log('Summary metrics not available, calculating from raw data');
+    
+    // Calculate metrics
+    totalPopulation = data.settlements ? data.settlements.reduce((total, settlement) => total + (settlement.population || 0), 0) : 0;
+    
+    totalGeneration = data.generators ? data.generators.reduce((total, generator) => total + (generator.output || 0), 0) : 0;
+    
+    totalUsage = data.settlements ? data.settlements.reduce((total, settlement) => total + (settlement.powerUsage || 0), 0) : 0;
+    
+    powerBalance = totalGeneration - totalUsage;
+    
+    totalEmissions = data.generators ? data.generators.reduce((total, generator) => total + (generator.emissions || 0), 0) : 0;
+    
+    totalOffsets = data.carbonOffsets ? data.carbonOffsets.reduce((total, offset) => total + (offset.offsetAmount || 0), 0) : 0;
+    
+    netEmissions = totalEmissions - totalOffsets;
+    
+    // Public opinion calculation (simplified)
+    const renewablePercentage = totalGeneration > 0 ? 
+      data.generators
+        .filter(gen => ['wind', 'solar', 'hydro', 'tidal', 'geothermal'].includes((gen.type || '').toLowerCase()))
+        .reduce((total, generator) => total + (generator.output || 0), 0) / totalGeneration * 100 
+      : 0;
+      
+    const carbonNeutralScore = netEmissions <= 0 ? 100 : Math.max(0, 100 - (netEmissions / totalEmissions * 100));
+    
+    publicOpinion = Math.round((renewablePercentage * 0.6 + carbonNeutralScore * 0.4));
+  }
   
-  const publicOpinion = Math.round((renewablePercentage * 0.6 + carbonNeutralScore * 0.4));
-  
-  // Update DOM elements with calculated values
+  // Update DOM elements with calculated or pre-loaded values
   if (elements.populationEl) {
     elements.populationEl.textContent = totalPopulation.toLocaleString();
     elements.populationEl.classList.toggle('positive', totalPopulation > 0);

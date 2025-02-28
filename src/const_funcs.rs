@@ -214,3 +214,22 @@ pub fn calculate_carbon_credit_revenue(net_emissions: f64, year: u32) -> f64 {
     let price = carbon_price(year);
     negative_emissions * price
 }
+
+/// Calculates the revenue from selling excess energy.
+/// 
+/// * `power_surplus` - The power surplus in MW
+/// * `year` - The simulation year
+/// * `sales_rate` - The sales rate in € per GWh
+pub fn calculate_energy_sales_revenue(power_surplus: f64, year: u32, sales_rate: f64) -> f64 {
+    if power_surplus <= 0.0 {
+        // No surplus, no energy sales revenue
+        return 0.0;
+    }
+
+    // Convert power surplus (MW) to yearly energy (GWh)
+    // A power of 1 MW for a full year is 8.76 GWh (8760 hours / 1000)
+    let yearly_energy_gwh = power_surplus * crate::constants::MW_TO_GWH_CONVERSION;
+    
+    // Calculate revenue
+    yearly_energy_gwh * sales_rate
+}

@@ -6,3 +6,5 @@ simulation_states
 checkpoints
 *.log
 src/temp.md
+src/renderer/node_modules
+src/renderer/data

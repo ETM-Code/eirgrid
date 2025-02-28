@@ -30,6 +30,9 @@
   --text-light: #9ca3af;
   --text-white: #f9fafb;
   
+  /* Layout */
+  --header-height: 60px;
+  
   /* Spacing */
   --spacing-xs: 0.25rem;
   --spacing-sm: 0.5rem;
@@ -82,11 +85,22 @@ html, body {
   line-height: 1.5;
 }
 
+/* ===== Main Container ===== */
 .container {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: 100vh;
   width: 100%;
+  overflow: hidden;
+}
+
+/* ===== Main Content ===== */
+.content {
+  display: flex;
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  height: calc(100vh - var(--header-height));
 }
 
 button {
@@ -115,6 +129,8 @@ button:focus {
   box-shadow: var(--shadow-md);
   z-index: 10;
   position: relative;
+  height: var(--header-height);
+  box-sizing: border-box;
 }
 
 .header h1 {
@@ -163,20 +179,13 @@ button:focus {
   font-size: var(--text-lg);
 }
 
-/* ===== Main Content ===== */
-.content {
-  display: flex;
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-}
-
 /* ===== Map Container ===== */
 .map-container {
   flex: 1;
   z-index: 1;
   background-color: var(--bg-light);
   transition: margin-left var(--transition-normal);
+  height: 100%;
 }
 
 /* ===== Sidebar ===== */
@@ -189,6 +198,9 @@ button:focus {
   flex-direction: column;
   transition: transform var(--transition-normal);
   overflow-y: auto;
+  height: calc(100vh - var(--header-height, 60px)); /* Ensure sidebar takes full height minus header */
+  position: relative; /* Ensure proper stacking context */
+  max-height: 100vh; /* Prevent sidebar from exceeding viewport height */
 }
 
 /* Collapsed state */
@@ -217,6 +229,7 @@ button:focus {
   box-shadow: var(--shadow-md);
   z-index: 6;
   transition: left var(--transition-normal), background-color var(--transition-fast);
+  cursor: pointer; /* Add cursor pointer for better UX */
 }
 
 .sidebar.collapsed #sidebar-toggle {
@@ -235,6 +248,9 @@ button:focus {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
+  flex-shrink: 0; /* Prevent panel from shrinking */
+  max-height: none; /* Allow panels to take necessary height */
+  margin-bottom: var(--spacing-md); /* Ensure space between panels */
 }
 
 .panel h2 {
@@ -244,6 +260,15 @@ button:focus {
   color: var(--text-white);
   font-size: var(--text-lg);
   font-weight: 500;
+  position: sticky; /* Keep panel headers visible when scrolling */
+  top: 0;
+  z-index: 2;
+}
+
+/* Panel content container */
+.panel-content {
+  padding: var(--spacing-md);
+  overflow-y: auto;
 }
 
 /* ===== Metrics Panel ===== */
@@ -320,30 +345,52 @@ button:focus {
 /* Legend color styles */
 .legend-color.settlement {
   background-color: #3b82f6;
+  opacity: 0.7;
 }
 
 .legend-color.generator.wind {
-  background-color: #10b981;
+  background-color: #ef4444;
+  opacity: 0.7;
 }
 
 .legend-color.generator.solar {
   background-color: #f59e0b;
+  opacity: 0.7;
 }
 
 .legend-color.generator.hydro {
-  background-color: #3b82f6;
+  background-color: #06b6d4;
+  opacity: 0.7;
 }
 
 .legend-color.generator.nuclear {
-  background-color: #8b5cf6;
+  background-color: #22c55e;
+  opacity: 0.7;
 }
 
-.legend-color.generator.fossil {
-  background-color: #ef4444;
+.legend-color.generator.coal, .legend-color.generator.fossil {
+  background-color: #4b5563;
+  opacity: 0.7;
+}
+
+.legend-color.generator.gas {
+  background-color: #d946ef;
+  opacity: 0.7;
+}
+
+.legend-color.generator.biomass {
+  background-color: #65a30d;
+  opacity: 0.7;
+}
+
+.legend-color.generator.storage {
+  background-color: #0ea5e9;
+  opacity: 0.7;
 }
 
 .legend-color.offset {
-  background-color: #10b981;
+  background-color: #8b5cf6;
+  opacity: 0.7;
 }
 
 /* ===== Settings Panel ===== */
@@ -594,4 +641,102 @@ button:focus {
   .metric-value {
     font-size: var(--text-base);
   }
+}
+
+/* Marker styling */
+.settlement-marker {
+  fill: #3b82f6;
+  stroke: none;
+  opacity: 0.7;
+  pointer-events: auto;
+  z-index: 1000 !important;
+}
+
+/* Generator markers - base style */
+.generator-marker {
+  stroke: none;
+  opacity: 0.7;
+  pointer-events: auto;
+  z-index: 1000 !important;
+}
+
+/* Different types of generators */
+.generator-marker.wind-marker {
+  fill: #ef4444; /* Red */
+}
+
+.generator-marker.solar-marker {
+  fill: #f59e0b; /* Amber/Orange */
+}
+
+.generator-marker.hydro-marker {
+  fill: #06b6d4; /* Cyan */
+}
+
+.generator-marker.nuclear-marker {
+  fill: #22c55e; /* Green */
+}
+
+.generator-marker.coal-marker {
+  fill: #4b5563; /* Gray */
+}
+
+.generator-marker.gas-marker {
+  fill: #d946ef; /* Fuchsia */
+}
+
+.generator-marker.biomass-marker {
+  fill: #65a30d; /* Lime */
+}
+
+.generator-marker.storage-marker {
+  fill: #0ea5e9; /* Sky */
+}
+
+/* Fallback for other generator types */
+.generator-marker:not(.wind-marker):not(.solar-marker):not(.hydro-marker):not(.nuclear-marker):not(.coal-marker):not(.gas-marker):not(.biomass-marker):not(.storage-marker) {
+  fill: #10b981; /* Default teal if type is not specified */
+}
+
+.offset-marker {
+  fill: #8b5cf6; /* Purple */
+  stroke: none;
+  opacity: 0.7;
+  pointer-events: auto;
+  z-index: 1000 !important;
+}
+
+/* Highlight for new entities */
+.new-entity {
+  stroke: #ffffff;
+  stroke-width: 3px;
+  animation: pulse 2s 1;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.5);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+}
+
+/* Hide layer classes */
+.hide-settlements .settlements-layer {
+  display: none;
+}
+
+.hide-generators .generators-layer {
+  display: none;
+}
+
+.hide-offsets .offsets-layer {
+  display: none;
 } 
