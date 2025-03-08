@@ -1346,5 +1346,3 @@ pub trait YearlyMetricsLike {
     fn get_total_energy_sales_revenue(&self) -> f64;
 }
 
-// Implementation of this trait can be added in main.rs for the main YearlyMetrics struct
-// ... existing code ... 
