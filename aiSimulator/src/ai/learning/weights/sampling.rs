@@ -323,6 +323,24 @@ impl ActionWeights {
     }
 
     pub fn sample_additional_actions(&mut self, year: u32) -> u32 {
+        // First, check how many deficit actions we already have for this year
+        let deficit_actions_count = self.current_deficit_actions.get(&year)
+            .map_or(0, |actions| actions.len() as u32);
+            
+        // Calculate how many regular actions we can have, ensuring total is capped at MAX_ACTION_COUNT
+        let max_possible_actions = if deficit_actions_count >= MAX_ACTION_COUNT {
+            0 // If deficit actions alone exceed MAX_ACTION_COUNT, don't allow any more actions
+        } else {
+            MAX_ACTION_COUNT - deficit_actions_count
+        };
+        
+        // If we can't add any more actions, return 0
+        if max_possible_actions == 0 {
+            println!("WARNING: Already have {} deficit actions for year {}, capping additional actions at 0", 
+                    deficit_actions_count, year);
+            return 0;
+        }
+        
         let random_val = match &mut self.deterministic_rng {
             Some(rng) => rng.gen::<f64>(),
             None => rand::thread_rng().gen::<f64>(),
@@ -337,24 +355,34 @@ impl ActionWeights {
             
             let mut random_choice = random_val * total_weight;
             
+            // Sample from weights but ensure we don't exceed max_possible_actions
             for (count, weight) in year_counts {
                 random_choice -= weight;
                 if random_choice <= ZERO_F64 {
-                    return *count;
+                    return (*count).min(max_possible_actions);
                 }
             }
             
-            // Fallback to a reasonable default if sampling fails
-            return 5;
+            // Fallback to a reasonable default if sampling fails, but still respect the cap
+            return 5.min(max_possible_actions);
         } else {
             // Fallback to simple heuristic if no historical data
             let scaled_exploration = self.exploration_rate.powf(0.5); // Square root to increase base value
             let min_actions = (EXPLORATION_DIVISOR / scaled_exploration).round() as u32;
             let max_actions = (MAX_ACTIONS_MULTIPLIER / scaled_exploration).round() as u32;
             
+            // Cap the maximum actions to respect our limit
+            let capped_max_actions = max_actions.min(max_possible_actions);
+            let capped_min_actions = min_actions.min(capped_max_actions);
+            
+            // If capped_min_actions equals capped_max_actions, return that value
+            if capped_min_actions == capped_max_actions {
+                return capped_min_actions;
+            }
+            
             match &mut self.deterministic_rng {
-                Some(rng) => rng.gen_range(min_actions..=max_actions),
-                None => rand::thread_rng().gen_range(min_actions..=max_actions),
+                Some(rng) => rng.gen_range(capped_min_actions..=capped_max_actions),
+                None => rand::thread_rng().gen_range(capped_min_actions..=capped_max_actions),
             }
         }
     }

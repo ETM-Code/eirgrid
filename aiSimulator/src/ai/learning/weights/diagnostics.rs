@@ -53,6 +53,11 @@ impl ActionWeights {
     }
 
     pub fn debug_print_recorded_actions(&self) {
+        // Only print debug info if weights debugging is enabled
+        if !crate::ai::learning::constants::is_debug_weights_enabled() {
+            return;
+        }
+        
         let total_actions = self.current_run_actions.values().map(|v| v.len()).sum::<usize>();
         let years_with_actions = self.current_run_actions.values().filter(|v| !v.is_empty()).count();
         
@@ -74,6 +79,11 @@ impl ActionWeights {
     }
 
     pub fn debug_print_deficit_actions(&self) {
+        // Only print debug info if weights debugging is enabled
+        if !crate::ai::learning::constants::is_debug_weights_enabled() {
+            return;
+        }
+        
         let total_actions = self.current_deficit_actions.values().map(|v| v.len()).sum::<usize>();
         let years_with_actions = self.current_deficit_actions.values().filter(|v| !v.is_empty()).count();
         
@@ -91,6 +101,31 @@ impl ActionWeights {
                     println!("    Year {}: {} deficit actions", year, actions.len());
                 }
             }
+        }
+    }
+
+    pub fn print_action_count_weights(&self, year: u32) {
+        if let Some(year_counts) = self.action_count_weights.get(&year) {
+            println!("\n📊 Action Count Weights for Year {}:", year);
+            
+            // Get the counts and sort them
+            let mut counts: Vec<u32> = year_counts.keys().cloned().collect();
+            counts.sort();
+            
+            // Find the maximum weight for scaling the bar chart
+            let max_weight = *year_counts.values().max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)).unwrap_or(&0.0);
+            
+            // Print a simple bar chart for visualization
+            for count in counts {
+                if let Some(&weight) = year_counts.get(&count) {
+                    let bar_length = ((weight / max_weight) * 50.0).round() as usize;
+                    let bar = "#".repeat(bar_length);
+                    println!("{:2} actions: {:6.4} | {}", count, weight, bar);
+                }
+            }
+            println!();
+        } else {
+            println!("\n❌ No action count weights found for year {}", year);
         }
     }
 

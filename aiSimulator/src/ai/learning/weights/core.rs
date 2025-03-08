@@ -103,14 +103,28 @@ impl ActionWeights {
             // Add deficit weights for this year
             deficit_weights.insert(year, deficit_year_weights);
 
-            // Initialize action count weights for this year with bias towards fewer actions
+            // Initialize action count weights for this year with extreme bias towards fewer actions
             let mut count_weights = HashMap::new();
             let decay_rate = ACTION_COUNT_DECAY_RATE; // Controls how quickly the probability decreases
             let mut total_weight = ZERO_F64;
             
-            // Calculate weights with exponential decay
+            // Calculate weights with exponential decay, plus additional bias for lower counts
             for count in 0..=MAX_ACTION_COUNT {
-                let weight = (-decay_rate * count as f64).exp();
+                // Basic exponential decay
+                let base_weight = (-decay_rate * count as f64).exp();
+                
+                // Apply additional bias for low counts (0-5 actions)
+                let multiplier = match count {
+                    0 => 4.0,  // Very high weight for taking no actions
+                    1 => 3.5,  // Very high weight for just 1 action
+                    2 => 3.0,  // High weight for 2 actions
+                    3 => 2.5,  // High weight for 3 actions
+                    4 => 2.0,  // Medium-high weight for 4 actions
+                    5 => 1.5,  // Slightly increased weight for 5 actions
+                    _ => 1.0,  // Normal weight for 6+ actions
+                };
+                
+                let weight = base_weight * multiplier;
                 count_weights.insert(count, weight);
                 total_weight += weight;
             }
@@ -118,6 +132,31 @@ impl ActionWeights {
             // Normalize weights to sum to ONE_F64
             for weight in count_weights.values_mut() {
                 *weight /= total_weight;
+            }
+            
+            // Print the initial weights for visibility only if debug weights is enabled
+            if year == START_YEAR && crate::ai::learning::constants::is_debug_weights_enabled() {
+                println!("\nInitial action count weights:");
+                let instance = ActionWeights {
+                    weights: HashMap::new(),
+                    action_count_weights: HashMap::from([(year, count_weights.clone())]),
+                    learning_rate: DEFAULT_LEARNING_RATE,
+                    best_metrics: None,
+                    best_weights: None,
+                    best_actions: None,
+                    iteration_count: 0,
+                    iterations_without_improvement: 0,
+                    exploration_rate: DEFAULT_EXPLORATION_RATE,
+                    current_run_actions: HashMap::new(),
+                    force_best_actions: false,
+                    deficit_weights: HashMap::new(),
+                    current_deficit_actions: HashMap::new(),
+                    best_deficit_actions: None,
+                    deterministic_rng: None,
+                    guaranteed_best_actions: false,
+                    optimization_mode: None,
+                };
+                instance.print_action_count_weights(year);
             }
             
             action_count_weights.insert(year, count_weights);

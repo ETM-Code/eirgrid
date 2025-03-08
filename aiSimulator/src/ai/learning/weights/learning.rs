@@ -90,14 +90,34 @@ impl ActionWeights {
     pub fn update_action_count_weights(&mut self, year: u32, action_count: u32, improvement: f64) {
         if let Some(year_counts) = self.action_count_weights.get_mut(&year) {
             if let Some(weight) = year_counts.get_mut(&action_count) {
-                // Similar to action weight updates
-                let adjustment_factor = if improvement > 0.0 {
-                    1.0 + (self.learning_rate * improvement)
+                // Amplify the improvement based on how low the action count is
+                // Lower action counts get more positive reinforcement for success
+                let action_count_bonus = if improvement > 0.0 {
+                    // Apply additional bonus for lower action counts when successful
+                    // This gives stronger positive reinforcement for strategies with fewer actions
+                    1.0 + (MAX_ACTION_COUNT as f64 - action_count as f64) / MAX_ACTION_COUNT as f64
                 } else {
-                    1.0 / (1.0 + (self.learning_rate * improvement.abs()))
+                    1.0 // No bonus for negative improvements
                 };
                 
+                // Apply the action count bonus to the improvement
+                let adjusted_improvement = improvement * action_count_bonus;
+                
+                // Similar to action weight updates, but with the adjusted improvement
+                let adjustment_factor = if adjusted_improvement > 0.0 {
+                    1.0 + (self.learning_rate * adjusted_improvement)
+                } else {
+                    1.0 / (1.0 + (self.learning_rate * adjusted_improvement.abs()))
+                };
+                
+                // Apply the adjustment
                 *weight = (*weight * adjustment_factor).max(MIN_ACTION_WEIGHT).min(ONE_F64);
+                
+                // Print information about significant weight updates only if debug weights is enabled
+                if improvement.abs() > 0.05 && crate::ai::learning::constants::is_debug_weights_enabled() {
+                    println!("Updated action count weight for {} actions in year {}: {:.4} (improvement: {:.4}, adjusted: {:.4})",
+                             action_count, year, *weight, improvement, adjusted_improvement);
+                }
                 
                 // Normalize weights
                 let total: f64 = year_counts.values().sum();

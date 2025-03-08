@@ -41,6 +41,15 @@ pub struct Args {
     
     #[arg(long, help = "Enable revenue from energy sales to offset costs", default_value_t = false)]
     enable_energy_sales: bool,
+
+    #[arg(long, help = "Enable CSV export of detailed simulation results", default_value_t = false)]
+    enable_csv_export: bool,
+
+    #[arg(long, help = "Enable debug logging (more detailed output)", default_value_t = false)]
+    debug_logging: bool,
+
+    #[arg(long, help = "Enable detailed weights debugging output", default_value_t = false)]
+    debug_weights: bool,
 }
 
 // Add getter methods for all fields
@@ -95,5 +104,17 @@ impl Args {
 
     pub fn enable_energy_sales(&self) -> bool {
         self.enable_energy_sales
+    }
+
+    pub fn enable_csv_export(&self) -> bool {
+        self.enable_csv_export
+    }
+    
+    pub fn debug_logging(&self) -> bool {
+        self.debug_logging
+    }
+
+    pub fn debug_weights(&self) -> bool {
+        self.debug_weights
     }
 }

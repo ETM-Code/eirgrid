@@ -192,12 +192,21 @@ fn record_timing_end(function_name: &str, duration: Duration, category: &Operati
     }
 }
 
-pub fn init_logging(enable_timing: bool) {
+pub fn init_logging(enable_timing: bool, debug_logging: bool) {
     TIMING_ENABLED.store(enable_timing, Ordering::SeqCst);
     
-    let env_filter = EnvFilter::from_default_env()
-        .add_directive(Level::INFO.into())
-        .add_directive("eirgrid=debug".parse().unwrap());
+    // Set the log level based on debug_logging parameter
+    let env_filter = if debug_logging {
+        // Enable debug logs when debug_logging is true
+        EnvFilter::from_default_env()
+            .add_directive(Level::DEBUG.into())
+            .add_directive("eirgrid=debug".parse().unwrap())
+    } else {
+        // Otherwise use INFO level with minimal output
+        EnvFilter::from_default_env()
+            .add_directive(Level::INFO.into())
+            .add_directive("eirgrid=info".parse().unwrap())
+    };
 
     if enable_timing {
         let histogram = || {

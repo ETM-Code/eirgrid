@@ -32,15 +32,18 @@ pub fn run_iteration(
         enable_energy_sales
     )?;
     
-    // FIXED: Calculate metrics from the last yearly metrics instead of relying on weights
+    // Calculate metrics from the last yearly metrics instead of relying on weights
     let metrics = if let Some(final_year_metrics) = yearly_metrics.last() {
-        // Convert from yearly metrics to simulation metrics
-        println!("DIAGNOSTIC: Creating SimulationMetrics from final year metrics:");
-        println!("  - final_net_emissions: {}", final_year_metrics.net_co2_emissions);
-        println!("  - total_cost: {}", final_year_metrics.total_capital_cost);
-        println!("  - average_public_opinion: {}", final_year_metrics.average_public_opinion);
-        println!("  - power_reliability: {}", 
-            if final_year_metrics.power_balance >= 0.0 { 1.0 } else { 0.0 });
+        // Only print diagnostic info if debug weights is enabled
+        if crate::ai::learning::constants::is_debug_weights_enabled() {
+            // Convert from yearly metrics to simulation metrics
+            println!("DIAGNOSTIC: Creating SimulationMetrics from final year metrics:");
+            println!("  - final_net_emissions: {}", final_year_metrics.net_co2_emissions);
+            println!("  - total_cost: {}", final_year_metrics.total_capital_cost);
+            println!("  - average_public_opinion: {}", final_year_metrics.average_public_opinion);
+            println!("  - power_reliability: {}", 
+                if final_year_metrics.power_balance >= 0.0 { 1.0 } else { 0.0 });
+        }
         
         SimulationMetrics {
             final_net_emissions: final_year_metrics.net_co2_emissions,
