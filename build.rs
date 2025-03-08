@@ -8,7 +8,7 @@ fn main() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
 
     // Source and destination paths for the Metal shader
-    let src_path = Path::new(&manifest_dir).join("src/metal_location_search.metal");
+    let src_path = Path::new(&manifest_dir).join("aiSimulator/metal_location_search.metal");
     let dest_path = Path::new(&out_dir).join("../../../metal_location_search.metal");
 
     // Copy the Metal shader file

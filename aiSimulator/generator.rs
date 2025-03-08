@@ -243,21 +243,53 @@ impl GeneratorType {
 
     pub fn get_base_cost(&self, year: u32) -> f64 {
         let base_cost = match *self {
-            GeneratorType::OnshoreWind => 1_000_000.0,
-            GeneratorType::OffshoreWind => 2_000_000.0,
-            GeneratorType::DomesticSolar => 10_000.0,
-            GeneratorType::CommercialSolar => 100_000.0,
-            GeneratorType::UtilitySolar => 1_000_000.0,
-            GeneratorType::Nuclear => 5_000_000_000.0,
-            GeneratorType::CoalPlant => 2_000_000_000.0,
-            GeneratorType::GasCombinedCycle => 1_000_000_000.0,
-            GeneratorType::GasPeaker => 500_000_000.0,
-            GeneratorType::Biomass => 800_000_000.0,
-            GeneratorType::HydroDam => 3_000_000_000.0,
-            GeneratorType::PumpedStorage => 2_000_000_000.0,
-            GeneratorType::BatteryStorage => 500_000_000.0,
-            GeneratorType::TidalGenerator => 1_500_000_000.0,
-            GeneratorType::WaveEnergy => 1_000_000_000.0,
+            // Onshore wind: assume ~€1.5M per MW; for a 500 MW plant, that’s roughly €750M total.
+            GeneratorType::OnshoreWind => 1_500_000.0,        // per MW basis
+
+            // Offshore wind: assume ~€4M per MW; for an 800 MW plant, roughly €3.2B total.
+            GeneratorType::OffshoreWind => 4_000_000.0,       
+
+            // Domestic solar: for a small (10 MW) rooftop-type installation, about €1M per MW.
+            GeneratorType::DomesticSolar => 10_000_000.0,       // 10 MW * €1M/MW
+
+            // Commercial solar: assume ~€800k per MW; for 50 MW, ~€40M.
+            GeneratorType::CommercialSolar => 40_000_000.0,     
+
+            // Utility-scale solar: similarly, ~€800k per MW; for 300 MW, ~€240M.
+            GeneratorType::UtilitySolar => 240_000_000.0,       
+
+            // Nuclear: while no new builds exist in Ireland, recent European projects can be in the range of
+            // ~€8–10M per MW; here we assume €10M per MW, so for 1500 MW, roughly €15B.
+            GeneratorType::Nuclear => 15_000_000_000.0,         
+
+            // Coal plants: new-build coal plants (without CCS) might run about €1.5M per MW.
+            GeneratorType::CoalPlant => 1_500_000_000.0,        
+
+            // Gas combined cycle (CCGT): competitive new builds have come in around €700k per MW.
+            GeneratorType::GasCombinedCycle => 560_000_000.0,     
+
+            // Gas peakers are usually more expensive per MW due to lower capacity factors;
+            // here roughly €1.25M per MW is assumed.
+            GeneratorType::GasPeaker => 500_000_000.0,            
+
+            // Biomass: typical estimates are on the order of €3M per MW; for 50 MW, about €150M.
+            GeneratorType::Biomass => 150_000_000.0,              
+
+            // Hydro dams: large civil works mean costs around €2–2.5M per MW; for 1200 MW, roughly €2.5B.
+            GeneratorType::HydroDam => 2_500_000_000.0,           
+
+            // Pumped storage: often around €2M per MW; for 600 MW, about €1.2B.
+            GeneratorType::PumpedStorage => 1_200_000_000.0,      
+
+            // Battery storage: recent utility‐scale battery installations can be around €300k per MW,
+            // so for 500 MW, roughly €150M.
+            GeneratorType::BatteryStorage => 150_000_000.0,       
+
+            // Tidal generators: as a less mature technology, costs might be around €5M per MW; for 200 MW, ~€1B.
+            GeneratorType::TidalGenerator => 1_000_000_000.0,     
+
+            // Wave energy: typically higher on a per MW basis – around €8M per MW; for 100 MW, ~€800M.
+            GeneratorType::WaveEnergy => 800_000_000.0,
         };
 
         let years_from_base = (year - BASE_YEAR) as f64;

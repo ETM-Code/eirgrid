@@ -5,6 +5,8 @@ mapData/sourceData
 simulation_states
 checkpoints
 *.log
-src/temp.md
-src/renderer/node_modules
-src/renderer/data
+aiSimulator/temp.md
+aiSimulator/renderer/node_modules
+aiSimulator/renderer/data
+Cargo.lock
+package-lock.json

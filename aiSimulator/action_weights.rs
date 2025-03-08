@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use rand::Rng;
 use rand::rngs::StdRng;
-use rand::SeedableRng;
 use serde::{Serialize, Deserialize};
 use crate::generator::GeneratorType;
 use crate::constants::{MAX_ACCEPTABLE_EMISSIONS, MAX_ACCEPTABLE_COST};
@@ -22,12 +21,8 @@ const DIVERGENCE_FOR_NEGATIVE_WEIGHT: f64 = 0.03; // The difference of improveme
 const DIVERGENCE_EXPONENT: f64 = 0.3; // How rapidly to increase penalty with worse divergence (lower = more severe for values < 1)
 const STAGNATION_PENALTY_FACTOR: f64 = 0.2; // Base factor for stagnation penalty
 const STAGNATION_EXPONENT: f64 = 1.8; // How rapidly to increase penalty with more iterations without improvement
-const MATCHING_ACTION_REWARD: f64 = 0.1; // Additional reward factor for actions that match the best strategy
 const FORCE_REPLAY_THRESHOLD: u32 = 1000; // After this many iterations without improvement, start forcing replay
 const ITERATIONS_FOR_RANDOMIZATION: u32 = 1000; // After this many iterations without improvement, apply randomization
-
-// Constant for minimal improvement during exploration when emissions reduction isn't primary
-const EXPLORATION_MINIMAL_IMPROVEMENT: f64 = 0.01;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GridAction {
@@ -119,6 +114,7 @@ struct SerializableWeights {
     exploration_rate: f64,
     deficit_weights: HashMap<u32, Vec<(SerializableAction, f64)>>,
     best_deficit_actions: Option<HashMap<u32, Vec<SerializableAction>>>,
+    optimization_mode: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -139,13 +135,14 @@ pub struct ActionWeights {
     best_deficit_actions: Option<HashMap<u32, Vec<GridAction>>>, // Store deficit actions from the best run
     deterministic_rng: Option<StdRng>, // Optional deterministic RNG for reproducible runs
     guaranteed_best_actions: bool, // Flag to force replay of best actions with 100% probability
+    optimization_mode: Option<String>, // Store the optimization mode
 }
 
 impl ActionWeights {
     pub fn new() -> Self {
         let mut weights = HashMap::new();
-        let mut action_count_weights = HashMap::new();
         let mut deficit_weights = HashMap::new();
+        let mut action_count_weights = HashMap::new();
         
         // Initialize weights for each year from 2025 to 2050
         for year in 2025..=2050 {
@@ -249,7 +246,7 @@ impl ActionWeights {
         Self {
             weights,
             action_count_weights,
-            learning_rate: 0.1,
+            learning_rate: 0.2,
             best_metrics: None,
             best_weights: None,
             best_actions: None,
@@ -263,6 +260,7 @@ impl ActionWeights {
             best_deficit_actions: None,
             deterministic_rng: None,
             guaranteed_best_actions: false,
+            optimization_mode: None,
         }
     }
 
@@ -520,11 +518,11 @@ impl ActionWeights {
         let current_weight = year_weights.get(action).expect("Weight should exist");
         
         // Get the final 2050 impact score from best metrics if available
-        let final_impact_score = self.best_metrics.as_ref().map_or(0.0, |metrics| score_metrics(metrics));
+        let final_impact_score = self.best_metrics.as_ref().map_or(0.0, |metrics| score_metrics(metrics, self.optimization_mode.as_deref()));
         
         // Calculate the relative improvement compared to the best score
         let relative_improvement = if let Some(best) = &self.best_metrics {
-            let best_score = score_metrics(best);
+            let best_score = score_metrics(best, self.optimization_mode.as_deref());
             if best_score > 0.0 {
                 (final_impact_score - best_score) / best_score
             } else {
@@ -574,7 +572,7 @@ impl ActionWeights {
     }
 
     pub fn update_best_strategy(&mut self, metrics: SimulationMetrics) {
-        let current_score = score_metrics(&metrics);
+        let current_score = score_metrics(&metrics, self.optimization_mode.as_deref());
         
         // Debug: Print current_run_actions info with more detailed breakdown
         let total_curr_actions = self.current_run_actions.values().map(|v| v.len()).sum::<usize>();
@@ -584,13 +582,13 @@ impl ActionWeights {
         
         // More detailed per-year breakdown for the current run
         println!("Current run actions per year:");
-        for year in 2025..=2050 {
-            if let Some(actions) = self.current_run_actions.get(&year) {
-                if !actions.is_empty() {
-                    println!("  Year {}: {} actions", year, actions.len());
-                }
-            }
-        }
+        // for year in 2025..=2050 {
+        //     if let Some(actions) = self.current_run_actions.get(&year) {
+        //         if !actions.is_empty() {
+        //             println!("  Year {}: {} actions", year, actions.len());
+        //         }
+        //     }
+        // }
         
         // If we have empty current_run_actions but non-empty best actions, something's wrong
         if total_curr_actions == 0 && self.best_actions.is_some() {
@@ -601,7 +599,7 @@ impl ActionWeights {
         let should_update = match &self.best_metrics {
             None => true,
             Some(best) => {
-                let best_score = score_metrics(best);
+                let best_score = score_metrics(best, self.optimization_mode.as_deref());
                 current_score > best_score
             }
         };
@@ -609,7 +607,7 @@ impl ActionWeights {
         if should_update {
             // Only print improvement message if we actually had a previous best
             if let Some(best) = &self.best_metrics {
-                let best_score = score_metrics(best);
+                let best_score = score_metrics(best, self.optimization_mode.as_deref());
                 let improvement = ((current_score - best_score) / best_score * 100.0).abs();
                 
                 // Create a VERY visible message with details about the improvement
@@ -870,6 +868,7 @@ impl ActionWeights {
             exploration_rate: self.exploration_rate,
             deficit_weights: serializable_deficit_weights,
             best_deficit_actions: serializable_best_deficit_actions,
+            optimization_mode: self.optimization_mode.clone(),
         };
         
         let json = serde_json::to_string_pretty(&serializable)
@@ -1143,6 +1142,7 @@ impl ActionWeights {
             best_deficit_actions,
             deterministic_rng: None,
             guaranteed_best_actions: false,
+            optimization_mode: serializable.optimization_mode.clone(),
         })
     }
     #[allow(dead_code)]
@@ -1285,7 +1285,7 @@ impl ActionWeights {
 
     pub fn get_best_metrics(&self) -> Option<(f64, bool)> {
         self.best_metrics.as_ref().map(|metrics| {
-            (score_metrics(metrics), metrics.final_net_emissions <= 0.0)
+            (score_metrics(metrics, self.optimization_mode.as_deref()), metrics.final_net_emissions <= 0.0)
         })
     }
 
@@ -1304,8 +1304,8 @@ impl ActionWeights {
     pub fn apply_contrast_learning(&mut self, current_metrics: &SimulationMetrics) {
         // Only apply contrast learning if we have a best run to compare against
         if let (Some(best_metrics), Some(best_actions)) = (&self.best_metrics, &self.best_actions) {
-            let best_score = score_metrics(best_metrics);
-            let current_score = score_metrics(current_metrics);
+            let best_score = score_metrics(best_metrics, self.optimization_mode.as_deref());
+            let current_score = score_metrics(current_metrics, self.optimization_mode.as_deref());
             
             // Calculate how much worse the current run is compared to the best
             let deterioration = if best_score > 0.0 {
@@ -1668,7 +1668,7 @@ impl ActionWeights {
     pub fn apply_deficit_contrast_learning(&mut self) {
         // Only apply contrast learning if we have a best run to compare against
         if let (Some(best_metrics), Some(best_deficit_actions)) = (&self.best_metrics, &self.best_deficit_actions) {
-            let best_score = score_metrics(best_metrics);
+            let best_score = score_metrics(best_metrics, self.optimization_mode.as_deref());
             // We don't have a current metrics specific to deficit actions, but we can use the deterioration
             // from the regular contrast learning as an approximation
             let deterioration = self.iterations_without_improvement as f64 / 10.0; // Use iterations as a proxy for deterioration
@@ -1994,12 +1994,31 @@ impl ActionWeights {
         // and always use best actions if available
         self.guaranteed_best_actions = force;
     }
+
+    // Add around line 1993 before the score_metrics function
+    pub fn set_optimization_mode(&mut self, mode: Option<String>) {
+        self.optimization_mode = mode;
+    }
+
+    pub fn get_optimization_mode(&self) -> Option<&str> {
+        self.optimization_mode.as_deref()
+    }
 }
 
-pub fn score_metrics(metrics: &SimulationMetrics) -> f64 {
-    // First priority: Reach net zero emissions by 2050
-    // This scoring remains unchanged - we still prioritize reaching net zero emissions
-    // as the primary goal, but intermediate emissions reductions aren't incentivized
+pub fn score_metrics(metrics: &SimulationMetrics, optimization_mode: Option<&str>) -> f64 {
+    // Check for cost-only optimization mode
+    if let Some(mode) = optimization_mode {
+        if mode == "cost_only" {
+            // In cost-only mode, only consider cost improvements regardless of emissions state
+            // Normalize and invert cost so lower costs give higher scores
+            let normalized_cost = (metrics.total_cost / MAX_ACCEPTABLE_COST).max(1.0);
+            let log_cost = normalized_cost.ln();
+            let max_expected_log_cost = (MAX_ACCEPTABLE_COST * 100.0 / MAX_ACCEPTABLE_COST).ln(); // Assume 100x budget is max
+            return 2.0 - (log_cost / max_expected_log_cost).min(1.0); // Return value between 1.0 and 2.0
+        }
+    }
+
+    // Default scoring logic - First priority: Reach net zero emissions
     if metrics.final_net_emissions > 0.0 {
         // If we haven't achieved net zero, only focus on reducing emissions
         1.0 - (metrics.final_net_emissions / MAX_ACCEPTABLE_EMISSIONS).min(1.0)
@@ -2039,17 +2058,23 @@ pub struct ActionResult {
 pub fn evaluate_action_impact(
     current_state: &ActionResult,
     new_state: &ActionResult,
+    optimization_mode: Option<&str>,
 ) -> f64 {
-    // Calculate immediate impact score based on priorities
+    // Check for cost-only optimization mode
+    if let Some(mode) = optimization_mode {
+        if mode == "cost_only" {
+            // In cost-only mode, only consider cost improvements regardless of emissions state
+            let cost_change = new_state.total_cost - current_state.total_cost;
+            return -cost_change / current_state.total_cost.abs().max(1.0);
+        }
+    }
+
+    // Default evaluation logic
     if current_state.net_emissions > 0.0 {
-        // First priority: If we haven't achieved net zero, focus on emissions at 2050
-        // We don't care about intermediate emissions reductions - only final result matters
-        // Allow the model to explore actions that might not immediately reduce emissions
-        
-        // Use a minimal improvement score to encourage exploration of various strategies
-        // This avoids penalizing actions that might increase emissions temporarily but 
-        // could lead to better long-term strategies
-        EXPLORATION_MINIMAL_IMPROVEMENT
+        // First priority: If we haven't achieved net zero, only consider emissions
+        let emissions_improvement = (current_state.net_emissions - new_state.net_emissions) / 
+                                  current_state.net_emissions.abs().max(1.0);
+        emissions_improvement
     }
     else {
         // If we've achieved net zero, consider both cost and opinion improvements
@@ -2063,7 +2088,7 @@ pub fn evaluate_action_impact(
                                 current_state.public_opinion.abs().max(1.0);
         
         // Weight cost more heavily if it's very high
-        let cost_weight = if current_state.total_cost > MAX_ACCEPTABLE_COST * 5.0 { 0.8 } else { 0.5 };
+        let cost_weight = if current_state.total_cost > MAX_ACCEPTABLE_COST * 8.0 { 0.8 } else { 0.5 };
         let opinion_weight = 1.0 - cost_weight;
         
         // Combined improvement score
