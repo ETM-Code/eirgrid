@@ -127,7 +127,26 @@ pub fn run_simulation(
 
         let mut rng = rand::thread_rng();
         let num_additional_actions = if action_weights.is_some() {
-            local_weights.sample_additional_actions(year) as usize
+            // Print the action count weights for this year only if debug weights is enabled
+            if crate::ai::learning::constants::is_debug_weights_enabled() {
+                local_weights.print_action_count_weights(year);
+                
+                // Get deficit actions count for detailed debugging output
+                let deficit_actions_count = local_weights.current_deficit_actions.get(&year)
+                    .map_or(0, |actions| actions.len());
+                    
+                // Sample the action count
+                let count = local_weights.sample_additional_actions(year) as usize;
+                
+                // Print detailed diagnostic information
+                println!("Year {}: Planning {} additional actions (plus {} deficit actions = {} total)",
+                        year, count, deficit_actions_count, count + deficit_actions_count);
+                
+                count
+            } else {
+                // Just sample the action count without extra output
+                local_weights.sample_additional_actions(year) as usize
+            }
         } else {
             rng.gen_range(0..=20)
         };

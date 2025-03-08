@@ -17,48 +17,50 @@ impl ActionWeights {
     pub fn update_best_strategy(&mut self, metrics: SimulationMetrics) {
         let current_score = score_metrics(&metrics, self.optimization_mode.as_deref());
         
-        // Debug: Print current_run_actions info with more detailed breakdown
-        let total_curr_actions = self.current_run_actions.values().map(|v| v.len()).sum::<usize>();
-        let years_with_curr_actions = self.current_run_actions.values().filter(|v| !v.is_empty()).count();
-        println!("DEBUG: Before update - Current run has {} actions across {} years", 
-                total_curr_actions, years_with_curr_actions);
-        
-        // More detailed per-year breakdown for the current run
-        println!("Current run actions per year:");
-        // for year in 2025..=2050 {
-        //     if let Some(actions) = self.current_run_actions.get(&year) {
-        //         if !actions.is_empty() {
-        //             println!("  Year {}: {} actions", year, actions.len());
-        //         }
-        //     }
-        // }
-        
-        // If we have empty current_run_actions but non-empty best actions, something's wrong
-        if total_curr_actions == ZERO_USIZE && self.best_actions.is_some() {
-            println!("⚠️ WARNING: Attempting to update best strategy with 0 actions in current run!");
-            println!("This suggests actions aren't being recorded properly during simulation");
+        // Debug: Print current_run_actions info with more detailed breakdown - only if debug weights is enabled
+        if crate::ai::learning::constants::is_debug_weights_enabled() {
+            let total_curr_actions = self.current_run_actions.values().map(|v| v.len()).sum::<usize>();
+            let years_with_curr_actions = self.current_run_actions.values().filter(|v| !v.is_empty()).count();
+            println!("DEBUG: Before update - Current run has {} actions across {} years", 
+                    total_curr_actions, years_with_curr_actions);
+            
+            // More detailed per-year breakdown for the current run
+            println!("Current run actions per year:");
+            
+            // If we have empty current_run_actions but non-empty best actions, something's wrong
+            if total_curr_actions == ZERO_USIZE && self.best_actions.is_some() {
+                println!("⚠️ WARNING: Attempting to update best strategy with 0 actions in current run!");
+                println!("This suggests actions aren't being recorded properly during simulation");
+            }
+            
+            // DIAGNOSTIC: Add logging to check metrics values
+            println!("DIAGNOSTIC: Metrics values before processing:");
+            println!("  - final_net_emissions: {}", metrics.final_net_emissions);
+            println!("  - total_cost: {}", metrics.total_cost);
+            println!("  - average_public_opinion: {}", metrics.average_public_opinion);
+            println!("  - power_reliability: {}", metrics.power_reliability);
+            println!("  - iteration_count: {}", self.iteration_count);
         }
         
-        // DIAGNOSTIC: Add logging to check metrics values
-        println!("DIAGNOSTIC: Metrics values before processing:");
-        println!("  - final_net_emissions: {}", metrics.final_net_emissions);
-        println!("  - total_cost: {}", metrics.total_cost);
-        println!("  - average_public_opinion: {}", metrics.average_public_opinion);
-        println!("  - power_reliability: {}", metrics.power_reliability);
-        println!("  - iteration_count: {}", self.iteration_count);
-        
-        // DIAGNOSTIC: Always increment iteration count to ensure it's updated
+        // Increment iteration count
         self.iteration_count += 1;
-        println!("DIAGNOSTIC: Incremented iteration_count to {}", self.iteration_count);
+        
+        // Print iteration count update only if debug weights is enabled
+        if crate::ai::learning::constants::is_debug_weights_enabled() {
+            println!("DIAGNOSTIC: Incremented iteration_count to {}", self.iteration_count);
+        }
         
         let should_update = match &self.best_metrics {
             None => true,
             Some(best) => {
                 let best_score = score_metrics(best, self.optimization_mode.as_deref());
                 
-                // DIAGNOSTIC: Add score comparison logging
-                println!("DIAGNOSTIC: Score comparison - current: {}, best: {}", current_score, best_score);
+                // DIAGNOSTIC: Add score comparison logging - only if debug weights is enabled
+                if crate::ai::learning::constants::is_debug_weights_enabled() {
+                    println!("DIAGNOSTIC: Score comparison - current: {}, best: {}", current_score, best_score);
+                }
                 
+                // If new score is better than best score, update
                 current_score > best_score
             }
         };
@@ -305,11 +307,15 @@ impl ActionWeights {
             }
         }
         
-        // Debug output to verify actions were transferred
-        let total_actions = self.current_run_actions.values().map(|v| v.len()).sum::<usize>();
-        let years_with_actions = self.current_run_actions.values().filter(|v| !v.is_empty()).count();
-        println!("DEBUG: Transferred {} actions across {} years from local weights", 
-                 total_actions, years_with_actions);
+        // Print debug info only if debug weights is enabled
+        if crate::ai::learning::constants::is_debug_weights_enabled() {
+            // Debug output to verify actions were transferred
+            let total_actions = self.current_run_actions.values().map(|v| v.len()).sum::<usize>();
+            let years_with_actions = self.current_run_actions.values().filter(|v| !v.is_empty()).count();
+            
+            println!("DEBUG: Transferred {} actions across {} years from local weights", 
+                    total_actions, years_with_actions);
+        }
     }
 
 }

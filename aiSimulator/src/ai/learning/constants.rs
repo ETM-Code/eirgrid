@@ -132,7 +132,7 @@ pub const EXPLORATION_DIVISOR: f64 = 2.0;
 // Rate Constants
 //---------------------------------------------------------------------
 pub const EXPLORATION_DECAY_RATE: f64 = 0.1;
-pub const ACTION_COUNT_DECAY_RATE: f64 = 0.4;
+pub const ACTION_COUNT_DECAY_RATE: f64 = 0.8;
 
 //---------------------------------------------------------------------
 // Exponent Constants
@@ -174,3 +174,17 @@ pub const BASE_NET_ZERO_SCORE: f64 = 1.0;
 pub const MAX_SCORE_RANGE: f64 = 2.0;
 pub const OPERATION_PERCENTAGE_MIN: u8 = 0;
 pub const STAGNATION_DIVISOR_INT: u32 = 100;
+
+// Use a static AtomicBool for debug weights output that can be set at runtime
+use std::sync::atomic::{AtomicBool, Ordering};
+
+// Use existing lazy_static macro since it's already imported at the crate root
+static DEBUG_WEIGHTS: AtomicBool = AtomicBool::new(false);
+
+pub fn set_debug_weights(enabled: bool) {
+    DEBUG_WEIGHTS.store(enabled, Ordering::SeqCst);
+}
+
+pub fn is_debug_weights_enabled() -> bool {
+    DEBUG_WEIGHTS.load(Ordering::SeqCst)
+}

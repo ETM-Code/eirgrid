@@ -32,11 +32,14 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     // Parse command line arguments
     let args = Args::parse();
      
-    // Initialize logging with timing enabled/disabled based on command line arg
-    logging::init_logging(args.enable_timing());
+    // Initialize logging with timing and debug logging parameters
+    logging::init_logging(args.enable_timing(), args.debug_logging());
      
     println!("EirGrid Power System Simulator (2025-2050)");
-    println!("Debug: no_continue = {}, continue_from_checkpoint = {}", args.no_continue(), !args.no_continue());
+    println!("Debug logging: {}, CSV export: {}, Weights debugging: {}", 
+             if args.debug_logging() { "enabled" } else { "disabled" },
+             if args.enable_csv_export() { "enabled" } else { "disabled" },
+             if args.debug_weights() { "enabled" } else { "disabled" });
      
     let config = SimulationConfig::default();
     let mut map = Map::new(config);
@@ -58,6 +61,8 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         args.verbose_state_logging(),
         if args.cost_only() { Some("cost_only") } else { None },
         args.enable_energy_sales(),
+        args.enable_csv_export(),
+        args.debug_weights(),
     )?;
 
     Ok(())
