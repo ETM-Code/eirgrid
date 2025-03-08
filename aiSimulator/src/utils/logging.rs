@@ -153,7 +153,7 @@ fn record_timing_end(function_name: &str, duration: Duration, category: &Operati
     // Pop from timing stack and calculate exclusive time
     TIMING_STACK.with(|stack| {
         let mut stack = stack.borrow_mut();
-        if let Some((_, _, start)) = stack.pop() {
+        if let Some((_, _, __start)) = stack.pop() {
             let mut hierarchical = HIERARCHICAL_TIMINGS.write();
             let entry = hierarchical
                 .entry(function_name.to_string())

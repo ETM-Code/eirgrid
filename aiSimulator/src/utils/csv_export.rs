@@ -7,8 +7,8 @@ use chrono::Local;
 use super::map_handler::Map;
 use crate::core::action_weights::{GridAction, SimulationMetrics};
 use crate::models::settlement::Settlement;
-use crate::models::carbon_offset::{CarbonOffset, CarbonOffsetType};
-use crate::config::constants::{BASE_YEAR, END_YEAR, IRELAND_MIN_LAT, IRELAND_MAX_LAT, IRELAND_MIN_LON, IRELAND_MAX_LON, GRID_SCALE_X, GRID_SCALE_Y};
+use crate::models::carbon_offset::CarbonOffset;
+use crate::config::constants::{BASE_YEAR, END_YEAR, IRELAND_MIN_LAT, IRELAND_MIN_LON, GRID_SCALE_X, GRID_SCALE_Y};
 use crate::data::poi::POI;
 use crate::models::generator::{Generator, GeneratorType};
 use crate::config::const_funcs;
@@ -100,7 +100,7 @@ impl CsvExporter {
             .collect();
         
         // Track total action costs
-        let mut total_action_costs = 0.0;
+        let mut __total_action_costs = 0.0;
         
         // Write each action with its estimated cost
         for (year, action) in actions {
@@ -298,7 +298,7 @@ impl CsvExporter {
         println!("============================\n");
         
         // Create a yearly metrics map for easier lookup
-        let yearly_metrics_map: std::collections::HashMap<u32, &YearlyMetrics> = yearly_metrics
+        let __yearly_metrics_map: std::collections::HashMap<u32, &YearlyMetrics> = yearly_metrics
             .iter()
             .map(|m| (m.year, m))
             .collect();
@@ -421,7 +421,7 @@ impl CsvExporter {
                     if let Some(prev_year_data) = yearly_population_data.get(&(year - 1)) {
                         if let Some(prev_population) = prev_year_data.get(id) {
                             if *prev_population > 0 {
-                                ((population as f64 - *prev_population as f64) / *prev_population as f64 * 100.0)
+                                (population as f64 - *prev_population as f64) / *prev_population as f64 * 100.0
                             } else {
                                 0.0
                             }
@@ -440,13 +440,13 @@ impl CsvExporter {
                 
                 // Calculate power usage per capita (in kW)
                 let power_per_capita = if population > 0 {
-                    (power_usage * 1000.0 / population as f64) // Convert MW to kW per capita
+                    power_usage * 1000.0 / population as f64 // Convert MW to kW per capita
                 } else {
                     0.0
                 };
                 
                 // Debug output for every 10th settlement
-                let settlement_index = settlements.iter().position(|s| s.get_id() == id).unwrap_or(0);
+                let __settlement_index = settlements.iter().position(|s| s.get_id() == id).unwrap_or(0);
                 // if settlement_index % 10 == 0 {
                 //     println!(
                 //         "DEBUG Settlement {}/{} - Year: {}, ID: {}, LatLon: ({:.6},{:.6}), Population: {}, Growth: {:.2}%, Power: {:.2} MW, Per Capita: {:.3} kW",

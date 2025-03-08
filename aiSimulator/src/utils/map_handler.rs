@@ -721,20 +721,20 @@ impl Map {
         self.carbon_offsets.push(offset);
     }
 
-    pub fn calc_total_population(&self, year: u32) -> u32 {
+    pub fn calc_total_population(&self, __year: u32) -> u32 {
         self.settlements.iter()
             .map(|s| s.get_population())
             .sum()
     }
 
-    pub fn calc_total_power_usage(&self, year: u32) -> f64 {
+    pub fn calc_total_power_usage(&self, __year: u32) -> f64 {
         // Base power usage from settlements
         let settlement_usage = self.settlements.iter()
             .map(|s| s.get_power_usage())
             .sum::<f64>();
 
         // Add growth factor based on year
-        settlement_usage * (1.0 + (year as f64 - 2024.0) * 0.02)
+        settlement_usage * (1.0 + (__year as f64 - 2024.0) * 0.02)
     }
 
     pub fn calc_total_power_generation(&self, year: u32, hour: Option<u8>) -> f64 {
@@ -778,7 +778,7 @@ impl Map {
         total_generation + intermittent_generation + storage_generation
     }
 
-    pub fn handle_power_deficit(&mut self, deficit: f64, hour: Option<u8>) -> f64 {
+    pub fn handle_power_deficit(&mut self, deficit: f64, __hour: Option<u8>) -> f64 {
         let _timing = logging::start_timing("handle_power_deficit", 
             OperationCategory::PowerCalculation { subcategory: PowerCalcType::Balance });
         
@@ -1116,7 +1116,7 @@ impl Map {
             .collect()
     }
 
-    fn get_elevation(&self, location: &Coordinate) -> f64 {
+    fn get_elevation(&self, __location: &Coordinate) -> f64 {
         // Simple elevation check based on terrain data
         // This would need actual terrain data in a real implementation
         0.0 // Placeholder

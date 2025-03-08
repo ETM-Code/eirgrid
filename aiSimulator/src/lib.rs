@@ -6,8 +6,13 @@ pub mod core {
     pub mod multi_simulation;
     pub mod iteration;
     pub mod actions;
-    pub mod action_weights;
+    pub mod action_weights_coordinator;
+    // Re-export with the old name for backward compatibility
+    pub use self::action_weights_coordinator as action_weights;
 }
+
+// AI components
+pub mod ai;
 
 // Configuration modules
 pub mod config {

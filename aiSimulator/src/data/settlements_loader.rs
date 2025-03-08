@@ -3,7 +3,6 @@ use std::io::BufReader;
 use serde::Deserialize;
 
 use crate::models::settlement::Settlement;
-use super::poi::Coordinate;
 use crate::config::const_funcs;
 
 #[derive(Debug, Deserialize)]

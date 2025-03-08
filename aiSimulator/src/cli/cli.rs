@@ -1,7 +1,7 @@
 use clap::Parser;
 
-#[command(author, version, about, long_about = None)]
 #[derive(Parser)]
+#[command(author, version, about, long_about = None)]
 pub struct Args {
     #[arg(short = 'n', long, default_value_t = 1000)]
     iterations: usize,
