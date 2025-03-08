@@ -10,3 +10,6 @@ aiSimulator/renderer/node_modules
 aiSimulator/renderer/data
 Cargo.lock
 package-lock.json
+node_modules
+renderer/node_modules
+renderer/package-lock.json
