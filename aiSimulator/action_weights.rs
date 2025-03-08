@@ -24,6 +24,149 @@ const STAGNATION_EXPONENT: f64 = 1.8; // How rapidly to increase penalty with mo
 const FORCE_REPLAY_THRESHOLD: u32 = 1000; // After this many iterations without improvement, start forcing replay
 const ITERATIONS_FOR_RANDOMIZATION: u32 = 1000; // After this many iterations without improvement, apply randomization
 
+// Simulation year constants
+const START_YEAR: u32 = 2025;
+const END_YEAR: u32 = 2050;
+
+// Weight initialization constants
+const ONSHORE_WIND_WEIGHT: f64 = 0.08;
+const OFFSHORE_WIND_WEIGHT: f64 = 0.08;
+const DOMESTIC_SOLAR_WEIGHT: f64 = 0.05;
+const COMMERCIAL_SOLAR_WEIGHT: f64 = 0.05;
+const UTILITY_SOLAR_WEIGHT: f64 = 0.08;
+const NUCLEAR_WEIGHT: f64 = 0.03;
+const COAL_PLANT_WEIGHT: f64 = 0.04;
+const GAS_COMBINED_CYCLE_WEIGHT: f64 = 0.06;
+const GAS_PEAKER_WEIGHT: f64 = 0.02;
+const BIOMASS_WEIGHT: f64 = 0.04;
+const HYDRO_DAM_WEIGHT: f64 = 0.06;
+const PUMPED_STORAGE_WEIGHT: f64 = 0.06;
+const BATTERY_STORAGE_WEIGHT: f64 = 0.07;
+const TIDAL_GENERATOR_WEIGHT: f64 = 0.05;
+const WAVE_ENERGY_WEIGHT: f64 = 0.05;
+const UPGRADE_EFFICIENCY_WEIGHT: f64 = 0.04;
+const ADJUST_OPERATION_WEIGHT: f64 = 0.04;
+const CARBON_OFFSET_WEIGHT: f64 = 0.02;
+const CLOSE_GENERATOR_WEIGHT: f64 = 0.02;
+const DO_NOTHING_WEIGHT: f64 = 0.1;
+
+// Deficit weights
+const DEFICIT_GAS_PEAKER_WEIGHT: f64 = 0.15;
+const DEFICIT_GAS_COMBINED_WEIGHT: f64 = 0.15;
+const DEFICIT_BATTERY_WEIGHT: f64 = 0.15;
+const DEFICIT_PUMPED_STORAGE_WEIGHT: f64 = 0.10;
+const DEFICIT_BIOMASS_WEIGHT: f64 = 0.10;
+const DEFICIT_ONSHORE_WIND_WEIGHT: f64 = 0.07;
+const DEFICIT_OFFSHORE_WIND_WEIGHT: f64 = 0.07;
+const DEFICIT_UTILITY_SOLAR_WEIGHT: f64 = 0.06;
+const DEFICIT_HYDRO_DAM_WEIGHT: f64 = 0.06;
+const DEFICIT_NUCLEAR_WEIGHT: f64 = 0.05;
+const DEFICIT_SMALL_GENERATOR_WEIGHT: f64 = 0.01;
+const DEFICIT_DO_NOTHING_WEIGHT: f64 = 0.001;
+
+// Learning rate constants
+const DEFAULT_LEARNING_RATE: f64 = 0.2;
+const DEFAULT_EXPLORATION_RATE: f64 = 0.2;
+const EXPLORATION_DECAY_RATE: f64 = 0.1;
+
+// Action count constants
+const MAX_ACTION_COUNT: u32 = 20;
+const ACTION_COUNT_DECAY_RATE: f64 = 0.4;
+
+// Probability and weight constants
+const PERCENT_CONVERSION: f64 = 100.0;
+const PERCENTAGE_THRESHOLD: f64 = 0.9;
+const FORCE_REPLAY_DIVISOR: f64 = 500.0;
+const BEST_WEIGHT_FACTOR: f64 = 0.75;
+const EXPLORATION_DECAY_FACTOR: f64 = 0.01;
+const STAGNATION_DIVISOR: f64 = 1000.0;
+const STAGNATION_SCALE_MIN: f64 = 1.0;
+const STAGNATION_SCALE_FACTOR: f64 = 2.0;
+const STAGNATION_SCALE_MAX: f64 = 3.0;
+const STAGNATION_ITERATIONS_DIVISOR: f64 = 10.0;
+const IMMEDIATE_WEIGHT_FACTOR_POSITIVE: f64 = 0.7;
+const IMMEDIATE_WEIGHT_FACTOR_NEGATIVE: f64 = 0.3;
+const RANDOMIZATION_FACTOR: f64 = 0.1;
+
+// Smart fallback action weights
+const ONSHORE_WIND_FALLBACK_WEIGHT: u32 = 15;
+const OFFSHORE_WIND_FALLBACK_WEIGHT: u32 = 10;
+const UTILITY_SOLAR_FALLBACK_WEIGHT: u32 = 15;
+const STORAGE_WEIGHT_EARLY: u32 = 10;
+const STORAGE_WEIGHT_LATE: u32 = 20;
+const OFFSET_WEIGHT_EARLY: u32 = 5;
+const OFFSET_WEIGHT_MID: u32 = 15;
+const OFFSET_WEIGHT_LATE: u32 = 25;
+const GAS_WEIGHT_EARLY: u32 = 15;
+const GAS_WEIGHT_MID: u32 = 10;
+const GAS_WEIGHT_LATE: u32 = 5;
+const DEFICIT_GAS_PEAKER_FALLBACK_WEIGHT: u32 = 30;
+const DEFICIT_BATTERY_FALLBACK_WEIGHT: u32 = 30;
+const DEFICIT_GAS_COMBINED_FALLBACK_WEIGHT: u32 = 20;
+const DEFICIT_ONSHORE_WIND_FALLBACK_WEIGHT: u32 = 10;
+
+// Year thresholds for weight transitions
+const MID_YEAR_THRESHOLD: u32 = 2035;
+const LATE_YEAR_THRESHOLD: u32 = 2045;
+
+// Debug print formatting
+const DEBUG_STAR_COUNT: usize = 40;
+const DEBUG_EQUALS_COUNT: usize = 80;
+
+// Other thresholds
+const HIGH_ITERATION_THRESHOLD: u32 = 800;
+const MID_ITERATION_THRESHOLD: u32 = 500;
+const LOW_ITERATION_THRESHOLD: u32 = 100;
+const MEDIUM_LOG_INTERVAL: u32 = 100;
+const SMALL_LOG_INTERVAL: u32 = 10;
+const MAX_ACTIONS_DIVISOR: f64 = 12.0;
+
+// Numeric defaults
+const ZERO_F64: f64 = 0.0;
+const ONE_F64: f64 = 1.0;
+const SMALL_BOOST_FACTOR: f64 = 0.1;
+const NOOP_BOOST_FACTOR: f64 = 0.2;
+const COST_MULTIPLICATION_FACTOR: f64 = 8.0;
+const BILLION_DIVISOR: f64 = 1_000_000_000.0;
+const RENEWABLE_FALLBACK_WEIGHT_FACTOR: f64 = 0.5;
+
+// Adaptive learning constants
+const ADAPTIVE_LEARNING_RATE_FACTOR: f64 = 0.05;
+const PENALTY_MULTIPLIER: f64 = 2.0;
+const BOOST_MULTIPLIER: f64 = 3.0;
+const MILD_PENALTY_FACTOR: f64 = 0.5;
+const WEIGHT_PRECISION_THRESHOLD: f64 = 0.000001;
+const DEFICIT_REINFORCEMENT_MULTIPLIER: f64 = 1.5;
+
+// Scoring constants
+const MAX_BUDGET_MULTIPLIER: f64 = 100.0;
+const BASE_NET_ZERO_SCORE: f64 = 1.0;
+const MAX_SCORE_RANGE: f64 = 2.0;
+const HIGH_COST_THRESHOLD_MULTIPLIER: f64 = 8.0;
+const HIGH_COST_WEIGHT: f64 = 0.8;
+const NORMAL_COST_WEIGHT: f64 = 0.5;
+
+// Additional constants
+const ZERO_USIZE: usize = 0;
+const ONE_USIZE: usize = 1;
+const ZERO_U32: u32 = 0;
+const ONE_U32: u32 = 1;
+const ZERO_U8: u8 = 0;
+const OPERATION_PERCENTAGE_MIN: u8 = 0;
+const MIN_ACTION_WEIGHT: f64 = 0.01;
+
+// Stagnation divisor as integer
+const STAGNATION_DIVISOR_INT: u32 = 100;
+
+// Define a new constant for the random range
+const RANDOM_RANGE_MULTIPLIER: f64 = 2.0;
+
+// Define a new constant for the exploration divisor
+const EXPLORATION_DIVISOR: f64 = 2.0;
+
+// Define a new constant for the max actions multiplier
+const MAX_ACTIONS_MULTIPLIER: f64 = 12.0;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GridAction {
     AddGenerator(GeneratorType),
@@ -145,48 +288,48 @@ impl ActionWeights {
         let mut action_count_weights = HashMap::new();
         
         // Initialize weights for each year from 2025 to 2050
-        for year in 2025..=2050 {
+        for year in START_YEAR..=END_YEAR {
             let mut year_weights = HashMap::new();
             
             // Initialize wind generator weights
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), 0.08);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), 0.08);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), ONSHORE_WIND_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), OFFSHORE_WIND_WEIGHT);
             
             // Initialize solar generator weights
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar), 0.05);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar), 0.05);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), 0.08);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar), DOMESTIC_SOLAR_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar), COMMERCIAL_SOLAR_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), UTILITY_SOLAR_WEIGHT);
             
             // Initialize nuclear and fossil fuel generator weights
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), 0.03);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::CoalPlant), 0.04);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), 0.06);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), 0.02);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), 0.04);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), NUCLEAR_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::CoalPlant), COAL_PLANT_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), GAS_COMBINED_CYCLE_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), GAS_PEAKER_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), BIOMASS_WEIGHT);
             
             // Initialize hydro and storage generator weights
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), 0.06);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), 0.06);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), 0.07);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), HYDRO_DAM_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), PUMPED_STORAGE_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), BATTERY_STORAGE_WEIGHT);
             
             // Initialize marine generator weights
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator), 0.05);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy), 0.05);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator), TIDAL_GENERATOR_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy), WAVE_ENERGY_WEIGHT);
             
             // Initialize other action weights
-            year_weights.insert(GridAction::UpgradeEfficiency(String::new()), 0.04);
-            year_weights.insert(GridAction::AdjustOperation(String::new(), 0), 0.04);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::new()), UPGRADE_EFFICIENCY_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::new(), OPERATION_PERCENTAGE_MIN), ADJUST_OPERATION_WEIGHT);
             
             // Initialize carbon offset weights
-            year_weights.insert(GridAction::AddCarbonOffset("Forest".to_string()), 0.02);
-            year_weights.insert(GridAction::AddCarbonOffset("Wetland".to_string()), 0.02);
-            year_weights.insert(GridAction::AddCarbonOffset("ActiveCapture".to_string()), 0.02);
-            year_weights.insert(GridAction::AddCarbonOffset("CarbonCredit".to_string()), 0.02);
+            year_weights.insert(GridAction::AddCarbonOffset("Forest".to_string()), CARBON_OFFSET_WEIGHT);
+            year_weights.insert(GridAction::AddCarbonOffset("Wetland".to_string()), CARBON_OFFSET_WEIGHT);
+            year_weights.insert(GridAction::AddCarbonOffset("ActiveCapture".to_string()), CARBON_OFFSET_WEIGHT);
+            year_weights.insert(GridAction::AddCarbonOffset("CarbonCredit".to_string()), CARBON_OFFSET_WEIGHT);
             
-            year_weights.insert(GridAction::CloseGenerator(String::new()), 0.02);
+            year_weights.insert(GridAction::CloseGenerator(String::new()), CLOSE_GENERATOR_WEIGHT);
             
             // Initialize DoNothing action weight (base value can be tuned)
-            year_weights.insert(GridAction::DoNothing, 0.1);
+            year_weights.insert(GridAction::DoNothing, DO_NOTHING_WEIGHT);
             
             // Add year's weights to the map
             weights.insert(year, year_weights);
@@ -196,46 +339,46 @@ impl ActionWeights {
             let mut deficit_year_weights = HashMap::new();
             
             // For deficit handling, prioritize fast-responding and reliable generators
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), 0.15);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), 0.15);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), 0.15);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), 0.10);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), 0.10);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), DEFICIT_GAS_PEAKER_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), DEFICIT_GAS_COMBINED_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), DEFICIT_BATTERY_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), DEFICIT_PUMPED_STORAGE_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), DEFICIT_BIOMASS_WEIGHT);
             
             // Include renewables with lower initial weights for deficit handling
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), 0.07);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), 0.07);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), 0.06);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), 0.06);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), DEFICIT_ONSHORE_WIND_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), DEFICIT_OFFSHORE_WIND_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), DEFICIT_UTILITY_SOLAR_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), DEFICIT_HYDRO_DAM_WEIGHT);
             
             // Include nuclear with a lower weight due to long build time
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), 0.05);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), DEFICIT_NUCLEAR_WEIGHT);
             
             // Add other types with minimal weights
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar), 0.01);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar), 0.01);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator), 0.01);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy), 0.01);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar), DEFICIT_SMALL_GENERATOR_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar), DEFICIT_SMALL_GENERATOR_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator), DEFICIT_SMALL_GENERATOR_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy), DEFICIT_SMALL_GENERATOR_WEIGHT);
             
             // DoNothing should have very low weight for deficit handling
-            deficit_year_weights.insert(GridAction::DoNothing, 0.001);
+            deficit_year_weights.insert(GridAction::DoNothing, DEFICIT_DO_NOTHING_WEIGHT);
             
             // Add deficit weights for this year
             deficit_weights.insert(year, deficit_year_weights);
 
             // Initialize action count weights for this year with bias towards fewer actions
             let mut count_weights = HashMap::new();
-            let decay_rate = 0.4; // Controls how quickly the probability decreases
-            let mut total_weight = 0.0;
+            let decay_rate = ACTION_COUNT_DECAY_RATE; // Controls how quickly the probability decreases
+            let mut total_weight = ZERO_F64;
             
             // Calculate weights with exponential decay
-            for count in 0..=20 {
+            for count in 0..=MAX_ACTION_COUNT {
                 let weight = (-decay_rate * count as f64).exp();
                 count_weights.insert(count, weight);
                 total_weight += weight;
             }
             
-            // Normalize weights to sum to 1.0
+            // Normalize weights to sum to ONE_F64
             for weight in count_weights.values_mut() {
                 *weight /= total_weight;
             }
@@ -246,13 +389,13 @@ impl ActionWeights {
         Self {
             weights,
             action_count_weights,
-            learning_rate: 0.2,
+            learning_rate: DEFAULT_LEARNING_RATE,
             best_metrics: None,
             best_weights: None,
             best_actions: None,
             iteration_count: 0,
             iterations_without_improvement: 0,
-            exploration_rate: 0.2,
+            exploration_rate: DEFAULT_EXPLORATION_RATE,
             current_run_actions: HashMap::new(),
             force_best_actions: false,
             deficit_weights,
@@ -271,7 +414,7 @@ impl ActionWeights {
     pub fn start_new_iteration(&mut self) {
         self.iteration_count += 1;
         // Decay exploration rate over time
-        self.exploration_rate = 0.2 * (1.0 / (1.0 + 0.1 * self.iteration_count as f64));
+        self.exploration_rate = DEFAULT_EXPLORATION_RATE * (ONE_F64 / (ONE_F64 + EXPLORATION_DECAY_RATE * self.iteration_count as f64));
         // Clear actions from the previous run
         self.current_run_actions.clear();
         self.current_deficit_actions.clear();
@@ -283,24 +426,24 @@ impl ActionWeights {
         }
         
         // Add logging for debugging if we have many iterations without improvement
-        if self.iterations_without_improvement > 0 {
-            if self.iterations_without_improvement % 10 == 0 {
+        if self.iterations_without_improvement > ZERO_U32 {
+            if self.iterations_without_improvement % SMALL_LOG_INTERVAL == ZERO_U32 {
                 println!("⚠️ Currently at {} iterations without improvement", self.iterations_without_improvement);
             }
             
             // Occasionally restore best weights when stuck for a long time
-            if self.iterations_without_improvement > 800 && self.iterations_without_improvement % 100 == 0 {
+            if self.iterations_without_improvement > HIGH_ITERATION_THRESHOLD && self.iterations_without_improvement % STAGNATION_DIVISOR_INT == ZERO_U32 {
                 if let Some(best_weights) = &self.best_weights {
                     println!("🔄 RESTORING BEST WEIGHTS after {} iterations without improvement", 
                             self.iterations_without_improvement);
                     // Create a partial copy of the best weights (75%) mixed with current weights (25%)
-                    self.restore_best_weights(0.75);
+                    self.restore_best_weights(BEST_WEIGHT_FACTOR);
                 }
             }
             
             // Calculate probability of forcing replay based on stagnation
             if self.iterations_without_improvement > FORCE_REPLAY_THRESHOLD {
-                let force_replay_probability = ((self.iterations_without_improvement - FORCE_REPLAY_THRESHOLD) as f64 / 500.0).min(0.9);
+                let force_replay_probability = ((self.iterations_without_improvement - FORCE_REPLAY_THRESHOLD) as f64 / FORCE_REPLAY_DIVISOR).min(PERCENTAGE_THRESHOLD);
                 
                 let random_val = match &mut self.deterministic_rng {
                     Some(rng) => rng.gen::<f64>(),
@@ -309,9 +452,25 @@ impl ActionWeights {
                 
                 if random_val < force_replay_probability {
                     println!("🔄 FORCE REPLAY: Directly using best known actions (probability: {:.1}%)", 
-                            force_replay_probability * 100.0);
+                            force_replay_probability * PERCENT_CONVERSION);
                     self.force_best_actions = true;
                     return;
+                }
+            }
+            
+            // If we've been stagnating for a very long time, also apply some randomization
+            // to break out of local optima
+            if self.iterations_without_improvement > ITERATIONS_FOR_RANDOMIZATION {
+                println!("   - Applying weight randomization to break stagnation after {} iterations", 
+                        self.iterations_without_improvement);
+                
+                let mut rng = rand::thread_rng();
+                
+                for year_weights in self.weights.values_mut() {
+                    for weight in year_weights.values_mut() {
+                        let random_factor = ONE_F64 + RANDOMIZATION_FACTOR * (rng.gen::<f64>() * RANDOM_RANGE_MULTIPLIER - ONE_F64);
+                        *weight = (*weight * random_factor).clamp(MIN_WEIGHT, MAX_WEIGHT);
+                    }
                 }
             }
         }
@@ -325,11 +484,11 @@ impl ActionWeights {
         if self.force_best_actions {
             if let Some(best_actions) = &self.best_actions {
                 if let Some(year_actions) = best_actions.get(&year) {
-                    let current_index = self.current_run_actions.get(&year).map_or(0, |v| v.len());
+                    let current_index = self.current_run_actions.get(&year).map_or(ZERO_USIZE, |v| v.len());
                     if current_index < year_actions.len() {
                         let action = year_actions[current_index].clone();
                         println!("🔄 REPLAY: Using best action #{} for year {}: {:?}", 
-                                current_index + 1, year, action);
+                                current_index + ONE_USIZE, year, action);
                         
                         // Make sure to record the replayed action in the current run
                         self.current_run_actions.entry(year)
@@ -339,7 +498,7 @@ impl ActionWeights {
                         return action;
                     } else {
                         println!("⚠️ REPLAY FALLBACK: Ran out of best actions for year {} (needed action #{}, have {})", 
-                                year, current_index + 1, year_actions.len());
+                                year, current_index + ONE_USIZE, year_actions.len());
                         
                         // Add smart fallback for when we run out of actions
                         let fallback_action = self.generate_smart_fallback_action(year, "ran out of best actions");
@@ -383,9 +542,9 @@ impl ActionWeights {
         let year_weights = self.weights.get(&year).expect("Year weights not found");
 
         // Calculate a dynamic exploration rate that decreases when we're stuck
-        let current_exploration = if self.iterations_without_improvement > 100 {
+        let current_exploration = if self.iterations_without_improvement > LOW_ITERATION_THRESHOLD {
             // Reduce exploration drastically after being stuck for a while to focus on best known actions
-            self.exploration_rate * (1.0 / (1.0 + 0.01 * self.iterations_without_improvement as f64))
+            self.exploration_rate * (ONE_F64 / (ONE_F64 + EXPLORATION_DECAY_FACTOR * self.iterations_without_improvement as f64))
         } else {
             self.exploration_rate
         };
@@ -406,8 +565,8 @@ impl ActionWeights {
             }
             
             let random_idx = match &mut self.deterministic_rng {
-                Some(rng) => rng.gen_range(0..actions.len()),
-                None => rand::thread_rng().gen_range(0..actions.len()),
+                Some(rng) => rng.gen_range(ZERO_USIZE..actions.len()),
+                None => rand::thread_rng().gen_range(ZERO_USIZE..actions.len()),
             };
             
             return actions[random_idx].clone();
@@ -415,22 +574,22 @@ impl ActionWeights {
 
         // Exploitation - weighted selection
         let total_weight: f64 = year_weights.values().sum();
-        if total_weight <= 0.0 {
+        if total_weight <= ZERO_F64 {
             // If all weights are zero or negative, fall back to a safe default
             return GridAction::AddGenerator(GeneratorType::GasPeaker);
         }
 
         // When stuck for many iterations, use a more aggressive selection strategy
         // by applying a power scaling to the weights, making higher weights even more likely
-        if self.iterations_without_improvement > 500 {
+        if self.iterations_without_improvement > MID_ITERATION_THRESHOLD {
             // Extract actions and weights
             let mut actions_with_weights: Vec<_> = year_weights.iter().collect();
             // Sort by weight in descending order
             actions_with_weights.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
             
             // Calculate how aggressive the selection should be based on stagnation
-            let stagnation_factor = (self.iterations_without_improvement as f64 / 1000.0).min(1.0);
-            let power_scaling = 1.0 + (2.0 * stagnation_factor); // Ranges from 1.0 to 3.0
+            let stagnation_factor = (self.iterations_without_improvement as f64 / STAGNATION_DIVISOR).min(STAGNATION_SCALE_MAX);
+            let power_scaling = STAGNATION_SCALE_MIN + (STAGNATION_SCALE_FACTOR * stagnation_factor); // Ranges from 1.0 to 3.0
             
             // Use exponentiated weights for selection
             let total_scaled_weight: f64 = actions_with_weights.iter()
@@ -445,7 +604,7 @@ impl ActionWeights {
             for (action, &weight) in &actions_with_weights {
                 let scaled_weight = weight.powf(power_scaling);
                 random_val -= scaled_weight;
-                if random_val <= 0.0 {
+                if random_val <= ZERO_F64 {
                     return (*action).clone();
                 }
             }
@@ -462,7 +621,7 @@ impl ActionWeights {
             
             for (action, weight) in year_weights {
                 random_val -= weight;
-                if random_val <= 0.0 {
+                if random_val <= ZERO_F64 {
                     return action.clone();
                 }
             }
@@ -475,30 +634,30 @@ impl ActionWeights {
     // Initialize weights for a single year
     fn initialize_weights(&self) -> HashMap<GridAction, f64> {
         let mut year_weights = HashMap::new();
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), 0.08);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), 0.08);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar), 0.05);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar), 0.05);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), 0.08);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), 0.03);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::CoalPlant), 0.04);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), 0.06);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), 0.02);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), 0.04);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), 0.06);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), 0.06);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), 0.07);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator), 0.05);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy), 0.05);
-        year_weights.insert(GridAction::UpgradeEfficiency(String::new()), 0.04);
-        year_weights.insert(GridAction::AdjustOperation(String::new(), 0), 0.04);
-        year_weights.insert(GridAction::AddCarbonOffset("Forest".to_string()), 0.02);
-        year_weights.insert(GridAction::AddCarbonOffset("Wetland".to_string()), 0.02);
-        year_weights.insert(GridAction::AddCarbonOffset("ActiveCapture".to_string()), 0.02);
-        year_weights.insert(GridAction::AddCarbonOffset("CarbonCredit".to_string()), 0.02);
-        year_weights.insert(GridAction::CloseGenerator(String::new()), 0.02);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), ONSHORE_WIND_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), OFFSHORE_WIND_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar), DOMESTIC_SOLAR_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar), COMMERCIAL_SOLAR_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), UTILITY_SOLAR_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), NUCLEAR_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::CoalPlant), COAL_PLANT_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), GAS_COMBINED_CYCLE_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), GAS_PEAKER_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), BIOMASS_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), HYDRO_DAM_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), PUMPED_STORAGE_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), BATTERY_STORAGE_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator), TIDAL_GENERATOR_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy), WAVE_ENERGY_WEIGHT);
+        year_weights.insert(GridAction::UpgradeEfficiency(String::new()), UPGRADE_EFFICIENCY_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::new(), OPERATION_PERCENTAGE_MIN), ADJUST_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AddCarbonOffset("Forest".to_string()), CARBON_OFFSET_WEIGHT);
+        year_weights.insert(GridAction::AddCarbonOffset("Wetland".to_string()), CARBON_OFFSET_WEIGHT);
+        year_weights.insert(GridAction::AddCarbonOffset("ActiveCapture".to_string()), CARBON_OFFSET_WEIGHT);
+        year_weights.insert(GridAction::AddCarbonOffset("CarbonCredit".to_string()), CARBON_OFFSET_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::new()), CLOSE_GENERATOR_WEIGHT);
         // Initialize DoNothing with a base weight
-        year_weights.insert(GridAction::DoNothing, 0.1);
+        year_weights.insert(GridAction::DoNothing, DO_NOTHING_WEIGHT);
         year_weights
     }
 
@@ -518,12 +677,12 @@ impl ActionWeights {
         let current_weight = year_weights.get(action).expect("Weight should exist");
         
         // Get the final 2050 impact score from best metrics if available
-        let final_impact_score = self.best_metrics.as_ref().map_or(0.0, |metrics| score_metrics(metrics, self.optimization_mode.as_deref()));
+        let final_impact_score = self.best_metrics.as_ref().map_or(ZERO_F64, |metrics| score_metrics(metrics, self.optimization_mode.as_deref()));
         
         // Calculate the relative improvement compared to the best score
         let relative_improvement = if let Some(best) = &self.best_metrics {
             let best_score = score_metrics(best, self.optimization_mode.as_deref());
-            if best_score > 0.0 {
+            if best_score > ZERO_F64 {
                 (final_impact_score - best_score) / best_score
             } else {
                 final_impact_score
@@ -535,16 +694,16 @@ impl ActionWeights {
         // Combine immediate and final impacts with adaptive weighting
         // If we're doing better than our best, weight immediate impact more
         // If we're doing worse, weight final impact more to encourage exploration
-        let immediate_weight = if relative_improvement > 0.0 { 0.7 } else { 0.3 };
-        let combined_improvement = immediate_weight * improvement + (1.0 - immediate_weight) * relative_improvement;
+        let immediate_weight = if relative_improvement > ZERO_F64 { IMMEDIATE_WEIGHT_FACTOR_POSITIVE } else { IMMEDIATE_WEIGHT_FACTOR_NEGATIVE };
+        let combined_improvement = immediate_weight * improvement + (ONE_F64 - immediate_weight) * relative_improvement;
         
         // Calculate weight adjustment
-        let adjustment_factor = if combined_improvement > 0.0 {
+        let adjustment_factor = if combined_improvement > ZERO_F64 {
             // For improvements, increase weight proportionally to the improvement
-            1.0 + (self.learning_rate * combined_improvement)
+            ONE_F64 + (self.learning_rate * combined_improvement)
         } else {
             // For deteriorations, decrease weight proportionally to how bad it was
-            1.0 / (1.0 + (self.learning_rate * combined_improvement.abs()))
+            ONE_F64 / (ONE_F64 + (self.learning_rate * combined_improvement.abs()))
         };
         
         // Apply the adjustment with bounds
@@ -555,17 +714,17 @@ impl ActionWeights {
         year_weights.insert(action.clone(), new_weight);
         
         // If this was a bad outcome, slightly increase weights of other actions.
-        if combined_improvement < 0.0 {
-            let boost_factor = 1.0 + (self.learning_rate * 0.1); // Small boost to alternatives
+        if combined_improvement < ZERO_F64 {
+            let boost_factor = ONE_F64 + (self.learning_rate * SMALL_BOOST_FACTOR); // Small boost to alternatives
             for (other_action, weight) in year_weights.iter_mut() {
-                if other_action != action {
+                if other_action != action && matches!(other_action, GridAction::AddGenerator(_)) {
                     *weight = (*weight * boost_factor).min(MAX_WEIGHT);
                 }
             }
             // If we've achieved net zero but are suffering from high costs, further boost DoNothing.
-            if self.best_metrics.as_ref().map(|m| m.final_net_emissions <= 0.0 && m.total_cost > MAX_ACCEPTABLE_COST * 8.0).unwrap_or(false) {
+            if self.best_metrics.as_ref().map(|m| m.final_net_emissions <= ZERO_F64 && m.total_cost > MAX_ACCEPTABLE_COST * HIGH_COST_THRESHOLD_MULTIPLIER).unwrap_or(false) {
                 if let Some(noop_weight) = year_weights.get_mut(&GridAction::DoNothing) {
-                    *noop_weight = (*noop_weight * (1.0 + self.learning_rate * 0.2)).min(MAX_WEIGHT);
+                    *noop_weight = (*noop_weight * (ONE_F64 + self.learning_rate * NOOP_BOOST_FACTOR)).min(MAX_WEIGHT);
                 }
             }
         }
@@ -591,7 +750,7 @@ impl ActionWeights {
         // }
         
         // If we have empty current_run_actions but non-empty best actions, something's wrong
-        if total_curr_actions == 0 && self.best_actions.is_some() {
+        if total_curr_actions == ZERO_USIZE && self.best_actions.is_some() {
             println!("⚠️ WARNING: Attempting to update best strategy with 0 actions in current run!");
             println!("This suggests actions aren't being recorded properly during simulation");
         }
@@ -608,15 +767,15 @@ impl ActionWeights {
             // Only print improvement message if we actually had a previous best
             if let Some(best) = &self.best_metrics {
                 let best_score = score_metrics(best, self.optimization_mode.as_deref());
-                let improvement = ((current_score - best_score) / best_score * 100.0).abs();
+                let improvement = ((current_score - best_score) / best_score * PERCENT_CONVERSION).abs();
                 
                 // Create a VERY visible message with details about the improvement
                 println!("\n\n");
-                println!("{}", "🌟".repeat(40));
-                println!("{}", "=".repeat(80));
+                println!("{}", "*".repeat(DEBUG_STAR_COUNT));
+                println!("{}", "=".repeat(DEBUG_EQUALS_COUNT));
                 println!("🎉🎉🎉  MAJOR STRATEGY IMPROVEMENT FOUND!  🎉🎉🎉");
-                println!("{}", "=".repeat(80));
-                println!("{}", "🌟".repeat(40));
+                println!("{}", "=".repeat(DEBUG_EQUALS_COUNT));
+                println!("{}", "*".repeat(DEBUG_STAR_COUNT));
                 println!("\nScore improved by {:.2}%", improvement);
                 println!("Previous best score: {:.4} → New best score: {:.4}", best_score, current_score);
                 println!("Found after {} iterations without improvement", self.iterations_without_improvement);
@@ -626,13 +785,13 @@ impl ActionWeights {
                 
                 // Net emissions comparison with appropriate emoji
                 let emissions_change = metrics.final_net_emissions - best.final_net_emissions;
-                let emissions_emoji = if emissions_change <= 0.0 { "✅" } else { "⚠️" };
+                let emissions_emoji = if emissions_change <= ZERO_F64 { "✅" } else { "⚠️" };
                 println!("  {} Net emissions: {:.2} → {:.2} ({:+.2})", 
                         emissions_emoji, best.final_net_emissions, metrics.final_net_emissions, emissions_change);
                 
                 // Net zero status comparison
-                let old_net_zero = best.final_net_emissions <= 0.0;
-                let new_net_zero = metrics.final_net_emissions <= 0.0;
+                let old_net_zero = best.final_net_emissions <= ZERO_F64;
+                let new_net_zero = metrics.final_net_emissions <= ZERO_F64;
                 let net_zero_emoji = if new_net_zero { "✅" } else { "⚠️" };
                 println!("  {} Net zero: {} → {}", 
                         net_zero_emoji, 
@@ -641,49 +800,46 @@ impl ActionWeights {
                 
                 // Total cost comparison
                 let cost_change = metrics.total_cost - best.total_cost;
-                let cost_emoji = if cost_change <= 0.0 { "✅" } else { "⚠️" };
-                println!("  {} Total cost: €{:.2}B → €{:.2}B ({:+.2}B)", 
-                        cost_emoji, 
-                        best.total_cost / 1_000_000_000.0, 
-                        metrics.total_cost / 1_000_000_000.0, 
-                        cost_change / 1_000_000_000.0);
+                let cost_emoji = if cost_change <= ZERO_F64 { "✅" } else { "⚠️" };
+                println!("  {cost_emoji} Cost: €{:.2}B/year → €{:.2}B/year ({:+.2}B)",
+                    best.total_cost / BILLION_DIVISOR,
+                    metrics.total_cost / BILLION_DIVISOR,
+                    cost_change / BILLION_DIVISOR);
                 
                 // Public opinion comparison
                 let opinion_change = metrics.average_public_opinion - best.average_public_opinion;
-                let opinion_emoji = if opinion_change >= 0.0 { "✅" } else { "⚠️" };
-                println!("  {} Public opinion: {:.1}% → {:.1}% ({:+.1}%)", 
-                        opinion_emoji, 
-                        best.average_public_opinion * 100.0, 
-                        metrics.average_public_opinion * 100.0, 
-                        opinion_change * 100.0);
+                let opinion_emoji = if opinion_change >= ZERO_F64 { "✅" } else { "⚠️" };
+                println!("  {opinion_emoji} Public opinion: {:.1}% → {:.1}% ({:+.1}%)",
+                    best.average_public_opinion * PERCENT_CONVERSION,
+                    metrics.average_public_opinion * PERCENT_CONVERSION,
+                    opinion_change * PERCENT_CONVERSION);
                 
                 // Power reliability comparison
                 let reliability_change = metrics.power_reliability - best.power_reliability;
-                let reliability_emoji = if reliability_change >= 0.0 { "✅" } else { "⚠️" };
-                println!("  {} Power reliability: {:.1}% → {:.1}% ({:+.1}%)", 
-                        reliability_emoji, 
-                        best.power_reliability * 100.0, 
-                        metrics.power_reliability * 100.0, 
-                        reliability_change * 100.0);
+                let reliability_emoji = if reliability_change >= ZERO_F64 { "✅" } else { "⚠️" };
+                println!("  {reliability_emoji} Power reliability: {:.1}% → {:.1}% ({:+.1}%)",
+                    best.power_reliability * PERCENT_CONVERSION,
+                    metrics.power_reliability * PERCENT_CONVERSION,
+                    reliability_change * PERCENT_CONVERSION);
             } else {
                 // First successful strategy found - make this VERY visible too
                 println!("\n\n");
-                println!("{}", "🌟".repeat(40));
-                println!("{}", "=".repeat(80));
+                println!("{}", "*".repeat(DEBUG_STAR_COUNT));
+                println!("{}", "=".repeat(DEBUG_EQUALS_COUNT));
                 println!("🎉🎉🎉  FIRST SUCCESSFUL STRATEGY FOUND!  🎉🎉🎉");
-                println!("{}", "=".repeat(80));
-                println!("{}", "🌟".repeat(40));
+                println!("{}", "=".repeat(DEBUG_EQUALS_COUNT));
+                println!("{}", "*".repeat(DEBUG_STAR_COUNT));
                 println!("\nInitial score: {:.4}", current_score);
                 
                 // Add detailed metrics for the first strategy
                 println!("\n📊 INITIAL METRICS:");
                 println!("  Net emissions: {:.2} tonnes", metrics.final_net_emissions);
-                println!("  Total cost: €{:.2}B/year", metrics.total_cost / 1_000_000_000.0);
-                println!("  Public opinion: {:.1}%", metrics.average_public_opinion * 100.0);
-                println!("  Power reliability: {:.1}%", metrics.power_reliability * 100.0);
+                println!("  Total cost: €{:.2}B/year", metrics.total_cost / BILLION_DIVISOR);
+                println!("  Public opinion: {:.1}%", metrics.average_public_opinion * PERCENT_CONVERSION);
+                println!("  Power reliability: {:.1}%", metrics.power_reliability * PERCENT_CONVERSION);
                 
-                println!("{}", "=".repeat(80));
-                println!("{}", "🌟".repeat(40));
+                println!("{}", "=".repeat(DEBUG_EQUALS_COUNT));
+                println!("{}", "*".repeat(DEBUG_STAR_COUNT));
                 println!("\n");
                 
                 // Log information about the actions being recorded for the first time
@@ -701,7 +857,7 @@ impl ActionWeights {
             let mut complete_deficit_actions = HashMap::new();
             
             // Initialize empty action lists for all years
-            for year in 2025..=2050 {
+            for year in START_YEAR..=END_YEAR {
                 complete_actions.insert(year, Vec::new());
                 complete_deficit_actions.insert(year, Vec::new());
             }
@@ -729,7 +885,7 @@ impl ActionWeights {
             
             // More detailed per-year breakdown for complete_actions
             println!("Complete actions per year (to be stored as best):");
-            for year in 2025..=2050 {
+            for year in START_YEAR..=END_YEAR {
                 if let Some(actions) = complete_actions.get(&year) {
                     if !actions.is_empty() {
                         println!("  Year {}: {} actions", year, actions.len());
@@ -750,7 +906,7 @@ impl ActionWeights {
                 
                 // Detailed per-year breakdown of best actions
                 println!("Best actions per year after storage:");
-                for year in 2025..=2050 {
+                for year in START_YEAR..=END_YEAR {
                     if let Some(actions) = best_actions.get(&year) {
                         if !actions.is_empty() {
                             println!("  Year {}: {} best actions", year, actions.len());
@@ -760,13 +916,13 @@ impl ActionWeights {
             }
             
             // Reset iterations without improvement counter when we find a better strategy
-            self.iterations_without_improvement = 0;
+            self.iterations_without_improvement = ZERO_U32;
         } else {
             // Track iterations without improvement
             self.iterations_without_improvement += 1;
             
             // Occasionally log if we have many iterations without improvement
-            if self.iterations_without_improvement % 100 == 0 {
+            if self.iterations_without_improvement % SMALL_LOG_INTERVAL == ZERO_U32 {
                 println!("⏳ {} iterations without finding a better strategy", 
                         self.iterations_without_improvement);
             }
@@ -985,19 +1141,19 @@ impl ActionWeights {
         
         // If no deficit weights were found in the file, initialize them with defaults
         if deficit_weights.is_empty() {
-            for year in 2025..=2050 {
+            for year in START_YEAR..=END_YEAR {
                 let mut deficit_year_weights = HashMap::new();
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), 0.15);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), 0.15);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), 0.15);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), 0.10);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), 0.10);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), 0.07);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), 0.07);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), 0.06);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), 0.06);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), 0.05);
-                deficit_year_weights.insert(GridAction::DoNothing, 0.001);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), DEFICIT_GAS_PEAKER_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), DEFICIT_GAS_COMBINED_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), DEFICIT_BATTERY_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), DEFICIT_PUMPED_STORAGE_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), DEFICIT_BIOMASS_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), DEFICIT_ONSHORE_WIND_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), DEFICIT_OFFSHORE_WIND_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), DEFICIT_UTILITY_SOLAR_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), DEFICIT_HYDRO_DAM_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), DEFICIT_NUCLEAR_WEIGHT);
+                deficit_year_weights.insert(GridAction::DoNothing, DEFICIT_DO_NOTHING_WEIGHT);
                 deficit_weights.insert(year, deficit_year_weights);
             }
         }
@@ -1234,7 +1390,7 @@ impl ActionWeights {
                     1.0 / (1.0 + (self.learning_rate * improvement.abs()))
                 };
                 
-                *weight = (*weight * adjustment_factor).max(0.01).min(1.0);
+                *weight = (*weight * adjustment_factor).max(MIN_ACTION_WEIGHT).min(ONE_F64);
                 
                 // Normalize weights
                 let total: f64 = year_counts.values().sum();
@@ -1255,7 +1411,7 @@ impl ActionWeights {
         if let Some(year_counts) = self.action_count_weights.get(&year) {
             // Use weighted sampling based on historical data
             let total_weight: f64 = year_counts.values().sum();
-            if total_weight <= 0.0 {
+            if total_weight <= ZERO_F64 {
                 return 0;
             }
             
@@ -1263,7 +1419,7 @@ impl ActionWeights {
             
             for (count, weight) in year_counts {
                 random_choice -= weight;
-                if random_choice <= 0.0 {
+                if random_choice <= ZERO_F64 {
                     return *count;
                 }
             }
@@ -1273,8 +1429,8 @@ impl ActionWeights {
         } else {
             // Fallback to simple heuristic if no historical data
             let scaled_exploration = self.exploration_rate.powf(0.5); // Square root to increase base value
-            let min_actions = (2.0 / scaled_exploration).round() as u32;
-            let max_actions = (12.0 / scaled_exploration).round() as u32;
+            let min_actions = (EXPLORATION_DIVISOR / scaled_exploration).round() as u32;
+            let max_actions = (MAX_ACTIONS_MULTIPLIER / scaled_exploration).round() as u32;
             
             match &mut self.deterministic_rng {
                 Some(rng) => rng.gen_range(min_actions..=max_actions),
@@ -1285,7 +1441,7 @@ impl ActionWeights {
 
     pub fn get_best_metrics(&self) -> Option<(f64, bool)> {
         self.best_metrics.as_ref().map(|metrics| {
-            (score_metrics(metrics, self.optimization_mode.as_deref()), metrics.final_net_emissions <= 0.0)
+            (score_metrics(metrics, self.optimization_mode.as_deref()), metrics.final_net_emissions <= ZERO_F64)
         })
     }
 
@@ -1308,18 +1464,18 @@ impl ActionWeights {
             let current_score = score_metrics(current_metrics, self.optimization_mode.as_deref());
             
             // Calculate how much worse the current run is compared to the best
-            let deterioration = if best_score > 0.0 {
+            let deterioration = if best_score > ZERO_F64 {
                 (best_score - current_score) / best_score
             } else {
-                0.0
+                ZERO_F64
             };
             
             // Only apply contrast learning if the current run is significantly worse (>3%)
             if deterioration > DIVERGENCE_FOR_NEGATIVE_WEIGHT {
                 // Calculate stagnation penalty with exponential scaling
                 // For stagnation, we want more iterations to have a stronger effect, so we use a power > 1
-                let stagnation_iterations = self.iterations_without_improvement as f64 / 10.0;
-                let stagnation_factor = 1.0 + (STAGNATION_PENALTY_FACTOR * stagnation_iterations.powf(STAGNATION_EXPONENT));
+                let stagnation_iterations = self.iterations_without_improvement as f64 / STAGNATION_ITERATIONS_DIVISOR;
+                let stagnation_factor = ONE_F64 + (STAGNATION_PENALTY_FACTOR * stagnation_iterations.powf(STAGNATION_EXPONENT));
                 
                 // Fix the divergence scaling - for values between 0 and 1, using a power < 1 makes them larger
                 // This ensures that worse divergence (higher values) results in stronger penalties
@@ -1329,11 +1485,11 @@ impl ActionWeights {
                 let combined_penalty = scaled_deterioration * stagnation_factor;
                 
                 // Enhanced adaptive learning rate based on stagnation and performance degradation
-                let adaptive_learning_rate = self.learning_rate * (1.0 + 0.05 * self.iterations_without_improvement as f64);
+                let adaptive_learning_rate = self.learning_rate * (ONE_F64 + ADAPTIVE_LEARNING_RATE_FACTOR * self.iterations_without_improvement as f64);
                 
                 // Log the contrast learning application with more detailed information
                 println!("\n🔄 Applying enhanced contrast learning:");
-                println!("   - Current run is {:.1}% worse than best", deterioration * 100.0);
+                println!("   - Current run is {:.1}% worse than best", deterioration * PERCENT_CONVERSION);
                 println!("   - Iterations without improvement: {}", self.iterations_without_improvement);
                 println!("   - Raw deterioration: {:.4}, Scaled: {:.4}", deterioration, scaled_deterioration);
                 println!("   - Stagnation factor: {:.2}x", stagnation_factor);
@@ -1341,10 +1497,10 @@ impl ActionWeights {
                 println!("   - Adaptive learning rate: {:.4} (base: {:.4})", adaptive_learning_rate, self.learning_rate);
                 
                 // Calculate the penalty factor - more severe for worse runs and after more stagnation
-                let penalty_factor = 1.0 / (1.0 + adaptive_learning_rate * 2.0 * combined_penalty);
+                let penalty_factor = ONE_F64 / (ONE_F64 + adaptive_learning_rate * PENALTY_MULTIPLIER * combined_penalty);
                 
                 // Calculate the boost factor for best actions - increases with stagnation
-                let best_boost_factor = 1.0 + (adaptive_learning_rate * 3.0 * stagnation_factor);
+                let best_boost_factor = ONE_F64 + (adaptive_learning_rate * BOOST_MULTIPLIER * stagnation_factor);
                 
                 println!("   - Penalty factor: {:.8}", penalty_factor);
                 println!("   - Best action boost factor: {:.8}", best_boost_factor);
@@ -1400,7 +1556,7 @@ impl ActionWeights {
                             if !complete_best_actions.contains(current_action) {
                                 if let Some(weight) = year_weights.get_mut(current_action) {
                                     *weight = (*weight * penalty_factor).max(MIN_WEIGHT);
-                                    if *weight <= MIN_WEIGHT + 0.000001 {
+                                    if *weight <= MIN_WEIGHT + WEIGHT_PRECISION_THRESHOLD {
                                         min_weight_count += 1;
                                     }
                                     total_weights += 1;
@@ -1412,7 +1568,7 @@ impl ActionWeights {
                                 if i < complete_best_actions.len() && current_action != &complete_best_actions[i] {
                                     // It's in the best strategy but in the wrong order - mild penalty
                                     if let Some(weight) = year_weights.get_mut(current_action) {
-                                        let mild_penalty = 1.0 / (1.0 + adaptive_learning_rate * combined_penalty * 0.5);
+                                        let mild_penalty = ONE_F64 / (ONE_F64 + adaptive_learning_rate * combined_penalty * MILD_PENALTY_FACTOR);
                                         *weight = (*weight * mild_penalty).max(MIN_WEIGHT);
                                         total_weights += 1;
                                     }
@@ -1443,12 +1599,12 @@ impl ActionWeights {
                     println!("   - Applying weight randomization to break stagnation after {} iterations", 
                             self.iterations_without_improvement);
                     
-                    let randomization_factor = 0.1; // 10% random variation
+                    let randomization_factor = RANDOMIZATION_FACTOR; // 10% random variation
                     let mut rng = rand::thread_rng();
                     
                     for year_weights in self.weights.values_mut() {
                         for weight in year_weights.values_mut() {
-                            let random_factor = 1.0 + randomization_factor * (rng.gen::<f64>() * 2.0 - 1.0);
+                            let random_factor = ONE_F64 + randomization_factor * (rng.gen::<f64>() * RANDOM_RANGE_MULTIPLIER - ONE_F64);
                             *weight = (*weight * random_factor).clamp(MIN_WEIGHT, MAX_WEIGHT);
                         }
                     }
@@ -1459,13 +1615,13 @@ impl ActionWeights {
 
     // Update best deficit actions when we find a better overall strategy
     pub fn update_best_deficit_actions(&mut self) {
-        if self.iterations_without_improvement == 0 {
+        if self.iterations_without_improvement == ZERO_U32 {
             // We just found a better strategy, so update best deficit actions
             // Make sure we have entries for each year even if they're empty
             let mut complete_deficit_actions = HashMap::new();
             
             // Initialize empty action lists for all years
-            for year in 2025..=2050 {
+            for year in START_YEAR..=END_YEAR {
                 complete_deficit_actions.insert(year, Vec::new());
             }
             
@@ -1540,10 +1696,10 @@ impl ActionWeights {
         if let Some(ref metrics) = self.best_metrics {
             println!("✅ Best metrics recorded:");
             println!("  Net emissions: {:.2} tonnes", metrics.final_net_emissions);
-            println!("  Is net zero: {}", if metrics.final_net_emissions <= 0.0 { "true" } else { "false" });
-            println!("  Total cost: €{:.2}B", metrics.total_cost / 1_000_000_000.0);
-            println!("  Public opinion: {:.1}%", metrics.average_public_opinion * 100.0);
-            println!("  Power reliability: {:.1}%", metrics.power_reliability * 100.0);
+            println!("  Is net zero: {}", if metrics.final_net_emissions <= ZERO_F64 { "true" } else { "false" });
+            println!("  Total cost: €{:.2}B", metrics.total_cost / BILLION_DIVISOR);
+            println!("  Public opinion: {:.1}%", metrics.average_public_opinion * PERCENT_CONVERSION);
+            println!("  Power reliability: {:.1}%", metrics.power_reliability * PERCENT_CONVERSION);
         } else {
             println!("❌ No best metrics recorded yet");
         }
@@ -1565,22 +1721,22 @@ impl ActionWeights {
         let mut action_pool = Vec::new();
         
         // Basic renewables always have some representation
-        action_pool.push((GridAction::AddGenerator(GeneratorType::OnshoreWind), 15));
-        action_pool.push((GridAction::AddGenerator(GeneratorType::OffshoreWind), 10));
-        action_pool.push((GridAction::AddGenerator(GeneratorType::UtilitySolar), 15));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::OnshoreWind), ONSHORE_WIND_FALLBACK_WEIGHT as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::OffshoreWind), OFFSHORE_WIND_FALLBACK_WEIGHT as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::UtilitySolar), UTILITY_SOLAR_FALLBACK_WEIGHT as u32));
         
         // Storage becomes more important in middle and late years
-        let storage_weight = if year < 2035 { 10 } else { 20 };
-        action_pool.push((GridAction::AddGenerator(GeneratorType::BatteryStorage), storage_weight));
+        let storage_weight = if year < MID_YEAR_THRESHOLD { STORAGE_WEIGHT_EARLY } else { STORAGE_WEIGHT_LATE };
+        action_pool.push((GridAction::AddGenerator(GeneratorType::BatteryStorage), storage_weight as u32));
         
         // Carbon offsets become crucial in later years
-        let offset_weight = if year < 2035 { 5 } else if year < 2045 { 15 } else { 25 };
-        action_pool.push((GridAction::AddCarbonOffset("Forest".to_string()), offset_weight));
-        action_pool.push((GridAction::AddCarbonOffset("ActiveCapture".to_string()), offset_weight));
+        let offset_weight = if year < MID_YEAR_THRESHOLD { OFFSET_WEIGHT_EARLY } else if year < LATE_YEAR_THRESHOLD { OFFSET_WEIGHT_MID } else { OFFSET_WEIGHT_LATE };
+        action_pool.push((GridAction::AddCarbonOffset("Forest".to_string()), offset_weight as u32));
+        action_pool.push((GridAction::AddCarbonOffset("ActiveCapture".to_string()), offset_weight as u32));
         
         // Gas for reliable power - more important in early years, less in later
-        let gas_weight = if year < 2035 { 15 } else if year < 2045 { 10 } else { 5 };
-        action_pool.push((GridAction::AddGenerator(GeneratorType::GasCombinedCycle), gas_weight));
+        let gas_weight = if year < MID_YEAR_THRESHOLD { GAS_WEIGHT_EARLY } else if year < LATE_YEAR_THRESHOLD { GAS_WEIGHT_MID } else { GAS_WEIGHT_LATE };
+        action_pool.push((GridAction::AddGenerator(GeneratorType::GasCombinedCycle), gas_weight as u32));
         
         // Calculate total weight
         let total_weight: u32 = action_pool.iter().map(|(_, w)| w).sum();
@@ -1610,16 +1766,16 @@ impl ActionWeights {
         let mut action_pool = Vec::new();
         
         // Immediate response options get highest priority
-        action_pool.push((GridAction::AddGenerator(GeneratorType::GasPeaker), 30));
-        action_pool.push((GridAction::AddGenerator(GeneratorType::BatteryStorage), 30));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::GasPeaker), DEFICIT_GAS_PEAKER_FALLBACK_WEIGHT as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::BatteryStorage), DEFICIT_BATTERY_FALLBACK_WEIGHT as u32));
         
         // Medium-term reliable options
-        action_pool.push((GridAction::AddGenerator(GeneratorType::GasCombinedCycle), 20));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::GasCombinedCycle), DEFICIT_GAS_COMBINED_FALLBACK_WEIGHT as u32));
         
         // Renewables - lower priority for deficit but still included
-        action_pool.push((GridAction::AddGenerator(GeneratorType::OnshoreWind), 10));
-        action_pool.push((GridAction::AddGenerator(GeneratorType::OffshoreWind), 5));
-        action_pool.push((GridAction::AddGenerator(GeneratorType::UtilitySolar), 5));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::OnshoreWind), DEFICIT_ONSHORE_WIND_FALLBACK_WEIGHT as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::OffshoreWind), (DEFICIT_OFFSHORE_WIND_WEIGHT * RENEWABLE_FALLBACK_WEIGHT_FACTOR) as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::UtilitySolar), (DEFICIT_UTILITY_SOLAR_WEIGHT * RENEWABLE_FALLBACK_WEIGHT_FACTOR * PERCENT_CONVERSION) as u32));
         
         // Calculate total weight
         let total_weight: u32 = action_pool.iter().map(|(_, w)| w).sum();
@@ -1650,7 +1806,7 @@ impl ActionWeights {
                         if let Some(current_weight) = current_year_weights.get_mut(action) {
                             // Mix weights
                             *current_weight = best_weight * best_weight_factor + 
-                                            *current_weight * (1.0 - best_weight_factor);
+                                            *current_weight * (ONE_F64 - best_weight_factor);
                         } else {
                             // Action exists in best but not in current, add it
                             current_year_weights.insert(action.clone(), best_weight);
@@ -1660,7 +1816,7 @@ impl ActionWeights {
             }
             
             println!("   - Restored weights with {:.0}% best weights / {:.0}% current weights", 
-                    best_weight_factor * 100.0, (1.0 - best_weight_factor) * 100.0);
+                    best_weight_factor * PERCENT_CONVERSION, (ONE_F64 - best_weight_factor) * PERCENT_CONVERSION);
         }
     }
 
@@ -1671,13 +1827,13 @@ impl ActionWeights {
             let best_score = score_metrics(best_metrics, self.optimization_mode.as_deref());
             // We don't have a current metrics specific to deficit actions, but we can use the deterioration
             // from the regular contrast learning as an approximation
-            let deterioration = self.iterations_without_improvement as f64 / 10.0; // Use iterations as a proxy for deterioration
+            let deterioration = self.iterations_without_improvement as f64 / STAGNATION_ITERATIONS_DIVISOR; // Use iterations as a proxy for deterioration
             
             // Only apply contrast learning if there's some deterioration
-            if deterioration > 0.0 {
+            if deterioration > ZERO_F64 {
                 // Calculate stagnation penalty with exponential scaling
-                let stagnation_iterations = self.iterations_without_improvement as f64 / 10.0;
-                let stagnation_factor = 1.0 + (STAGNATION_PENALTY_FACTOR * stagnation_iterations.powf(STAGNATION_EXPONENT));
+                let stagnation_iterations = self.iterations_without_improvement as f64 / STAGNATION_ITERATIONS_DIVISOR;
+                let stagnation_factor = ONE_F64 + (STAGNATION_PENALTY_FACTOR * stagnation_iterations.powf(STAGNATION_EXPONENT));
                 
                 // Scale the deterioration like in regular contrast learning
                 let scaled_deterioration = deterioration.powf(DIVERGENCE_EXPONENT);
@@ -1686,7 +1842,7 @@ impl ActionWeights {
                 let combined_penalty = scaled_deterioration * stagnation_factor;
                 
                 // Calculate adaptive learning rate as in regular contrast learning
-                let adaptive_learning_rate = self.learning_rate * (1.0 + 0.05 * self.iterations_without_improvement as f64);
+                let adaptive_learning_rate = self.learning_rate * (ONE_F64 + ADAPTIVE_LEARNING_RATE_FACTOR * self.iterations_without_improvement as f64);
                 
                 // Log the contrast learning application with more detailed information
                 println!("\n🔄 Applying enhanced contrast learning to deficit handling actions:");
@@ -1696,8 +1852,8 @@ impl ActionWeights {
                 println!("   - Combined penalty multiplier: {:.4}", combined_penalty);
                 
                 // Calculate the penalty factor - more severe for worse runs and after more stagnation
-                let penalty_factor = 1.0 / (1.0 + adaptive_learning_rate * 2.0 * combined_penalty);
-                let best_boost_factor = 1.0 + (adaptive_learning_rate * 3.0 * stagnation_factor);
+                let penalty_factor = ONE_F64 / (ONE_F64 + adaptive_learning_rate * PENALTY_MULTIPLIER * combined_penalty);
+                let best_boost_factor = ONE_F64 + (adaptive_learning_rate * BOOST_MULTIPLIER * stagnation_factor);
                 
                 println!("   - Penalty factor: {:.8}", penalty_factor);
                 println!("   - Best boost factor: {:.8}", best_boost_factor);
@@ -1727,6 +1883,22 @@ impl ActionWeights {
                 
                 // Log summary information about the weight changes
                 println!("   - Applied enhanced contrast learning to deficit handling actions");
+
+                // If we've been stagnating for a very long time, also apply some randomization
+                // to break out of local optima
+                if self.iterations_without_improvement > ITERATIONS_FOR_RANDOMIZATION {
+                    println!("   - Applying weight randomization to deficit weights after {} iterations", 
+                            self.iterations_without_improvement);
+                    
+                    let mut rng = rand::thread_rng();
+                    
+                    for year_weights in self.deficit_weights.values_mut() {
+                        for weight in year_weights.values_mut() {
+                            let random_factor = ONE_F64 + RANDOMIZATION_FACTOR * (rng.gen::<f64>() * 2.0 - 1.0);
+                            *weight = (*weight * random_factor).clamp(MIN_WEIGHT, MAX_WEIGHT);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1739,11 +1911,11 @@ impl ActionWeights {
         if self.force_best_actions {
             if let Some(best_deficit_actions) = &self.best_deficit_actions {
                 if let Some(year_deficit_actions) = best_deficit_actions.get(&year) {
-                    let current_index = self.current_deficit_actions.get(&year).map_or(0, |v| v.len());
+                    let current_index = self.current_deficit_actions.get(&year).map_or(ZERO_USIZE, |v| v.len());
                     if current_index < year_deficit_actions.len() {
                         let action = year_deficit_actions[current_index].clone();
                         println!("🔄 DEFICIT REPLAY: Using best deficit action #{} for year {}: {:?}", 
-                                current_index + 1, year, action);
+                                current_index + ONE_USIZE, year, action);
                         
                         // Make sure to record this replayed deficit action
                         self.current_deficit_actions.entry(year)
@@ -1753,7 +1925,7 @@ impl ActionWeights {
                         return action;
                     } else {
                         println!("⚠️ DEFICIT REPLAY FALLBACK: Ran out of best deficit actions for year {} (needed action #{}, have {})",
-                                year, current_index + 1, year_deficit_actions.len());
+                                year, current_index + ONE_USIZE, year_deficit_actions.len());
                         
                         // Smart fallback for deficit
                         let fallback_action = self.generate_smart_deficit_fallback_action(year);
@@ -1822,8 +1994,8 @@ impl ActionWeights {
             }
             
             let random_idx = match &mut self.deterministic_rng {
-                Some(rng) => rng.gen_range(0..actions.len()),
-                None => rand::thread_rng().gen_range(0..actions.len()),
+                Some(rng) => rng.gen_range(ZERO_USIZE..actions.len()),
+                None => rand::thread_rng().gen_range(ZERO_USIZE..actions.len()),
             };
             
             return actions[random_idx].clone();
@@ -1835,7 +2007,7 @@ impl ActionWeights {
             .map(|(_, &weight)| weight)
             .sum();
         
-        if total_weight <= 0.0 {
+        if total_weight <= ZERO_F64 {
             // If all weights are zero or negative, fall back to a reliable generator
             return GridAction::AddGenerator(GeneratorType::GasPeaker);
         }
@@ -1848,7 +2020,7 @@ impl ActionWeights {
         for (action, weight) in year_weights {
             if matches!(action, GridAction::AddGenerator(_)) {
                 random_val -= weight;
-                if random_val <= 0.0 {
+                if random_val <= ZERO_F64 {
                     return action.clone();
                 }
             }
@@ -1871,17 +2043,17 @@ impl ActionWeights {
         if !self.deficit_weights.contains_key(&year) {
             // Initialize with defaults biased toward fast-responding generators
             let mut deficit_year_weights = HashMap::new();
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), 0.15);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), 0.15);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), 0.15);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), 0.10);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), 0.10);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), 0.07);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), 0.07);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), 0.06);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), 0.06);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), 0.05);
-            deficit_year_weights.insert(GridAction::DoNothing, 0.001);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), DEFICIT_GAS_PEAKER_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), DEFICIT_GAS_COMBINED_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), DEFICIT_BATTERY_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), DEFICIT_PUMPED_STORAGE_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), DEFICIT_BIOMASS_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), DEFICIT_ONSHORE_WIND_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), DEFICIT_OFFSHORE_WIND_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), DEFICIT_UTILITY_SOLAR_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), DEFICIT_HYDRO_DAM_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), DEFICIT_NUCLEAR_WEIGHT);
+            deficit_year_weights.insert(GridAction::DoNothing, DEFICIT_DO_NOTHING_WEIGHT);
             self.deficit_weights.insert(year, deficit_year_weights);
         }
         
@@ -1895,12 +2067,12 @@ impl ActionWeights {
         let current_weight = year_weights.get(action).expect("Weight should exist");
         
         // Calculate adjustment factor similar to normal action weights
-        let adjustment_factor = if improvement > 0.0 {
+        let adjustment_factor = if improvement > ZERO_F64 {
             // For improvements, increase weight proportionally to the improvement
-            1.0 + (self.learning_rate * improvement * 1.5) // Apply stronger reinforcement for deficit handling
+            ONE_F64 + (self.learning_rate * improvement * DEFICIT_REINFORCEMENT_MULTIPLIER)
         } else {
             // For deteriorations, decrease weight proportionally to how bad it was
-            1.0 / (1.0 + (self.learning_rate * improvement.abs() * 1.5)) // Apply stronger penalties for deficit handling
+            ONE_F64 / (ONE_F64 + (self.learning_rate * improvement.abs() * DEFICIT_REINFORCEMENT_MULTIPLIER))
         };
         
         // Apply the adjustment with bounds
@@ -1911,8 +2083,8 @@ impl ActionWeights {
         year_weights.insert(action.clone(), new_weight);
         
         // If this was a bad outcome, slightly increase weights of other generator types
-        if improvement < 0.0 {
-            let boost_factor = 1.0 + (self.learning_rate * 0.1); // Small boost to alternatives
+        if improvement < ZERO_F64 {
+            let boost_factor = ONE_F64 + (self.learning_rate * SMALL_BOOST_FACTOR); // Small boost to alternatives
             for (other_action, weight) in year_weights.iter_mut() {
                 if other_action != action && matches!(other_action, GridAction::AddGenerator(_)) {
                     *weight = (*weight * boost_factor).min(MAX_WEIGHT);
@@ -1942,8 +2114,8 @@ impl ActionWeights {
         println!("  Total: {} actions across {} years", total_actions, years_with_actions);
         
         // Add per-year breakdown for easier diagnostics
-        let min_year = 2025;
-        let max_year = 2050;
+        let min_year = START_YEAR;
+        let max_year = END_YEAR;
         
         println!("  Per-year action counts:");
         for year in min_year..=max_year {
@@ -1964,8 +2136,8 @@ impl ActionWeights {
         println!("  Total: {} deficit actions across {} years", total_actions, years_with_actions);
         
         // Add per-year breakdown for easier diagnostics
-        let min_year = 2025;
-        let max_year = 2050;
+        let min_year = START_YEAR;
+        let max_year = END_YEAR;
         
         println!("  Per-year deficit action counts:");
         for year in min_year..=max_year {
@@ -2011,37 +2183,37 @@ pub fn score_metrics(metrics: &SimulationMetrics, optimization_mode: Option<&str
         if mode == "cost_only" {
             // In cost-only mode, only consider cost improvements regardless of emissions state
             // Normalize and invert cost so lower costs give higher scores
-            let normalized_cost = (metrics.total_cost / MAX_ACCEPTABLE_COST).max(1.0);
+            let normalized_cost = (metrics.total_cost / MAX_ACCEPTABLE_COST).max(ONE_F64);
             let log_cost = normalized_cost.ln();
-            let max_expected_log_cost = (MAX_ACCEPTABLE_COST * 100.0 / MAX_ACCEPTABLE_COST).ln(); // Assume 100x budget is max
-            return 2.0 - (log_cost / max_expected_log_cost).min(1.0); // Return value between 1.0 and 2.0
+            let max_expected_log_cost = (MAX_ACCEPTABLE_COST * MAX_BUDGET_MULTIPLIER / MAX_ACCEPTABLE_COST).ln(); // Assume 100x budget is max
+            return MAX_SCORE_RANGE - (log_cost / max_expected_log_cost).min(ONE_F64); // Return value between 1.0 and 2.0
         }
     }
 
     // Default scoring logic - First priority: Reach net zero emissions
-    if metrics.final_net_emissions > 0.0 {
+    if metrics.final_net_emissions > ZERO_F64 {
         // If we haven't achieved net zero, only focus on reducing emissions
-        1.0 - (metrics.final_net_emissions / MAX_ACCEPTABLE_EMISSIONS).min(1.0)
+        ONE_F64 - (metrics.final_net_emissions / MAX_ACCEPTABLE_EMISSIONS).min(ONE_F64)
     }
     // Second priority: Optimize costs after achieving net zero
     else {
         // Base score of 1.0 for achieving net zero
-        let base_score = 1.0;
+        let base_score = BASE_NET_ZERO_SCORE;
         
         // Cost component - normalized and inverted so lower costs give higher scores
         // Use log scale to differentiate between very high costs
-        let normalized_cost = (metrics.total_cost / MAX_ACCEPTABLE_COST).max(1.0);
+        let normalized_cost = (metrics.total_cost / MAX_ACCEPTABLE_COST).max(ONE_F64);
         let log_cost = normalized_cost.ln();
-        let max_expected_log_cost = (MAX_ACCEPTABLE_COST * 100.0 / MAX_ACCEPTABLE_COST).ln(); // Assume 100x budget is max
-        let cost_score = 1.0 - (log_cost / max_expected_log_cost).min(1.0);
+        let max_expected_log_cost = (MAX_ACCEPTABLE_COST * MAX_BUDGET_MULTIPLIER / MAX_ACCEPTABLE_COST).ln(); // Assume 100x budget is max
+        let cost_score = ONE_F64 - (log_cost / max_expected_log_cost).min(ONE_F64);
         
         // Public opinion component
         let opinion_score = metrics.average_public_opinion;
         
         // Combine scores with appropriate weights
         // Cost is higher priority until it's reasonable
-        let cost_weight = if normalized_cost > 8.0 { 0.8 } else { 0.5 };
-        let opinion_weight = 1.0 - cost_weight;
+        let cost_weight = if normalized_cost > HIGH_COST_THRESHOLD_MULTIPLIER { HIGH_COST_WEIGHT } else { NORMAL_COST_WEIGHT };
+        let opinion_weight = ONE_F64 - cost_weight;
         
         base_score + (cost_score * cost_weight + opinion_score * opinion_weight)
     }
@@ -2065,15 +2237,15 @@ pub fn evaluate_action_impact(
         if mode == "cost_only" {
             // In cost-only mode, only consider cost improvements regardless of emissions state
             let cost_change = new_state.total_cost - current_state.total_cost;
-            return -cost_change / current_state.total_cost.abs().max(1.0);
+            return -cost_change / current_state.total_cost.abs().max(ONE_F64);
         }
     }
 
     // Default evaluation logic
-    if current_state.net_emissions > 0.0 {
+    if current_state.net_emissions > ZERO_F64 {
         // First priority: If we haven't achieved net zero, only consider emissions
         let emissions_improvement = (current_state.net_emissions - new_state.net_emissions) / 
-                                  current_state.net_emissions.abs().max(1.0);
+                                  current_state.net_emissions.abs().max(ONE_F64);
         emissions_improvement
     }
     else {
@@ -2081,15 +2253,15 @@ pub fn evaluate_action_impact(
         
         // Cost improvement (negative is better)
         let cost_change = new_state.total_cost - current_state.total_cost;
-        let cost_improvement = -cost_change / current_state.total_cost.abs().max(1.0);
+        let cost_improvement = -cost_change / current_state.total_cost.abs().max(ONE_F64);
         
         // Opinion improvement
         let opinion_improvement = (new_state.public_opinion - current_state.public_opinion) /
-                                current_state.public_opinion.abs().max(1.0);
+                                current_state.public_opinion.abs().max(ONE_F64);
         
         // Weight cost more heavily if it's very high
-        let cost_weight = if current_state.total_cost > MAX_ACCEPTABLE_COST * 8.0 { 0.8 } else { 0.5 };
-        let opinion_weight = 1.0 - cost_weight;
+        let cost_weight = if current_state.total_cost > MAX_ACCEPTABLE_COST * HIGH_COST_THRESHOLD_MULTIPLIER { HIGH_COST_WEIGHT } else { NORMAL_COST_WEIGHT };
+        let opinion_weight = ONE_F64 - cost_weight;
         
         // Combined improvement score
         cost_improvement * cost_weight + opinion_improvement * opinion_weight
