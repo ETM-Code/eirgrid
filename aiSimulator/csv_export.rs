@@ -287,14 +287,14 @@ impl CsvExporter {
         // Print debug information about which settlements will be shown in debug output
         println!("\n=== SETTLEMENTS DEBUG INFO ===");
         println!("Total settlements to export: {}", settlements.len());
-        if settlements.len() > 0 {
-            println!("Debug output will be shown for the following settlements (every 10th):");
-            for (i, settlement) in settlements.iter().enumerate() {
-                if i % 10 == 0 {
-                    println!("  - Settlement #{}: {} ({}) at ({:.6},{:.6})", i + 1, settlement.get_name(), settlement.get_id(), settlement.get_coordinate().x, settlement.get_coordinate().y);
-                }
-            }
-        }
+        // if settlements.len() > 0 {
+        //     println!("Debug output will be shown for the following settlements (every 10th):");
+        //     for (i, settlement) in settlements.iter().enumerate() {
+        //         if i % 10 == 0 {
+        //             println!("  - Settlement #{}: {} ({}) at ({:.6},{:.6})", i + 1, settlement.get_name(), settlement.get_id(), settlement.get_coordinate().x, settlement.get_coordinate().y);
+        //         }
+        //     }
+        // }
         println!("============================\n");
         
         // Create a yearly metrics map for easier lookup
@@ -447,21 +447,21 @@ impl CsvExporter {
                 
                 // Debug output for every 10th settlement
                 let settlement_index = settlements.iter().position(|s| s.get_id() == id).unwrap_or(0);
-                if settlement_index % 10 == 0 {
-                    println!(
-                        "DEBUG Settlement {}/{} - Year: {}, ID: {}, LatLon: ({:.6},{:.6}), Population: {}, Growth: {:.2}%, Power: {:.2} MW, Per Capita: {:.3} kW",
-                        settlement_index + 1,
-                        settlements.len(),
-                        year,
-                        id,
-                        lon,    
-                        lat,
-                        population,
-                        growth_rate,
-                        power_usage,
-                        power_per_capita
-                    );
-                }
+                // if settlement_index % 10 == 0 {
+                //     println!(
+                //         "DEBUG Settlement {}/{} - Year: {}, ID: {}, LatLon: ({:.6},{:.6}), Population: {}, Growth: {:.2}%, Power: {:.2} MW, Per Capita: {:.3} kW",
+                //         settlement_index + 1,
+                //         settlements.len(),
+                //         year,
+                //         id,
+                //         lon,    
+                //         lat,
+                //         population,
+                //         growth_rate,
+                //         power_usage,
+                //         power_per_capita
+                //     );
+                // }
                 
                 // Write CSV row with each field properly escaped and formatted
                 writeln!(
@@ -711,13 +711,13 @@ impl CsvExporter {
                 let sanitized_id = sanitize_id(generator_id);
                 
                 // Debug output for a sample of generators
-                if generators.len() < 10 || generator_id.contains("0") {
-                    println!(
-                        "Writing generator from map: Year={}, ID={}, Type={}, LatLon=({:.6},{:.6}), Power={:.2} MW", 
-                        year, generator_id, generator_type, lon, lat,
-                        generator.get_current_power_output(None)
-                    );
-                }
+                // if generators.len() < 10 || generator_id.contains("0") {
+                //     println!(
+                //         "Writing generator from map: Year={}, ID={}, Type={}, LatLon=({:.6},{:.6}), Power={:.2} MW", 
+                //         year, generator_id, generator_type, lon, lat,
+                //         generator.get_current_power_output(None)
+                //     );
+                // }
                 
                 // Write generator data to CSV
                 writeln!(

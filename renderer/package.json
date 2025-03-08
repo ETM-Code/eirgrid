@@ -14,7 +14,7 @@
     "ireland"
   ],
   "author": "",
-  "license": "MIT",
+  "license": "Custom",
   "dependencies": {
     "chart.js": "^4.4.1",
     "d3": "^7.8.5",

@@ -28,7 +28,7 @@ metal = { version = "0.31.0", optional = true }
 
 [[bin]]
 name = "eirgrid"
-path = "src/main.rs"
+path = "aiSimulator/main.rs"
 
 [features]
 default = ["cpu"]
