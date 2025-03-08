@@ -5,7 +5,6 @@ use crate::utils::map_handler::Map;
 use super::action_weights::ActionWeights;
 use super::action_weights::{GridAction, ActionResult, evaluate_action_impact};
 use crate::analysis::metrics::YearlyMetrics;
-use super::action_weights::SimulationMetrics;
 use crate::utils::logging::{self, OperationCategory, PowerCalcType};
 use crate::utils::logging::WeightsUpdateType;
 use crate::config::const_funcs;
@@ -268,7 +267,7 @@ pub fn handle_power_deficit(
     deficit: f64,
     year: u32,
     action_weights: &mut ActionWeights,
-    optimization_mode: Option<&str>,
+    __optimization_mode: Option<&str>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let _timing = logging::start_timing(
         "handle_power_deficit",
@@ -402,7 +401,7 @@ pub fn handle_power_deficit(
             };
              
             // Power balance improvement: While we need to handle the deficit, this is a means to an end, not the main goal
-            let power_improvement = if new_state.power_balance > current_state.power_balance {
+            let __power_improvement = if new_state.power_balance > current_state.power_balance {
                 (new_state.power_balance - current_state.power_balance) / deficit.max(1.0)
             } else {
                 0.0
@@ -473,7 +472,7 @@ pub fn run_simulation_with_best_actions(
     map: &mut Map,
     weights: &mut ActionWeights,
     seed: Option<u64>,
-    verbose_logging: bool,
+    __verbose_logging: bool,
     optimization_mode: Option<&str>,
     enable_energy_sales: bool,
 ) -> Result<(String, Vec<(u32, GridAction)>, Vec<YearlyMetrics>), Box<dyn Error + Send + Sync>> {

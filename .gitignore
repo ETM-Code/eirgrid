@@ -13,3 +13,9 @@ package-lock.json
 node_modules
 renderer/node_modules
 renderer/package-lock.json
+simulation_output
+*.sh
+*.bak
+*.backup
+*.original
+oldCheckpoints

@@ -297,7 +297,7 @@ impl GeneratorType {
         base_cost * evolution_rate.powf(years_from_base)
     }
 
-    pub fn get_base_power(&self, year: u32) -> f64 {
+    pub fn get_base_power(&self, __year: u32) -> f64 {
         match *self {
             GeneratorType::OnshoreWind => MAX_ONSHORE_WIND_POWER,
             GeneratorType::OffshoreWind => MAX_OFFSHORE_WIND_POWER,
@@ -544,7 +544,7 @@ impl Generator {
         upgrade_cost
     }
 
-    pub fn adjust_operation(&mut self, new_percentage: u8, constraints: &GeneratorConstraints) -> bool {
+    pub fn adjust_operation(&mut self, new_percentage: u8, __constraints: &GeneratorConstraints) -> bool {
         let min_percentage = match self.generator_type {
             GeneratorType::Nuclear => NUCLEAR_MIN_OPERATION,
             GeneratorType::HydroDam | GeneratorType::PumpedStorage => HYDRO_MIN_OPERATION,

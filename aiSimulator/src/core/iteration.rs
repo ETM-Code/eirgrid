@@ -32,11 +32,25 @@ pub fn run_iteration(
         enable_energy_sales
     )?;
     
-    // Get the metrics from the weights
-    let metrics = if let Some(metrics) = weights.get_simulation_metrics() {
-        metrics.clone()
+    // FIXED: Calculate metrics from the last yearly metrics instead of relying on weights
+    let metrics = if let Some(final_year_metrics) = yearly_metrics.last() {
+        // Convert from yearly metrics to simulation metrics
+        println!("DIAGNOSTIC: Creating SimulationMetrics from final year metrics:");
+        println!("  - final_net_emissions: {}", final_year_metrics.net_co2_emissions);
+        println!("  - total_cost: {}", final_year_metrics.total_capital_cost);
+        println!("  - average_public_opinion: {}", final_year_metrics.average_public_opinion);
+        println!("  - power_reliability: {}", 
+            if final_year_metrics.power_balance >= 0.0 { 1.0 } else { 0.0 });
+        
+        SimulationMetrics {
+            final_net_emissions: final_year_metrics.net_co2_emissions,
+            average_public_opinion: final_year_metrics.average_public_opinion,
+            total_cost: final_year_metrics.total_capital_cost,
+            power_reliability: if final_year_metrics.power_balance >= 0.0 { 1.0 } else { 0.0 },
+        }
     } else {
-        // Default metrics if none available
+        // If no yearly metrics, use default values (should never happen)
+        println!("WARNING: No yearly metrics available to calculate final metrics");
         SimulationMetrics {
             final_net_emissions: 0.0,
             average_public_opinion: 0.0,
