@@ -306,3 +306,15 @@ pub const CONSTRUCTION_TIME_YEAR_REDUCTION: f64 = 0.03; // Annual reduction in c
 // Minimum times (years) regardless of other factors
 pub const MIN_PLANNING_TIME: f64 = 0.25;  // Minimum 3 months for planning
 pub const MIN_CONSTRUCTION_TIME: f64 = 0.1;  // Minimum ~1 month for construction
+
+// Cost-time tradeoff constants
+pub const MIN_CONSTRUCTION_COST_MULTIPLIER: f64 = 1.0;  // Base cost (no speedup)
+pub const MAX_CONSTRUCTION_COST_MULTIPLIER: f64 = 5.0;  // Maximum cost multiplier allowed
+pub const CONSTRUCTION_TIME_REDUCTION_FACTOR: f64 = 0.5;  // How much time is reduced with increased cost (logarithmic)
+pub const PLANNING_TIME_REDUCTION_FACTOR: f64 = 0.25;  // Planning time reduces at half the rate of construction time
+
+// Cost multiplier constants for AI decision making
+pub const DEFAULT_COST_MULTIPLIER: u16 = 100;  // 100% = normal cost
+pub const FAST_COST_MULTIPLIER: u16 = 150;     // 150% = faster construction
+pub const VERY_FAST_COST_MULTIPLIER: u16 = 200; // 200% = very fast construction
+pub const RUSH_COST_MULTIPLIER: u16 = 300;     // 300% = rush construction

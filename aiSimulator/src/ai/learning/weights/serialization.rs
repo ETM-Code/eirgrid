@@ -11,6 +11,11 @@ use crate::ai::actions::serializable_action::SerializableAction;
 use crate::ai::learning::constants::*;
 use crate::ai::learning::serialization::SerializableWeights;
 use super::{ActionWeights, FILE_MUTEX};
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
+use serde::{Serialize, Deserialize};
+use crate::models::carbon_offset::CarbonOffsetType;
+use crate::config::constants::DEFAULT_COST_MULTIPLIER;
 
 // Add a dummy public item to ensure this file is recognized by rust-analyzer
 #[allow(dead_code)]
@@ -145,12 +150,10 @@ impl ActionWeights {
                         if let Some(gen_type_str) = &serializable_action.generator_type {
                             let gen_type = GeneratorType::from_str(gen_type_str)
                                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-                            GridAction::AddGenerator(gen_type)
+                            let cost_multiplier = serializable_action.cost_multiplier.unwrap_or(DEFAULT_COST_MULTIPLIER);
+                            GridAction::AddGenerator(gen_type, cost_multiplier)
                         } else {
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::InvalidData,
-                                "AddGenerator action missing generator_type",
-                            ));
+                            GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER)
                         }
                     },
                     "UpgradeEfficiency" => {
@@ -166,10 +169,18 @@ impl ActionWeights {
                         GridAction::AdjustOperation(id, percentage)
                     },
                     "AddCarbonOffset" => {
-                        if let Some(offset_type) = &serializable_action.offset_type {
-                            GridAction::AddCarbonOffset(offset_type.clone())
+                        if let Some(offset_type_str) = &serializable_action.offset_type {
+                            let offset_type = match offset_type_str.as_str() {
+                                "Forest" => CarbonOffsetType::Forest,
+                                "Wetland" => CarbonOffsetType::Wetland,
+                                "ActiveCapture" => CarbonOffsetType::ActiveCapture,
+                                "CarbonCredit" => CarbonOffsetType::CarbonCredit,
+                                _ => CarbonOffsetType::Forest,
+                            };
+                            let cost_multiplier = serializable_action.cost_multiplier.unwrap_or(DEFAULT_COST_MULTIPLIER);
+                            GridAction::AddCarbonOffset(offset_type, cost_multiplier)
                         } else {
-                            GridAction::AddCarbonOffset("Forest".to_string())
+                            GridAction::AddCarbonOffset(CarbonOffsetType::Forest, DEFAULT_COST_MULTIPLIER)
                         }
                     },
                     "CloseGenerator" => {
@@ -201,8 +212,11 @@ impl ActionWeights {
                     "AddGenerator" => {
                         if let Some(gen_type_str) = &serializable_action.generator_type {
                             match GeneratorType::from_str(gen_type_str) {
-                                Ok(gen_type) => GridAction::AddGenerator(gen_type),
-                                Err(_) => continue, // Skip invalid generator types
+                                Ok(gen_type) => {
+                                    let cost_multiplier = serializable_action.cost_multiplier.unwrap_or(DEFAULT_COST_MULTIPLIER);
+                                    GridAction::AddGenerator(gen_type, cost_multiplier)
+                                },
+                                Err(_) => continue,
                             }
                         } else {
                             continue;
@@ -217,13 +231,25 @@ impl ActionWeights {
                         GridAction::AdjustOperation(id, percentage)
                     },
                     "AddCarbonOffset" => {
-                        GridAction::AddCarbonOffset(serializable_action.offset_type.clone().unwrap_or_else(|| "Forest".to_string()))
+                        if let Some(offset_type_str) = &serializable_action.offset_type {
+                            let offset_type = match offset_type_str.as_str() {
+                                "Forest" => CarbonOffsetType::Forest,
+                                "Wetland" => CarbonOffsetType::Wetland,
+                                "ActiveCapture" => CarbonOffsetType::ActiveCapture,
+                                "CarbonCredit" => CarbonOffsetType::CarbonCredit,
+                                _ => CarbonOffsetType::Forest,
+                            };
+                            let cost_multiplier = serializable_action.cost_multiplier.unwrap_or(DEFAULT_COST_MULTIPLIER);
+                            GridAction::AddCarbonOffset(offset_type, cost_multiplier)
+                        } else {
+                            GridAction::AddCarbonOffset(CarbonOffsetType::Forest, DEFAULT_COST_MULTIPLIER)
+                        }
                     },
                     "CloseGenerator" => {
                         GridAction::CloseGenerator(serializable_action.generator_id.clone().unwrap_or_default())
                     },
                     "DoNothing" => GridAction::DoNothing,
-                    _ => continue, // Skip unknown action types
+                    _ => continue,
                 };
                 year_weights.insert(action, *weight);
             }
@@ -234,16 +260,16 @@ impl ActionWeights {
         if deficit_weights.is_empty() {
             for year in START_YEAR..=END_YEAR {
                 let mut deficit_year_weights = HashMap::new();
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), DEFICIT_GAS_PEAKER_WEIGHT);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), DEFICIT_GAS_COMBINED_WEIGHT);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), DEFICIT_BATTERY_WEIGHT);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), DEFICIT_PUMPED_STORAGE_WEIGHT);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), DEFICIT_BIOMASS_WEIGHT);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), DEFICIT_ONSHORE_WIND_WEIGHT);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), DEFICIT_OFFSHORE_WIND_WEIGHT);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), DEFICIT_UTILITY_SOLAR_WEIGHT);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), DEFICIT_HYDRO_DAM_WEIGHT);
-                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), DEFICIT_NUCLEAR_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER), DEFICIT_GAS_PEAKER_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle, DEFAULT_COST_MULTIPLIER), DEFICIT_GAS_COMBINED_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage, DEFAULT_COST_MULTIPLIER), DEFICIT_BATTERY_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage, DEFAULT_COST_MULTIPLIER), DEFICIT_PUMPED_STORAGE_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass, DEFAULT_COST_MULTIPLIER), DEFICIT_BIOMASS_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind, DEFAULT_COST_MULTIPLIER), DEFICIT_ONSHORE_WIND_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind, DEFAULT_COST_MULTIPLIER), DEFICIT_OFFSHORE_WIND_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar, DEFAULT_COST_MULTIPLIER), DEFICIT_UTILITY_SOLAR_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam, DEFAULT_COST_MULTIPLIER), DEFICIT_HYDRO_DAM_WEIGHT);
+                deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear, DEFAULT_COST_MULTIPLIER), DEFICIT_NUCLEAR_WEIGHT);
                 deficit_year_weights.insert(GridAction::DoNothing, DEFICIT_DO_NOTHING_WEIGHT);
                 deficit_weights.insert(year, deficit_year_weights);
             }
@@ -251,43 +277,58 @@ impl ActionWeights {
         
         // Convert serializable best weights to actual best weights
         let best_weights = serializable.best_weights.map(|serializable_best_weights| {
-            let mut best_weights = HashMap::new();
-            for (year, serializable_year_weights) in &serializable_best_weights {
-                let mut year_weights = HashMap::new();
-                for (serializable_action, weight) in serializable_year_weights {
-                    let action = match serializable_action.action_type.as_str() {
-                        "AddGenerator" => {
-                            if let Some(gen_type_str) = &serializable_action.generator_type {
-                                match GeneratorType::from_str(gen_type_str) {
-                                    Ok(gen_type) => GridAction::AddGenerator(gen_type),
-                                    Err(_) => continue, // Skip invalid generator types
+            serializable_best_weights.iter()
+                .map(|(year, serializable_year_weights)| {
+                    let mut year_weights = HashMap::new();
+                    for (serializable_action, weight) in serializable_year_weights {
+                        let action = match serializable_action.action_type.as_str() {
+                            "AddGenerator" => {
+                                if let Some(gen_type_str) = &serializable_action.generator_type {
+                                    match GeneratorType::from_str(gen_type_str) {
+                                        Ok(gen_type) => {
+                                            let cost_multiplier = serializable_action.cost_multiplier.unwrap_or(DEFAULT_COST_MULTIPLIER);
+                                            GridAction::AddGenerator(gen_type, cost_multiplier)
+                                        },
+                                        Err(_) => continue,
+                                    }
+                                } else {
+                                    continue;
                                 }
-                            } else {
-                                continue;
-                            }
-                        },
-                        "UpgradeEfficiency" => {
-                            GridAction::UpgradeEfficiency(serializable_action.generator_id.clone().unwrap_or_default())
-                        },
-                        "AdjustOperation" => {
-                            let id = serializable_action.generator_id.clone().unwrap_or_default();
-                            let percentage = serializable_action.operation_percentage.unwrap_or(0);
-                            GridAction::AdjustOperation(id, percentage)
-                        },
-                        "AddCarbonOffset" => {
-                            GridAction::AddCarbonOffset(serializable_action.offset_type.clone().unwrap_or_else(|| "Forest".to_string()))
-                        },
-                        "CloseGenerator" => {
-                            GridAction::CloseGenerator(serializable_action.generator_id.clone().unwrap_or_default())
-                        },
-                        "DoNothing" => GridAction::DoNothing,
-                        _ => continue, // Skip unknown action types
-                    };
-                    year_weights.insert(action, *weight);
-                }
-                best_weights.insert(*year, year_weights);
-            }
-            best_weights
+                            },
+                            "UpgradeEfficiency" => {
+                                GridAction::UpgradeEfficiency(serializable_action.generator_id.clone().unwrap_or_default())
+                            },
+                            "AdjustOperation" => {
+                                let id = serializable_action.generator_id.clone().unwrap_or_default();
+                                let percentage = serializable_action.operation_percentage.unwrap_or(0);
+                                GridAction::AdjustOperation(id, percentage)
+                            },
+                            "AddCarbonOffset" => {
+                                if let Some(offset_type_str) = &serializable_action.offset_type {
+                                    let offset_type = match offset_type_str.as_str() {
+                                        "Forest" => CarbonOffsetType::Forest,
+                                        "Wetland" => CarbonOffsetType::Wetland,
+                                        "ActiveCapture" => CarbonOffsetType::ActiveCapture,
+                                        "CarbonCredit" => CarbonOffsetType::CarbonCredit,
+                                        _ => CarbonOffsetType::Forest,
+                                    };
+                                    let cost_multiplier = serializable_action.cost_multiplier.unwrap_or(DEFAULT_COST_MULTIPLIER);
+                                    GridAction::AddCarbonOffset(offset_type, cost_multiplier)
+                                } else {
+                                    GridAction::AddCarbonOffset(CarbonOffsetType::Forest, DEFAULT_COST_MULTIPLIER)
+                                }
+                            },
+                            "CloseGenerator" => {
+                                GridAction::CloseGenerator(serializable_action.generator_id.clone().unwrap_or_default())
+                            },
+                            "DoNothing" => GridAction::DoNothing,
+                            _ => continue,
+                        };
+                        year_weights.insert(action, *weight);
+                    }
+                    (*year, year_weights)
+                })
+                .collect()
         });
         
         // Convert serializable best actions to actual best actions
@@ -300,8 +341,11 @@ impl ActionWeights {
                         "AddGenerator" => {
                             if let Some(gen_type_str) = &serializable_action.generator_type {
                                 match GeneratorType::from_str(gen_type_str) {
-                                    Ok(gen_type) => GridAction::AddGenerator(gen_type),
-                                    Err(_) => continue, // Skip invalid generator types
+                                    Ok(gen_type) => {
+                                        let cost_multiplier = serializable_action.cost_multiplier.unwrap_or(DEFAULT_COST_MULTIPLIER);
+                                        GridAction::AddGenerator(gen_type, cost_multiplier)
+                                    },
+                                    Err(_) => continue,
                                 }
                             } else {
                                 continue;
@@ -316,13 +360,25 @@ impl ActionWeights {
                             GridAction::AdjustOperation(id, percentage)
                         },
                         "AddCarbonOffset" => {
-                            GridAction::AddCarbonOffset(serializable_action.offset_type.clone().unwrap_or_else(|| "Forest".to_string()))
+                            if let Some(offset_type_str) = &serializable_action.offset_type {
+                                let offset_type = match offset_type_str.as_str() {
+                                    "Forest" => CarbonOffsetType::Forest,
+                                    "Wetland" => CarbonOffsetType::Wetland,
+                                    "ActiveCapture" => CarbonOffsetType::ActiveCapture,
+                                    "CarbonCredit" => CarbonOffsetType::CarbonCredit,
+                                    _ => CarbonOffsetType::Forest,
+                                };
+                                let cost_multiplier = serializable_action.cost_multiplier.unwrap_or(DEFAULT_COST_MULTIPLIER);
+                                GridAction::AddCarbonOffset(offset_type, cost_multiplier)
+                            } else {
+                                GridAction::AddCarbonOffset(CarbonOffsetType::Forest, DEFAULT_COST_MULTIPLIER)
+                            }
                         },
                         "CloseGenerator" => {
                             GridAction::CloseGenerator(serializable_action.generator_id.clone().unwrap_or_default())
                         },
                         "DoNothing" => GridAction::DoNothing,
-                        _ => continue, // Skip unknown action types
+                        _ => continue,
                     };
                     actions.push(action);
                 }
@@ -332,17 +388,20 @@ impl ActionWeights {
         });
 
         // Convert serializable best deficit actions to actual best deficit actions
-        let best_deficit_actions = serializable.best_deficit_actions.map(|serializable_best_actions| {
-            let mut best_actions = HashMap::new();
-            for (year, serializable_actions) in &serializable_best_actions {
+        let best_deficit_actions = serializable.best_deficit_actions.map(|serializable_best_deficit_actions| {
+            let mut best_deficit_actions = HashMap::new();
+            for (year, serializable_actions) in &serializable_best_deficit_actions {
                 let mut actions = Vec::new();
                 for serializable_action in serializable_actions {
                     let action = match serializable_action.action_type.as_str() {
                         "AddGenerator" => {
                             if let Some(gen_type_str) = &serializable_action.generator_type {
                                 match GeneratorType::from_str(gen_type_str) {
-                                    Ok(gen_type) => GridAction::AddGenerator(gen_type),
-                                    Err(_) => continue, // Skip invalid generator types
+                                    Ok(gen_type) => {
+                                        let cost_multiplier = serializable_action.cost_multiplier.unwrap_or(DEFAULT_COST_MULTIPLIER);
+                                        GridAction::AddGenerator(gen_type, cost_multiplier)
+                                    },
+                                    Err(_) => continue,
                                 }
                             } else {
                                 continue;
@@ -357,19 +416,31 @@ impl ActionWeights {
                             GridAction::AdjustOperation(id, percentage)
                         },
                         "AddCarbonOffset" => {
-                            GridAction::AddCarbonOffset(serializable_action.offset_type.clone().unwrap_or_else(|| "Forest".to_string()))
+                            if let Some(offset_type_str) = &serializable_action.offset_type {
+                                let offset_type = match offset_type_str.as_str() {
+                                    "Forest" => CarbonOffsetType::Forest,
+                                    "Wetland" => CarbonOffsetType::Wetland,
+                                    "ActiveCapture" => CarbonOffsetType::ActiveCapture,
+                                    "CarbonCredit" => CarbonOffsetType::CarbonCredit,
+                                    _ => CarbonOffsetType::Forest,
+                                };
+                                let cost_multiplier = serializable_action.cost_multiplier.unwrap_or(DEFAULT_COST_MULTIPLIER);
+                                GridAction::AddCarbonOffset(offset_type, cost_multiplier)
+                            } else {
+                                GridAction::AddCarbonOffset(CarbonOffsetType::Forest, DEFAULT_COST_MULTIPLIER)
+                            }
                         },
                         "CloseGenerator" => {
                             GridAction::CloseGenerator(serializable_action.generator_id.clone().unwrap_or_default())
                         },
                         "DoNothing" => GridAction::DoNothing,
-                        _ => continue, // Skip unknown action types
+                        _ => continue,
                     };
                     actions.push(action);
                 }
-                best_actions.insert(*year, actions);
+                best_deficit_actions.insert(*year, actions);
             }
-            best_actions
+            best_deficit_actions
         });
 
         Ok(Self {

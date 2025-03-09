@@ -74,7 +74,7 @@ impl ActionWeights {
         if combined_improvement < ZERO_F64 {
             let boost_factor = ONE_F64 + (self.learning_rate * SMALL_BOOST_FACTOR); // Small boost to alternatives
             for (other_action, weight) in year_weights.iter_mut() {
-                if other_action != action && matches!(other_action, GridAction::AddGenerator(_)) {
+                if other_action != action && matches!(other_action, GridAction::AddGenerator(_, _)) {
                     *weight = (*weight * boost_factor).min(MAX_WEIGHT);
                 }
             }

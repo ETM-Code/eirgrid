@@ -10,12 +10,13 @@ use crate::utils::logging::WeightsUpdateType;
 use crate::config::const_funcs;
 use crate::analysis::metrics_calculation::{calculate_yearly_metrics, calculate_average_opinion};
 use crate::analysis::reporting::{print_yearly_summary, print_generator_details};
-use crate::config::constants::{MAX_ACCEPTABLE_COST, BASE_YEAR, END_YEAR};
+use crate::config::constants::{MAX_ACCEPTABLE_COST, BASE_YEAR, END_YEAR, DEFAULT_COST_MULTIPLIER};
 use super::actions::apply_action;
 use crate::models::generator::GeneratorType;
 use chrono::Local;
 use std::fs::File;
 use std::io::Write;
+
 
 
 pub fn run_simulation(
@@ -25,8 +26,12 @@ pub fn run_simulation(
     verbose_logging: bool,
     optimization_mode: Option<&str>,
     enable_energy_sales: bool,
+    enable_construction_delays: bool,
 ) -> Result<(String, Vec<(u32, GridAction)>, Vec<YearlyMetrics>), Box<dyn Error + Send + Sync>> {
     let _timing = logging::start_timing("run_simulation", OperationCategory::Simulation);
+     
+    // Set construction delays flag
+    map.set_enable_construction_delays(enable_construction_delays);
      
     let mut output = String::new();
     let mut recorded_actions = Vec::new();
@@ -79,6 +84,12 @@ pub fn run_simulation(
      
     for year in BASE_YEAR..=END_YEAR {
         let _year_timing = logging::start_timing(&format!("simulate_year_{}", year), OperationCategory::Simulation);
+         
+        // Update the current year in the map
+        map.current_year = year;
+        
+        // Update construction status for all generators and offsets
+        map.update_construction_status();
          
         if action_weights.is_none() {
             println!("\nStarting year {}", year);
@@ -358,7 +369,7 @@ pub fn handle_power_deficit(
                 OperationCategory::WeightsUpdate { subcategory: WeightsUpdateType::ActionUpdate },
             );
             // Always use battery storage as a reliable final option
-            GridAction::AddGenerator(GeneratorType::BatteryStorage)
+            GridAction::AddGenerator(GeneratorType::BatteryStorage, DEFAULT_COST_MULTIPLIER)
         };
 
         // Compute the current simulation state before applying the action.
@@ -380,7 +391,7 @@ pub fn handle_power_deficit(
         };
 
         // Only add a generator if the sampled action is an AddGenerator.
-        if let GridAction::AddGenerator(_) = action {
+        if let GridAction::AddGenerator(_, _) = action {
             let _timing = logging::start_timing(
                 "apply_generator_action",
                 OperationCategory::Simulation,
@@ -514,8 +525,12 @@ pub fn run_simulation_with_best_actions(
     __verbose_logging: bool,
     optimization_mode: Option<&str>,
     enable_energy_sales: bool,
+    enable_construction_delays: bool,
 ) -> Result<(String, Vec<(u32, GridAction)>, Vec<YearlyMetrics>), Box<dyn Error + Send + Sync>> {
-    let _timing = crate::utils::logging::start_timing("run_simulation_with_best_actions", OperationCategory::Simulation);
+    let _timing = logging::start_timing("run_simulation_with_best_actions", OperationCategory::Simulation);
+
+    // Set construction delays flag
+    map.set_enable_construction_delays(enable_construction_delays);
 
     let mut output = String::new();
     let mut recorded_actions = Vec::new();
@@ -540,6 +555,12 @@ pub fn run_simulation_with_best_actions(
     // Hard-code the year range to 2025..=2050 rather than using constants
     for year in 2025..=2050 {
         let _year_timing = crate::utils::logging::start_timing(&format!("simulate_year_{}", year), OperationCategory::Simulation);
+         
+        // Update the current year in the map
+        map.current_year = year;
+        
+        // Update construction status for all generators and offsets
+        map.update_construction_status();
          
         // Update population for each settlement based on the current year
         if year > 2025 {

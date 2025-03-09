@@ -265,7 +265,7 @@ pub fn is_point_inside_ireland(coordinate: &Coordinate) -> bool {
     inside
 }
 
-pub fn calc_planning_permission_time(gen_type: &GeneratorType, year: u32, public_opinion: f64) -> f64 {
+pub fn calc_planning_permission_time(gen_type: &GeneratorType, year: u32, public_opinion: f64, cost_multiplier: f64) -> f64 {
     let base_time = match gen_type {
         GeneratorType::OnshoreWind => ONSHORE_WIND_PLANNING_TIME,
         GeneratorType::OffshoreWind => OFFSHORE_WIND_PLANNING_TIME,
@@ -292,11 +292,14 @@ pub fn calc_planning_permission_time(gen_type: &GeneratorType, year: u32, public
     // Scale from 0.5 (worst opinion) to 1.5 (best opinion)
     let opinion_factor = 1.0 - (public_opinion * PLANNING_TIME_OPINION_FACTOR);
     
+    // Calculate cost multiplier factor using the dedicated function
+    let cost_factor = calc_time_reduction_factor(cost_multiplier, PLANNING_TIME_REDUCTION_FACTOR);
+    
     // Calculate final time with minimum threshold
-    (base_time * year_factor * opinion_factor).max(MIN_PLANNING_TIME)
+    (base_time * year_factor * opinion_factor * cost_factor).max(MIN_PLANNING_TIME)
 }
 
-pub fn calc_construction_time(gen_type: &GeneratorType, year: u32) -> f64 {
+pub fn calc_construction_time(gen_type: &GeneratorType, year: u32, cost_multiplier: f64) -> f64 {
     let base_time = match gen_type {
         GeneratorType::OnshoreWind => ONSHORE_WIND_CONSTRUCTION_TIME,
         GeneratorType::OffshoreWind => OFFSHORE_WIND_CONSTRUCTION_TIME,
@@ -319,11 +322,14 @@ pub fn calc_construction_time(gen_type: &GeneratorType, year: u32) -> f64 {
     let years_from_base = (year - BASE_YEAR) as f64;
     let year_factor = (1.0 - CONSTRUCTION_TIME_YEAR_REDUCTION).powf(years_from_base);
     
+    // Calculate cost multiplier factor using the dedicated function
+    let cost_factor = calc_time_reduction_factor(cost_multiplier, CONSTRUCTION_TIME_REDUCTION_FACTOR);
+    
     // Calculate final time with minimum threshold
-    (base_time * year_factor).max(MIN_CONSTRUCTION_TIME)
+    (base_time * year_factor * cost_factor).max(MIN_CONSTRUCTION_TIME)
 }
 
-pub fn calc_carbon_offset_planning_time(offset_type: &CarbonOffsetType, year: u32, public_opinion: f64) -> f64 {
+pub fn calc_carbon_offset_planning_time(offset_type: &CarbonOffsetType, year: u32, public_opinion: f64, cost_multiplier: f64) -> f64 {
     let base_time = match offset_type {
         CarbonOffsetType::Forest => FOREST_PLANNING_TIME,
         CarbonOffsetType::Wetland => WETLAND_PLANNING_TIME,
@@ -338,11 +344,14 @@ pub fn calc_carbon_offset_planning_time(offset_type: &CarbonOffsetType, year: u3
     // Calculate opinion factor (better opinion = faster approval)
     let opinion_factor = 1.0 - (public_opinion * PLANNING_TIME_OPINION_FACTOR);
     
+    // Calculate cost multiplier factor using the dedicated function
+    let cost_factor = calc_time_reduction_factor(cost_multiplier, PLANNING_TIME_REDUCTION_FACTOR);
+    
     // Calculate final time with minimum threshold
-    (base_time * year_factor * opinion_factor).max(MIN_PLANNING_TIME)
+    (base_time * year_factor * opinion_factor * cost_factor).max(MIN_PLANNING_TIME)
 }
 
-pub fn calc_carbon_offset_construction_time(offset_type: &CarbonOffsetType, year: u32) -> f64 {
+pub fn calc_carbon_offset_construction_time(offset_type: &CarbonOffsetType, year: u32, cost_multiplier: f64) -> f64 {
     let base_time = match offset_type {
         CarbonOffsetType::Forest => FOREST_CONSTRUCTION_TIME,
         CarbonOffsetType::Wetland => WETLAND_CONSTRUCTION_TIME,
@@ -354,6 +363,24 @@ pub fn calc_carbon_offset_construction_time(offset_type: &CarbonOffsetType, year
     let years_from_base = (year - BASE_YEAR) as f64;
     let year_factor = (1.0 - CONSTRUCTION_TIME_YEAR_REDUCTION).powf(years_from_base);
     
+    // Calculate cost multiplier factor using the dedicated function
+    let cost_factor = calc_time_reduction_factor(cost_multiplier, CONSTRUCTION_TIME_REDUCTION_FACTOR);
+    
     // Calculate final time with minimum threshold
-    (base_time * year_factor).max(MIN_CONSTRUCTION_TIME)
+    (base_time * year_factor * cost_factor).max(MIN_CONSTRUCTION_TIME)
+}
+
+// Calculate time reduction factor based on cost multiplier
+pub fn calc_time_reduction_factor(cost_multiplier: f64, reduction_factor: f64) -> f64 {
+    // Ensure cost_multiplier is within bounds
+    let bounded_multiplier = cost_multiplier.clamp(MIN_CONSTRUCTION_COST_MULTIPLIER, MAX_CONSTRUCTION_COST_MULTIPLIER);
+    
+    if bounded_multiplier <= MIN_CONSTRUCTION_COST_MULTIPLIER {
+        return 1.0; // No reduction at minimum cost
+    }
+    
+    // Calculate logarithmic reduction: ln(multiplier) * reduction_factor
+    // This creates a diminishing returns curve
+    let log_reduction = (bounded_multiplier.ln() * reduction_factor).min(0.8);
+    1.0 - log_reduction
 }

@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::str::FromStr;
 use rand::Rng;
 use crate::utils::map_handler::Map;
 use crate::models::generator::{Generator, GeneratorType};
@@ -23,10 +22,6 @@ use crate::config::constants::{
     EMERGING_TECH_IMPROVEMENT_RATE,
     MATURE_TECH_IMPROVEMENT_RATE,
     BASE_YEAR,
-    MIN_CARBON_OFFSET_SIZE,
-    MAX_CARBON_OFFSET_SIZE,
-    MIN_CARBON_OFFSET_EFFICIENCY,
-    MAX_CARBON_OFFSET_EFFICIENCY,
     MAP_MAX_X,
     MAP_MAX_Y,
     FOREST_BASE_COST,
@@ -37,12 +32,18 @@ use crate::config::constants::{
     WETLAND_OPERATING_COST,
     ACTIVE_CAPTURE_OPERATING_COST,
     CARBON_CREDIT_OPERATING_COST,
+    MIN_CONSTRUCTION_COST_MULTIPLIER,
+    MAX_CONSTRUCTION_COST_MULTIPLIER,
 };
+use crate::config::const_funcs::calc_decommission_cost;
 
 pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), Box<dyn Error + Send + Sync>> {
     match action {
-        GridAction::AddGenerator(gen_type) => {
+        GridAction::AddGenerator(gen_type, cost_multiplier_percent) => {
             let gen_size = DEFAULT_GENERATOR_SIZE;
+            let cost_multiplier = (*cost_multiplier_percent as f64 / 100.0)
+                .clamp(MIN_CONSTRUCTION_COST_MULTIPLIER, MAX_CONSTRUCTION_COST_MULTIPLIER);
+                
             match map.find_best_generator_location(gen_type, gen_size as f64 / 100.0) {
                 Some(location) => {
                     let base_efficiency = gen_type.get_base_efficiency(year);
@@ -54,7 +55,7 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
                         _ => 0.0,  // All other types have zero direct CO2 emissions
                     } * (gen_size as f64 / 100.0);  // Scale by size
                      
-                    let generator = Generator::new(
+                    let mut generator = Generator::new(
                         format!("Gen_{}_{}_{}", gen_type.to_string(), year, map.get_generator_count()),
                         location,
                         gen_type.clone(),
@@ -64,8 +65,12 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
                         gen_type.get_lifespan(),
                         gen_size as f64 / 100.0,
                         initial_co2_output,
-                        base_efficiency,
+                        calc_decommission_cost(gen_type.get_base_cost(year)),
                     );
+                    
+                    // Set the construction cost multiplier
+                    generator.set_construction_cost_multiplier(cost_multiplier);
+                    
                     map.add_generator(generator);
                     Ok(())
                 },
@@ -80,7 +85,7 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
                     };
                      
                     println!("Falling back to {:?} generator instead of {:?}", fallback_type, gen_type);
-                    apply_action(map, &GridAction::AddGenerator(fallback_type), year)
+                    apply_action(map, &GridAction::AddGenerator(fallback_type, *cost_multiplier_percent), year)
                 }
             }
         },
@@ -121,35 +126,54 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
             map.after_generator_modification();
             Ok(())
         },
-        GridAction::AddCarbonOffset(offset_type) => {
-            let offset_size = rand::thread_rng().gen_range(MIN_CARBON_OFFSET_SIZE..MAX_CARBON_OFFSET_SIZE);
-            let base_efficiency = rand::thread_rng().gen_range(MIN_CARBON_OFFSET_EFFICIENCY..MAX_CARBON_OFFSET_EFFICIENCY);
-             
-            let location = Coordinate::new(
-                rand::thread_rng().gen_range(0.0..MAP_MAX_X),
-                rand::thread_rng().gen_range(0.0..MAP_MAX_Y),
-            );
-             
-            let offset = CarbonOffset::new(
-                format!("Offset_{}_{}_{}", offset_type, year, map.get_carbon_offset_count()),
+        GridAction::AddCarbonOffset(offset_type, cost_multiplier_percent) => {
+            let cost_multiplier = (*cost_multiplier_percent as f64 / 100.0)
+                .clamp(MIN_CONSTRUCTION_COST_MULTIPLIER, MAX_CONSTRUCTION_COST_MULTIPLIER);
+                
+            // Create a new carbon offset with the specified type and cost multiplier
+            let offset_size = match offset_type {
+                CarbonOffsetType::Forest => 500.0, // 500 hectares
+                CarbonOffsetType::Wetland => 300.0, // 300 hectares
+                CarbonOffsetType::ActiveCapture => 100.0, // 100 tons capacity
+                CarbonOffsetType::CarbonCredit => 1000.0, // 1000 tons of credits
+            };
+            
+            // Get a random location within the map bounds
+            let mut rng = rand::thread_rng();
+            let x = rng.gen_range(0.0..MAP_MAX_X);
+            let y = rng.gen_range(0.0..MAP_MAX_Y);
+            let location = Coordinate { x, y };
+            
+            // Calculate base cost based on type
+            let base_cost = match offset_type {
+                CarbonOffsetType::Forest => FOREST_BASE_COST,
+                CarbonOffsetType::Wetland => WETLAND_BASE_COST,
+                CarbonOffsetType::ActiveCapture => ACTIVE_CAPTURE_BASE_COST,
+                CarbonOffsetType::CarbonCredit => CARBON_CREDIT_BASE_COST,
+            };
+            
+            // Calculate operating cost based on type
+            let operating_cost = match offset_type {
+                CarbonOffsetType::Forest => FOREST_OPERATING_COST,
+                CarbonOffsetType::Wetland => WETLAND_OPERATING_COST,
+                CarbonOffsetType::ActiveCapture => ACTIVE_CAPTURE_OPERATING_COST,
+                CarbonOffsetType::CarbonCredit => CARBON_CREDIT_OPERATING_COST,
+            };
+            
+            // Create the carbon offset
+            let mut offset = CarbonOffset::new(
+                format!("Offset_{}_{}_{}", offset_type.to_string(), year, map.get_carbon_offset_count()),
                 location,
-                CarbonOffsetType::from_str(offset_type).unwrap_or(CarbonOffsetType::Forest),
-                match CarbonOffsetType::from_str(offset_type).unwrap_or(CarbonOffsetType::Forest) {
-                    CarbonOffsetType::Forest => FOREST_BASE_COST,
-                    CarbonOffsetType::Wetland => WETLAND_BASE_COST,
-                    CarbonOffsetType::ActiveCapture => ACTIVE_CAPTURE_BASE_COST,
-                    CarbonOffsetType::CarbonCredit => CARBON_CREDIT_BASE_COST,
-                },
-                match CarbonOffsetType::from_str(offset_type).unwrap_or(CarbonOffsetType::Forest) {
-                    CarbonOffsetType::Forest => FOREST_OPERATING_COST,
-                    CarbonOffsetType::Wetland => WETLAND_OPERATING_COST,
-                    CarbonOffsetType::ActiveCapture => ACTIVE_CAPTURE_OPERATING_COST,
-                    CarbonOffsetType::CarbonCredit => CARBON_CREDIT_OPERATING_COST,
-                },
+                offset_type.clone(),
+                base_cost,
+                operating_cost,
                 offset_size,
-                base_efficiency,
+                0.85, // Default efficiency
             );
-             
+            
+            // Set the construction cost multiplier
+            offset.set_construction_cost_multiplier(cost_multiplier);
+            
             map.add_carbon_offset(offset);
             Ok(())
         },

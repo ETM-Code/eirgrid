@@ -19,6 +19,7 @@ use crate::config::constants::{
     GRID_CELL_SIZE,
     MAP_MAX_X,
     MAP_MAX_Y,
+    ENABLE_CONSTRUCTION_DELAYS,
 };
 use crate::config::const_funcs::is_point_inside_polygon;
 use crate::config::simulation_config::{SimulationConfig, GeneratorConstraints};
@@ -253,16 +254,18 @@ pub struct MapStaticData {
 // Remove automatic derive for Map
 #[derive(Debug, Clone)]
 pub struct Map {
-    static_data: Arc<MapStaticData>,
-    generators: Vec<Generator>,
-    settlements: Vec<Settlement>,
-    carbon_offsets: Vec<CarbonOffset>,
-    grid_occupancy: HashMap<(i32, i32), f64>,
+    pub static_data: Arc<MapStaticData>,
+    pub generators: Vec<Generator>,
+    pub settlements: Vec<Settlement>,
+    pub carbon_offsets: Vec<CarbonOffset>,
+    pub grid_occupancy: HashMap<(i32, i32), f64>,
     pub spatial_index: SpatialIndex,
-    metal_location_search: Option<MetalLocationSearch>,
-    location_analysis: Option<LocationAnalysis>,
-    use_fast_simulation: bool,
-    storage_cache: Vec<usize>, // Indices of storage generators, sorted by efficiency
+    pub metal_location_search: Option<MetalLocationSearch>,
+    pub location_analysis: Option<LocationAnalysis>,
+    pub current_year: u32,
+    pub use_fast_simulation: bool,
+    pub storage_cache: Vec<usize>, // Indices of storage generators, sorted by efficiency
+    pub enable_construction_delays: bool,
 }
 
 // Custom serialization implementation
@@ -307,8 +310,10 @@ impl<'de> Deserialize<'de> for Map {
             spatial_index: SpatialIndex::new(),
             metal_location_search: None,
             location_analysis: None,
+            current_year: 2024,
             use_fast_simulation: true,
             storage_cache: Vec::new(),
+            enable_construction_delays: ENABLE_CONSTRUCTION_DELAYS,
         })
     }
 }
@@ -354,8 +359,10 @@ impl Map {
             spatial_index: SpatialIndex::new(),
             metal_location_search,
             location_analysis: None,
+            current_year: 2024,
             use_fast_simulation: true,
             storage_cache: Vec::new(),
+            enable_construction_delays: ENABLE_CONSTRUCTION_DELAYS,
         };
 
         map.initialize_spatial_index();
@@ -377,8 +384,10 @@ impl Map {
             spatial_index: SpatialIndex::new(),
             metal_location_search,
             location_analysis: None,
+            current_year: 2024,
             use_fast_simulation: true,
             storage_cache: Vec::new(),
+            enable_construction_delays: ENABLE_CONSTRUCTION_DELAYS,
         }
     }
 
@@ -513,6 +522,13 @@ impl Map {
     }
 
     pub fn add_generator(&mut self, mut generator: Generator) {
+        // Initialize construction status with current year and public opinion
+        let current_year = self.current_year;
+        let public_opinion = self.calculate_public_opinion_at_location(&generator.coordinate);
+        
+        // Initialize construction with delays enabled/disabled based on map setting
+        generator.initialize_construction(current_year, public_opinion, self.enable_construction_delays);
+        
         if self.use_fast_simulation {
             if let Some(analysis) = &mut self.location_analysis {
                 println!("Fast mode: Attempting to add {:?} generator", generator.get_generator_type());
@@ -717,7 +733,14 @@ impl Map {
         self.settlements.push(settlement);
     }
 
-    pub fn add_carbon_offset(&mut self, offset: CarbonOffset) {
+    pub fn add_carbon_offset(&mut self, mut offset: CarbonOffset) {
+        // Initialize construction status with current year and public opinion
+        let current_year = self.current_year;
+        let public_opinion = self.calculate_public_opinion_at_location(offset.get_coordinate());
+        
+        // Initialize construction with delays enabled/disabled based on map setting
+        offset.initialize_construction(current_year, public_opinion, self.enable_construction_delays);
+        
         self.carbon_offsets.push(offset);
     }
 
@@ -1344,6 +1367,42 @@ impl Map {
         });
         
         self.storage_cache = storage_indices;
+    }
+
+    pub fn set_enable_construction_delays(&mut self, enable: bool) {
+        self.enable_construction_delays = enable;
+    }
+
+    pub fn update_construction_status(&mut self) {
+        let current_year = self.current_year;
+        
+        // Update generators
+        for generator in &mut self.generators {
+            generator.update_construction_status(current_year);
+        }
+        
+        // Update carbon offsets
+        for offset in &mut self.carbon_offsets {
+            offset.update_construction_status(current_year);
+        }
+    }
+
+    pub fn calculate_total_power_output(&self, hour: Option<u8>) -> f64 {
+        let _timing = logging::start_timing("calculate_total_power_output", OperationCategory::PowerCalculation { 
+            subcategory: PowerCalcType::Generation 
+        });
+        
+        self.generators.iter()
+            .filter(|g| g.is_active())  // This now checks construction status
+            .map(|g| g.get_current_power_output(hour))
+            .sum()
+    }
+
+    // Calculate public opinion at a specific location
+    pub fn calculate_public_opinion_at_location(&self, coordinate: &Coordinate) -> f64 {
+        // Default to a moderate public opinion if no specific calculation is available
+        // In a real implementation, this would consider nearby settlements, existing generators, etc.
+        0.65
     }
 }
 

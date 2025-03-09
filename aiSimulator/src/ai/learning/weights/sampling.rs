@@ -3,8 +3,10 @@
 use std::collections::HashMap;
 use rand::Rng;
 use crate::models::generator::GeneratorType;
+use crate::models::carbon_offset::CarbonOffsetType;
 use crate::ai::actions::grid_action::GridAction;
 use crate::ai::learning::constants::*;
+use crate::config::constants::{DEFAULT_COST_MULTIPLIER, FAST_COST_MULTIPLIER, VERY_FAST_COST_MULTIPLIER, RUSH_COST_MULTIPLIER};
 use super::ActionWeights;
 
 // Add a dummy public item to ensure this file is recognized by rust-analyzer
@@ -19,30 +21,55 @@ impl ActionWeights {
     // Initialize weights for a single year
     pub fn initialize_weights(&self) -> HashMap<GridAction, f64> {
         let mut year_weights = HashMap::new();
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), ONSHORE_WIND_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), OFFSHORE_WIND_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar), DOMESTIC_SOLAR_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar), COMMERCIAL_SOLAR_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), UTILITY_SOLAR_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), NUCLEAR_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::CoalPlant), COAL_PLANT_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), GAS_COMBINED_CYCLE_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), GAS_PEAKER_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), BIOMASS_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), HYDRO_DAM_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), PUMPED_STORAGE_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), BATTERY_STORAGE_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator), TIDAL_GENERATOR_WEIGHT);
-        year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy), WAVE_ENERGY_WEIGHT);
+        
+        // Add generators with default cost multiplier
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind, DEFAULT_COST_MULTIPLIER), ONSHORE_WIND_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind, DEFAULT_COST_MULTIPLIER), OFFSHORE_WIND_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar, DEFAULT_COST_MULTIPLIER), DOMESTIC_SOLAR_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar, DEFAULT_COST_MULTIPLIER), COMMERCIAL_SOLAR_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar, DEFAULT_COST_MULTIPLIER), UTILITY_SOLAR_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear, DEFAULT_COST_MULTIPLIER), NUCLEAR_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::CoalPlant, DEFAULT_COST_MULTIPLIER), COAL_PLANT_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle, DEFAULT_COST_MULTIPLIER), GAS_COMBINED_CYCLE_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER), GAS_PEAKER_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass, DEFAULT_COST_MULTIPLIER), BIOMASS_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam, DEFAULT_COST_MULTIPLIER), HYDRO_DAM_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage, DEFAULT_COST_MULTIPLIER), PUMPED_STORAGE_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage, DEFAULT_COST_MULTIPLIER), BATTERY_STORAGE_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator, DEFAULT_COST_MULTIPLIER), TIDAL_GENERATOR_WEIGHT);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy, DEFAULT_COST_MULTIPLIER), WAVE_ENERGY_WEIGHT);
+        
+        // Add generators with higher cost multipliers (faster construction)
+        // Fast cost multiplier (150%)
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind, FAST_COST_MULTIPLIER), ONSHORE_WIND_WEIGHT * 0.5);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind, FAST_COST_MULTIPLIER), OFFSHORE_WIND_WEIGHT * 0.5);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar, FAST_COST_MULTIPLIER), UTILITY_SOLAR_WEIGHT * 0.5);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker, FAST_COST_MULTIPLIER), GAS_PEAKER_WEIGHT * 0.5);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage, FAST_COST_MULTIPLIER), BATTERY_STORAGE_WEIGHT * 0.5);
+        
+        // Very fast cost multiplier (200%)
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind, VERY_FAST_COST_MULTIPLIER), ONSHORE_WIND_WEIGHT * 0.25);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar, VERY_FAST_COST_MULTIPLIER), UTILITY_SOLAR_WEIGHT * 0.25);
+        year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker, VERY_FAST_COST_MULTIPLIER), GAS_PEAKER_WEIGHT * 0.25);
+        
+        // Add carbon offsets with default and higher cost multipliers
+        year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::Forest, DEFAULT_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT);
+        year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::Wetland, DEFAULT_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT);
+        year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::ActiveCapture, DEFAULT_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT);
+        year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::CarbonCredit, DEFAULT_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT);
+        
+        // Add carbon offsets with higher cost multipliers
+        year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::Forest, FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.5);
+        year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::CarbonCredit, FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.5);
+        
+        // Other actions
         year_weights.insert(GridAction::UpgradeEfficiency(String::new()), UPGRADE_EFFICIENCY_WEIGHT);
         year_weights.insert(GridAction::AdjustOperation(String::new(), OPERATION_PERCENTAGE_MIN), ADJUST_OPERATION_WEIGHT);
-        year_weights.insert(GridAction::AddCarbonOffset("Forest".to_string()), CARBON_OFFSET_WEIGHT);
-        year_weights.insert(GridAction::AddCarbonOffset("Wetland".to_string()), CARBON_OFFSET_WEIGHT);
-        year_weights.insert(GridAction::AddCarbonOffset("ActiveCapture".to_string()), CARBON_OFFSET_WEIGHT);
-        year_weights.insert(GridAction::AddCarbonOffset("CarbonCredit".to_string()), CARBON_OFFSET_WEIGHT);
         year_weights.insert(GridAction::CloseGenerator(String::new()), CLOSE_GENERATOR_WEIGHT);
+        
         // Initialize DoNothing with a base weight
         year_weights.insert(GridAction::DoNothing, DO_NOTHING_WEIGHT);
+        
         year_weights
     }
 
@@ -140,7 +167,7 @@ impl ActionWeights {
             let actions: Vec<_> = year_weights.keys().collect();
             if actions.is_empty() {
                 // Fallback to a safe default action if no actions are available
-                return GridAction::AddGenerator(GeneratorType::GasPeaker);
+                return GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER);
             }
             
             let random_idx = match &mut self.deterministic_rng {
@@ -155,7 +182,7 @@ impl ActionWeights {
         let total_weight: f64 = year_weights.values().sum();
         if total_weight <= ZERO_F64 {
             // If all weights are zero or negative, fall back to a safe default
-            return GridAction::AddGenerator(GeneratorType::GasPeaker);
+            return GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER);
         }
 
         // When stuck for many iterations, use a more aggressive selection strategy
@@ -190,7 +217,7 @@ impl ActionWeights {
             
             // Fallback to the highest weight action
             return actions_with_weights.first().map(|(a, _)| (*a).clone())
-                .unwrap_or(GridAction::AddGenerator(GeneratorType::GasPeaker));
+                .unwrap_or(GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER));
         } else {
             // Standard weighted selection for normal operation
             let mut random_val = match &mut self.deterministic_rng {
@@ -207,7 +234,7 @@ impl ActionWeights {
         }
         
         // Fallback to a safe default if no action was selected
-        GridAction::AddGenerator(GeneratorType::GasPeaker)
+        GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER)
     }
 
     pub fn sample_deficit_action(&mut self, year: u32) -> GridAction {
@@ -291,7 +318,7 @@ impl ActionWeights {
             Some(weights) => weights,
             None => {
                 // Fallback to initialize weights for this year if missing
-                return GridAction::AddGenerator(GeneratorType::GasPeaker);
+                return GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER);
             }
         };
         
@@ -305,12 +332,12 @@ impl ActionWeights {
         if should_explore {
             // Random exploration
             let actions: Vec<_> = year_weights.keys()
-                .filter(|action| matches!(action, GridAction::AddGenerator(_)))
+                .filter(|action| matches!(action, GridAction::AddGenerator(_, _)))
                 .collect();
             
             if actions.is_empty() {
                 // Fallback to a reliable generator if no AddGenerator actions
-                return GridAction::AddGenerator(GeneratorType::GasPeaker);
+                return GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER);
             }
             
             let random_idx = match &mut self.deterministic_rng {
@@ -323,13 +350,13 @@ impl ActionWeights {
         
         // Exploitation - weighted selection of generator actions
         let total_weight: f64 = year_weights.iter()
-            .filter(|(action, _)| matches!(action, GridAction::AddGenerator(_)))
+            .filter(|(action, _)| matches!(action, GridAction::AddGenerator(_, _)))
             .map(|(_, &weight)| weight)
             .sum();
         
         if total_weight <= ZERO_F64 {
             // If all weights are zero or negative, fall back to a reliable generator
-            return GridAction::AddGenerator(GeneratorType::GasPeaker);
+            return GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER);
         }
         
         let mut random_val = match &mut self.deterministic_rng {
@@ -338,7 +365,7 @@ impl ActionWeights {
         };
         
         for (action, weight) in year_weights {
-            if matches!(action, GridAction::AddGenerator(_)) {
+            if matches!(action, GridAction::AddGenerator(_, _)) {
                 random_val -= weight;
                 if random_val <= ZERO_F64 {
                     return action.clone();
@@ -347,7 +374,7 @@ impl ActionWeights {
         }
         
         // Fallback to a reliable generator if selection fails
-        GridAction::AddGenerator(GeneratorType::GasPeaker)
+        GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER)
     }
 
     pub fn sample_additional_actions(&mut self, year: u32) -> u32 {
@@ -427,22 +454,22 @@ impl ActionWeights {
         let mut action_pool = Vec::new();
         
         // Basic renewables always have some representation
-        action_pool.push((GridAction::AddGenerator(GeneratorType::OnshoreWind), ONSHORE_WIND_FALLBACK_WEIGHT as u32));
-        action_pool.push((GridAction::AddGenerator(GeneratorType::OffshoreWind), OFFSHORE_WIND_FALLBACK_WEIGHT as u32));
-        action_pool.push((GridAction::AddGenerator(GeneratorType::UtilitySolar), UTILITY_SOLAR_FALLBACK_WEIGHT as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::OnshoreWind, DEFAULT_COST_MULTIPLIER), ONSHORE_WIND_FALLBACK_WEIGHT as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::OffshoreWind, DEFAULT_COST_MULTIPLIER), OFFSHORE_WIND_FALLBACK_WEIGHT as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::UtilitySolar, DEFAULT_COST_MULTIPLIER), UTILITY_SOLAR_FALLBACK_WEIGHT as u32));
         
         // Storage becomes more important in middle and late years
         let storage_weight = if year < MID_YEAR_THRESHOLD { STORAGE_WEIGHT_EARLY } else { STORAGE_WEIGHT_LATE };
-        action_pool.push((GridAction::AddGenerator(GeneratorType::BatteryStorage), storage_weight as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::BatteryStorage, DEFAULT_COST_MULTIPLIER), storage_weight as u32));
         
         // Carbon offsets become crucial in later years
         let offset_weight = if year < MID_YEAR_THRESHOLD { OFFSET_WEIGHT_EARLY } else if year < LATE_YEAR_THRESHOLD { OFFSET_WEIGHT_MID } else { OFFSET_WEIGHT_LATE };
-        action_pool.push((GridAction::AddCarbonOffset("Forest".to_string()), offset_weight as u32));
-        action_pool.push((GridAction::AddCarbonOffset("ActiveCapture".to_string()), offset_weight as u32));
+        action_pool.push((GridAction::AddCarbonOffset(CarbonOffsetType::Forest, DEFAULT_COST_MULTIPLIER), offset_weight as u32));
+        action_pool.push((GridAction::AddCarbonOffset(CarbonOffsetType::ActiveCapture, DEFAULT_COST_MULTIPLIER), offset_weight as u32));
         
         // Gas for reliable power - more important in early years, less in later
         let gas_weight = if year < MID_YEAR_THRESHOLD { GAS_WEIGHT_EARLY } else if year < LATE_YEAR_THRESHOLD { GAS_WEIGHT_MID } else { GAS_WEIGHT_LATE };
-        action_pool.push((GridAction::AddGenerator(GeneratorType::GasCombinedCycle), gas_weight as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::GasCombinedCycle, DEFAULT_COST_MULTIPLIER), gas_weight as u32));
         
         // Calculate total weight
         let total_weight: u32 = action_pool.iter().map(|(_, w)| w).sum();
@@ -459,7 +486,7 @@ impl ActionWeights {
         }
         
         // Fallback to a safe default if something went wrong
-        GridAction::AddGenerator(GeneratorType::BatteryStorage)
+        GridAction::AddGenerator(GeneratorType::BatteryStorage, DEFAULT_COST_MULTIPLIER)
     }
 
     pub fn generate_smart_deficit_fallback_action(&self, year: u32) -> GridAction {
@@ -471,16 +498,16 @@ impl ActionWeights {
         let mut action_pool = Vec::new();
         
         // Immediate response options get highest priority
-        action_pool.push((GridAction::AddGenerator(GeneratorType::GasPeaker), DEFICIT_GAS_PEAKER_FALLBACK_WEIGHT as u32));
-        action_pool.push((GridAction::AddGenerator(GeneratorType::BatteryStorage), DEFICIT_BATTERY_FALLBACK_WEIGHT as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER), DEFICIT_GAS_PEAKER_FALLBACK_WEIGHT as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::BatteryStorage, DEFAULT_COST_MULTIPLIER), DEFICIT_BATTERY_FALLBACK_WEIGHT as u32));
         
         // Medium-term reliable options
-        action_pool.push((GridAction::AddGenerator(GeneratorType::GasCombinedCycle), DEFICIT_GAS_COMBINED_FALLBACK_WEIGHT as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::GasCombinedCycle, DEFAULT_COST_MULTIPLIER), DEFICIT_GAS_COMBINED_FALLBACK_WEIGHT as u32));
         
         // Renewables - lower priority for deficit but still included
-        action_pool.push((GridAction::AddGenerator(GeneratorType::OnshoreWind), DEFICIT_ONSHORE_WIND_FALLBACK_WEIGHT as u32));
-        action_pool.push((GridAction::AddGenerator(GeneratorType::OffshoreWind), (DEFICIT_OFFSHORE_WIND_WEIGHT * RENEWABLE_FALLBACK_WEIGHT_FACTOR) as u32));
-        action_pool.push((GridAction::AddGenerator(GeneratorType::UtilitySolar), (DEFICIT_UTILITY_SOLAR_WEIGHT * RENEWABLE_FALLBACK_WEIGHT_FACTOR * PERCENT_CONVERSION) as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::OnshoreWind, DEFAULT_COST_MULTIPLIER), DEFICIT_ONSHORE_WIND_FALLBACK_WEIGHT as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::OffshoreWind, DEFAULT_COST_MULTIPLIER), (DEFICIT_OFFSHORE_WIND_WEIGHT * RENEWABLE_FALLBACK_WEIGHT_FACTOR) as u32));
+        action_pool.push((GridAction::AddGenerator(GeneratorType::UtilitySolar, DEFAULT_COST_MULTIPLIER), (DEFICIT_UTILITY_SOLAR_WEIGHT * RENEWABLE_FALLBACK_WEIGHT_FACTOR * PERCENT_CONVERSION) as u32));
         
         // Calculate total weight
         let total_weight: u32 = action_pool.iter().map(|(_, w)| w).sum();
@@ -497,7 +524,7 @@ impl ActionWeights {
         }
         
         // Fallback to a reliable default if something went wrong
-        GridAction::AddGenerator(GeneratorType::BatteryStorage)
+        GridAction::AddGenerator(GeneratorType::BatteryStorage, DEFAULT_COST_MULTIPLIER)
     }
 
 }

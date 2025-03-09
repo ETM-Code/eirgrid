@@ -16,6 +16,7 @@ pub fn run_iteration(
     verbose_logging: bool,
     optimization_mode: Option<&str>,
     enable_energy_sales: bool,
+    enable_construction_delays: bool,
 ) -> Result<SimulationResult, Box<dyn Error + Send + Sync>> {
     let _timing = logging::start_timing("run_iteration", OperationCategory::Simulation);
     
@@ -47,7 +48,8 @@ pub fn run_iteration(
         seed, 
         verbose_logging, 
         optimization_mode, 
-        enable_energy_sales
+        enable_energy_sales,
+        enable_construction_delays
     )?;
     
     // Calculate metrics from the last yearly metrics instead of relying on weights
