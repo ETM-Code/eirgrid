@@ -9,7 +9,7 @@ use crate::core::action_weights::{GridAction, SimulationMetrics};
 use crate::models::settlement::Settlement;
 use crate::models::carbon_offset::CarbonOffset;
 use crate::models::carbon_offset::CarbonOffsetType;
-use crate::config::constants::{BASE_YEAR, END_YEAR, IRELAND_MIN_LAT, IRELAND_MIN_LON, GRID_SCALE_X, GRID_SCALE_Y, FOREST_BASE_COST, WETLAND_BASE_COST, ACTIVE_CAPTURE_BASE_COST, CARBON_CREDIT_BASE_COST};
+use crate::config::constants::{BASE_YEAR, END_YEAR, IRELAND_MIN_LAT, IRELAND_MAX_LAT, IRELAND_MIN_LON, IRELAND_MAX_LON, GRID_SCALE_X, GRID_SCALE_Y, FOREST_BASE_COST, WETLAND_BASE_COST, ACTIVE_CAPTURE_BASE_COST, CARBON_CREDIT_BASE_COST, MAP_MAX_X, MAP_MAX_Y};
 use crate::data::poi::POI;
 use crate::models::generator::{Generator, GeneratorType};
 use crate::config::const_funcs;
@@ -17,8 +17,45 @@ use crate::config::const_funcs;
 /// Function to transform grid coordinates back to lat/lon
 fn transform_grid_to_lat_lon(x: f64, y: f64) -> (f64, f64) {
     // This is the inverse of the transform_lat_lon_to_grid function in const_funcs.rs
-    let lon = (x / GRID_SCALE_X) + IRELAND_MIN_LON;
-    let lat = (y / GRID_SCALE_Y) + IRELAND_MIN_LAT;
+    // Ireland spans from IRELAND_MIN_LON=-10.6 to IRELAND_MAX_LON=-5.9 in longitude
+    // and from IRELAND_MIN_LAT=51.4 to IRELAND_MAX_LAT=55.4 in latitude
+    
+    // Log serious warning for negative values which will cause bad transformations
+    if x < 0.0 || y < 0.0 {
+        println!("ERROR: Received negative grid coordinates ({:.2}, {:.2}) - this will cause incorrect geographic positioning!",
+                 x, y);
+    }
+    
+    // Validate and clamp input coordinates to ensure they're within the valid range
+    let x_valid = x.max(0.0).min(MAP_MAX_X);
+    let y_valid = y.max(0.0).min(MAP_MAX_Y);
+    
+    // Log a warning if the coordinates were outside the valid range
+    if x != x_valid || y != y_valid {
+        println!("WARNING: Invalid grid coordinates ({:.2}, {:.2}) clamped to ({:.2}, {:.2})",
+                 x, y, x_valid, y_valid);
+    }
+    
+    // Check if the coordinates are very close to the origin, which might indicate issues
+    if x_valid < 1000.0 && y_valid < 1000.0 {
+        println!("WARNING: Grid coordinates very close to origin ({:.2}, {:.2}) - this may indicate a transformation issue",
+                 x_valid, y_valid);
+    }
+    
+    // Calculate the proper longitude and latitude based on the proportion across the grid
+    let lon_range = IRELAND_MAX_LON - IRELAND_MIN_LON;
+    let lat_range = IRELAND_MAX_LAT - IRELAND_MIN_LAT;
+    
+    // Convert from grid coordinates to proportional position (0.0 to 1.0)
+    let x_prop = x_valid / MAP_MAX_X;
+    let y_prop = y_valid / MAP_MAX_Y;
+    
+    // Convert proportional position to actual coordinates
+    let lon = IRELAND_MIN_LON + (lon_range * x_prop);
+    let lat = IRELAND_MIN_LAT + (lat_range * y_prop);
+    
+    println!("Transformed grid ({:.2}, {:.2}) to geo ({:.6}, {:.6})", x_valid, y_valid, lon, lat);
+    
     (lon, lat) // Return as (longitude, latitude) for consistent ordering
 }
 
@@ -583,14 +620,11 @@ impl CsvExporter {
                 // Sanitize the ID for CSV output
                 let sanitized_id = sanitize_id(generator_id);
                 
-                // Debug output for a sample of generators
-                // if generators.len() < 10 || generator_id.contains("0") {
-                //     println!(
-                //         "Writing generator from map: Year={}, ID={}, Type={}, LatLon=({:.6},{:.6}), Power={:.2} MW", 
-                //         year, generator_id, generator_type, lon, lat,
-                //         generator.get_current_power_output(None)
-                //     );
-                // }
+                // Add debugging for non-transformed coordinate values
+                if self.verbose_logging {
+                    println!("Generator {} coordinates - Grid: ({:.2}, {:.2}), Geo: ({:.6}, {:.6})",
+                        generator_id, coordinate.x, coordinate.y, lon, lat);
+                }
                 
                 // Write generator data to CSV
                 writeln!(
@@ -599,8 +633,7 @@ impl CsvExporter {
                     year,
                     sanitized_id,
                     generator_type,
-                    lon,  // Longitude
-                    lat,  // Latitude
+                    lon, lat,
                     generator.get_current_power_output(None),
                     efficiency,
                     operation,
@@ -608,10 +641,10 @@ impl CsvExporter {
                     generator.is_active(),
                     commissioning_year,
                     eol,
-                    size,
+                    size * 100.0, // Convert from 0-1 scale to percentage for readability
                     capital_cost,
                     operating_cost,
-                    total_annual_cost,
+                    capital_cost + operating_cost,
                     reliability_factor
                 )?;
             }
@@ -621,7 +654,35 @@ impl CsvExporter {
                 for (id, efficiency) in year_efficiencies {
                     if !processed_generators.contains(id) {
                         // We found a generator in the yearly metrics that's not in the current map state
-                        // Try to extract meaningful information from the ID and other sources
+                        
+                        // First check if this is an "Existing_" generator that we might have a record for
+                        // in a previous year's state. If so, we should use its real coordinates.
+                        let mut found_existing_generator = false;
+                        let mut existing_generator_coordinates = None;
+                        
+                        if id.starts_with("Existing_") {
+                            // Search through the original generators list to see if we can find this generator
+                            for generator in generators.iter() {
+                                if generator.get_id() == id {
+                                    // Found the generator! Use its real coordinates
+                                    let real_coordinate = generator.get_coordinate();
+                                    
+                                    if self.verbose_logging {
+                                        println!("Found real coordinates ({:.2}, {:.2}) for existing generator {}", 
+                                            real_coordinate.x, real_coordinate.y, id);
+                                    }
+                                    
+                                    // Store the real coordinates for use below
+                                    existing_generator_coordinates = Some((real_coordinate.x, real_coordinate.y));
+                                    found_existing_generator = true;
+                                    break;
+                                }
+                            }
+                            
+                            if !found_existing_generator && self.verbose_logging {
+                                println!("WARNING: Could not find real coordinates for existing generator {}", id);
+                            }
+                        }
                         
                         // Parse information from the ID
                         let gen_type = extract_generator_type(id);
@@ -638,11 +699,23 @@ impl CsvExporter {
                         let power_output = get_default_power_output(&gen_type);
                         let co2_output = get_default_co2_output(&gen_type, power_output);
                         
-                        // Generate a deterministic but varied coordinate based on the ID to avoid all
-                        // generators appearing at the origin (0,0)
-                        let id_hash: u32 = id.chars().fold(0, |acc, c| acc + c as u32);
-                        let x = (id_hash % 1000) as f64 / 1000.0 * 2.0 - 1.0; // Range: -1.0 to 1.0
-                        let y = ((id_hash / 1000) % 1000) as f64 / 1000.0 * 2.0 - 1.0; // Range: -1.0 to 1.0
+                        // Determine the coordinates to use - either real ones if found, or generate synthetic ones
+                        let (x, y) = match existing_generator_coordinates {
+                            Some((x, y)) => (x, y),
+                            None => {
+                                // Generate deterministic coordinates based on the ID
+                                let id_hash: u32 = id.chars().fold(0, |acc, c| acc + c as u32);
+                                let x = 5000.0 + (id_hash % 100) as f64 / 100.0 * (MAP_MAX_X - 10000.0);
+                                let y = 5000.0 + ((id_hash / 100) % 100) as f64 / 100.0 * (MAP_MAX_Y - 10000.0);
+                                
+                                if self.verbose_logging {
+                                    println!("Generated synthetic grid coordinates ({:.2}, {:.2}) for generator {}", 
+                                        x, y, id);
+                                }
+                                
+                                (x, y)
+                            }
+                        };
                         
                         // Convert grid coordinates to lat/lon
                         let (lon, lat) = transform_grid_to_lat_lon(x, y);
@@ -700,12 +773,10 @@ impl CsvExporter {
                         // Sanitize the ID for CSV output
                         let sanitized_id = sanitize_id(id);
                         
-                        // Debug output for generators found only in metrics - only if verbose logging is enabled
+                        // Add debugging for non-transformed coordinate values
                         if self.verbose_logging {
-                            println!(
-                                "Writing generator from metrics: Year={}, ID={}, Type={}, Grid=({:.6},{:.6}), LatLon=({:.6},{:.6}), Efficiency={:.2}%, Operation={:.2}%", 
-                                year, id, gen_type, x, y, lon, lat, efficiency * 100.0, operation
-                            );
+                            println!("Generator {} coordinates - Grid: ({:.2}, {:.2}), Geo: ({:.6}, {:.6})",
+                                id, x, y, lon, lat);
                         }
                         
                         // Write generator data to CSV with the information we have
@@ -724,7 +795,7 @@ impl CsvExporter {
                             true, // Assume active since it appears in metrics
                             commissioning_year,
                             eol_year,
-                            size,
+                            size * 100.0, // Convert from 0-1 scale to percentage for readability
                             capital_cost,
                             operating_cost,
                             capital_cost + operating_cost,

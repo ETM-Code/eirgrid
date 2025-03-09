@@ -163,6 +163,10 @@ const irelandBoundingBox = {
 // Cache to store generator coordinates by ID
 const generatorCoordinatesCache = {};
 
+// Flag to control whether to use random coordinates for generators
+// Set to false to use actual coordinates from the CSV, or true to use random coordinates
+const useRandomGeneratorCoordinates = false;
+
 /**
  * Generate random coordinates within Ireland's bounding box
  * @returns {Object} Object with lat and lng properties
@@ -804,15 +808,36 @@ function processGeneratorData(data, processedData) {
     // Get or generate generator ID
     const generatorId = row['Generator ID'] || `Generator_${Math.random().toString(36).substring(2, 10)}`;
     
-    // Get coordinates from cache or generate new ones
-    if (!generatorCoordinatesCache[generatorId]) {
-      // Generate random coordinates within Ireland and cache them for this generator
-      generatorCoordinatesCache[generatorId] = generateRandomIrishCoordinates();
-      log(`Generated random Irish coordinates for generator ${generatorId}: ${generatorCoordinatesCache[generatorId].lat}, ${generatorCoordinatesCache[generatorId].lng}`, 'debug');
-    }
+    // Determine coordinates based on the useRandomGeneratorCoordinates flag
+    let lat, lng;
     
-    // Use the cached coordinates
-    const { lat, lng } = generatorCoordinatesCache[generatorId];
+    if (useRandomGeneratorCoordinates) {
+      // Use random coordinates
+      if (!generatorCoordinatesCache[generatorId]) {
+        // Generate random coordinates within Ireland and cache them for this generator
+        generatorCoordinatesCache[generatorId] = generateRandomIrishCoordinates();
+        log(`Generated random Irish coordinates for generator ${generatorId}: ${generatorCoordinatesCache[generatorId].lat}, ${generatorCoordinatesCache[generatorId].lng}`, 'debug');
+      }
+      
+      // Use the cached coordinates
+      ({ lat, lng } = generatorCoordinatesCache[generatorId]);
+    } else {
+      // Use coordinates from the CSV data if available
+      lng = parseFloat(row.Longitude);
+      lat = parseFloat(row.Latitude);
+      
+      // Fall back to random coordinates if CSV coordinates are not valid
+      if (isNaN(lat) || isNaN(lng)) {
+        log(`Missing or invalid coordinates for generator ${generatorId}, falling back to random coordinates`, 'warn');
+        
+        // Use cached coordinates if available, otherwise generate new ones
+        if (!generatorCoordinatesCache[generatorId]) {
+          generatorCoordinatesCache[generatorId] = generateRandomIrishCoordinates();
+        }
+        
+        ({ lat, lng } = generatorCoordinatesCache[generatorId]);
+      }
+    }
     
     // Log the coordinates that we're using
     log(`Generator ${generatorId}: Using coordinates Latitude=${lat}, Longitude=${lng}`, 'debug');
@@ -1292,8 +1317,7 @@ window.DataLoader.loadCsvData = function() {
                 reject(new Error('No valid data found in CSV files'));
               }
             }
-          }
-        });
+        }});
       });
     };
     

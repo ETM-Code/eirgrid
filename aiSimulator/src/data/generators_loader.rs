@@ -4,6 +4,7 @@ use csv::ReaderBuilder;
 use crate::models::generator::{Generator, GeneratorType};
 use super::poi::Coordinate;
 use crate::config::constants::*;
+use crate::config::constants::{IRELAND_MIN_LAT, IRELAND_MAX_LAT, IRELAND_MIN_LON, IRELAND_MAX_LON};
 use crate::config::const_funcs::{calc_generator_cost, calc_operating_cost, calc_initial_co2_output, calc_decommission_cost, transform_lat_lon_to_grid, is_location_on_land, is_coastal_location};
 
 #[derive(Debug)]
@@ -56,10 +57,62 @@ fn map_fuel_type_to_generator_type(fuel: &str) -> Result<GeneratorType, Generato
 }
 
 fn transform_coordinates(lat: f64, lon: f64) -> Result<Coordinate, GeneratorLoadError> {
-    transform_lat_lon_to_grid(lat, lon)
+    // First check if the coordinates are within Ireland's bounds
+    if lat < IRELAND_MIN_LAT || lat > IRELAND_MAX_LAT || 
+       lon < IRELAND_MIN_LON || lon > IRELAND_MAX_LON {
+        println!("WARNING: Coordinates outside Ireland's bounds: {}, {} - will clamp to valid range", lat, lon);
+        
+        // Clamp the coordinates to valid range instead of failing
+        let lat_valid = lat.max(IRELAND_MIN_LAT).min(IRELAND_MAX_LAT);
+        let lon_valid = lon.max(IRELAND_MIN_LON).min(IRELAND_MAX_LON);
+        
+        println!("Clamped coordinates: {}, {} -> {}, {}", lat, lon, lat_valid, lon_valid);
+        
+        // Continue with the clamped coordinates
+        let coordinate = transform_lat_lon_to_grid(lat_valid, lon_valid)
+            .ok_or_else(|| GeneratorLoadError::InvalidCoordinate(
+                format!("Failed to transform coordinates: {}, {}", lat_valid, lon_valid)
+            ))?;
+        
+        println!("Transformed clamped coordinates: ({}, {}) -> ({:.2}, {:.2})", 
+                 lat_valid, lon_valid, coordinate.x, coordinate.y);
+                 
+        return Ok(coordinate);
+    }
+
+    // Transform using the proper full transformation
+    let coordinate = transform_lat_lon_to_grid(lat, lon)
         .ok_or_else(|| GeneratorLoadError::InvalidCoordinate(
-            format!("Coordinates outside Ireland's bounds: {}, {}", lat, lon)
-        ))
+            format!("Failed to transform coordinates: {}, {}", lat, lon)
+        ))?;
+    
+    // Verify the coordinate is valid and within expected range
+    if coordinate.x < 0.0 || coordinate.x > MAP_MAX_X || 
+       coordinate.y < 0.0 || coordinate.y > MAP_MAX_Y {
+        println!("WARNING: Transformed grid coordinates outside valid range: ({:.2}, {:.2})", 
+                 coordinate.x, coordinate.y);
+                 
+        // Clamp to valid range
+        let x_valid = coordinate.x.max(0.0).min(MAP_MAX_X);
+        let y_valid = coordinate.y.max(0.0).min(MAP_MAX_Y);
+        
+        println!("Clamped grid coordinates: ({:.2}, {:.2}) -> ({:.2}, {:.2})",
+                 coordinate.x, coordinate.y, x_valid, y_valid);
+                 
+        return Ok(Coordinate::new(x_valid, y_valid));
+    }
+    
+    // Additional check for values near zero which might indicate transformation issues
+    if coordinate.x < 1000.0 && coordinate.y < 1000.0 {
+        println!("WARNING: Generator coordinates transformed to near-origin values: ({:.2}, {:.2}) from ({}, {})",
+                 coordinate.x, coordinate.y, lat, lon);
+    }
+    
+    // Provide debug info about the transformation
+    println!("Transformed coordinates: ({}, {}) -> ({:.2}, {:.2})", 
+             lat, lon, coordinate.x, coordinate.y);
+    
+    Ok(coordinate)
 }
 
 fn normalize_capacity(capacity: f64, gen_type: &GeneratorType) -> f64 {

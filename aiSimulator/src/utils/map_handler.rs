@@ -529,36 +529,57 @@ impl Map {
         // Initialize construction with delays enabled/disabled based on map setting
         generator.initialize_construction(current_year, public_opinion, self.enable_construction_delays);
         
+        // Determine if we need to assign a location
+        let needs_location = generator.get_coordinate().x == 0.0 && generator.get_coordinate().y == 0.0;
+        
         if self.use_fast_simulation {
             if let Some(analysis) = &mut self.location_analysis {
                 println!("Fast mode: Attempting to add {:?} generator", generator.get_generator_type());
                 println!("  Available spaces: {}", analysis.get_remaining_spaces(generator.get_generator_type()));
                 
                 if analysis.try_reserve_space(generator.get_generator_type()) {
-                    // In fast mode, we still want to distribute generators across the map
-                    // Generate a deterministic but well-distributed coordinate based on generator type and ID
-                    let id_hash: u32 = generator.get_id().chars().fold(0, |acc, c| acc + c as u32);
+                    // IMPORTANT FIX: Instead of generating arbitrary coordinates,
+                    // look for an actual suitable location from the analyzed locations
+                    if needs_location {
+                        // Find a suitable location for this generator type
+                        let suitable_location = self.find_suitable_location_from_analysis(
+                            generator.get_generator_type(),
+                            generator.get_id()
+                        );
+                        
+                        if let Some(coordinate) = suitable_location {
+                            generator.coordinate = coordinate.clone();
+                            println!("Fast mode: Assigned location ({:.1}, {:.1}) to {} generator",
+                                coordinate.x, coordinate.y, generator.get_generator_type());
+                        } else {
+                            // Fallback to old method if no suitable location found
+                            println!("WARNING: No suitable location found for {} generator, using fallback placement",
+                                generator.get_generator_type());
+                                
+                            // Use the old method as fallback
+                            let id_hash: u32 = generator.get_id().chars().fold(0, |acc, c| acc + c as u32);
+                            
+                            // FIXED: Generate coordinates distributed within valid range
+                            // Using a more sensible formula that never gives negative values
+                            let x = 5000.0 + (id_hash % 100) as f64 / 100.0 * (MAP_MAX_X - 10000.0);
+                            let y = 5000.0 + ((id_hash / 100) % 100) as f64 / 100.0 * (MAP_MAX_Y - 10000.0);
+                            
+                            println!("Fallback coordinates for {}: ({:.2}, {:.2})", 
+                                generator.get_id(), x, y);
+                            
+                            // Ensure coordinates are valid
+                            let valid_x = x.max(0.0).min(MAP_MAX_X);
+                            let valid_y = y.max(0.0).min(MAP_MAX_Y);
+                            
+                            if valid_x != x || valid_y != y {
+                                println!("WARNING: Adjusted invalid coordinates from ({:.2}, {:.2}) to ({:.2}, {:.2})",
+                                    x, y, valid_x, valid_y);
+                            }
+                            
+                            generator.coordinate = Coordinate::new(valid_x, valid_y);
+                        }
+                    }
                     
-                    // Use the hash to create a semi-random position that depends on the generator type
-                    // This ensures different generator types are spread out
-                    let gen_type_factor = match generator.get_generator_type() {
-                        GeneratorType::OnshoreWind => 0.2,
-                        GeneratorType::OffshoreWind => 0.4,
-                        GeneratorType::UtilitySolar => 0.6,
-                        GeneratorType::CommercialSolar => 0.65,
-                        GeneratorType::DomesticSolar => 0.7,
-                        GeneratorType::Nuclear => 0.8,
-                        GeneratorType::CoalPlant => 0.85,
-                        GeneratorType::GasCombinedCycle => 0.9,
-                        _ => (id_hash % 10) as f64 * 0.1,
-                    };
-                    
-                    // Calculate a distributed position based on the hash
-                    // Scale to 10-90% of the map to avoid edges
-                    let x = 5000.0 + (MAP_MAX_X - 10000.0) * ((id_hash % 100) as f64 / 100.0 + gen_type_factor) / 2.0;
-                    let y = 5000.0 + (MAP_MAX_Y - 10000.0) * (((id_hash / 100) % 100) as f64 / 100.0 + gen_type_factor) / 2.0;
-                    
-                    generator.coordinate = Coordinate::new(x, y);
                     self.generators.push(generator);
                 } else if analysis.any_types_exhausted() {
                     // If we've exhausted locations for any generator type, switch to full mode
@@ -584,52 +605,49 @@ impl Map {
                 return;
             }
         } else {
-            // Full simulation mode - check if the generator has default coordinates
-            let has_default_coords = generator.get_coordinate().x == 0.0 && generator.get_coordinate().y == 0.0;
-            
-            // If coordinates are at or very close to (0,0), generate better coordinates
-            if has_default_coords || 
-               (generator.get_coordinate().x.abs() < 1000.0 && generator.get_coordinate().y.abs() < 1000.0) {
-                
-                // Generate deterministic but well-distributed coordinates based on generator ID
-                let id_hash: u32 = generator.get_id().chars().fold(0, |acc, c| acc + c as u32);
-                
-                // Get the bounds of Ireland to use for coordinate distribution
-                let bounds = self.get_ireland_bounds();
-                let width = bounds.max.x - bounds.min.x;
-                let height = bounds.max.y - bounds.min.y;
-                
-                // Use a more distributed pattern that covers the map evenly
-                // Ensure generators of different types are distributed based on their characteristics
-                // while still maintaining good coverage of the map
-                let type_factor = match generator.get_generator_type() {
-                    GeneratorType::OnshoreWind => 0.0,  // Spread throughout land areas
-                    GeneratorType::OffshoreWind => 0.8, // Coastal areas 
-                    GeneratorType::UtilitySolar => 0.2, // Rural inland
-                    GeneratorType::CommercialSolar => 0.3, // Near settlements
-                    GeneratorType::DomesticSolar => 0.4, // Near settlements
-                    GeneratorType::Nuclear => 0.5, // Coastal but not too close
-                    GeneratorType::CoalPlant => 0.6, // Near infrastructure
-                    GeneratorType::GasCombinedCycle => 0.7, // Near infrastructure
-                    _ => 0.0, // Default - spread anywhere
-                };
-                
-                // Create a pseudo-random but deterministic distribution
-                // Use a prime number multiplication to get good distribution
-                let x_factor = ((id_hash * 73) % 100) as f64 / 100.0;
-                let y_factor = ((id_hash * 151) % 100) as f64 / 100.0;
-                
-                // Adjust with type factor but ensure good distribution
-                let x = bounds.min.x + width * (0.05 + 0.9 * (x_factor * 0.8 + type_factor * 0.2));
-                let y = bounds.min.y + height * (0.05 + 0.9 * (y_factor * 0.8 + type_factor * 0.2));
-                
-                // Update the generator's coordinates
-                generator.coordinate = Coordinate::new(x, y);
-                println!("Updated generator coordinates from (0,0) to ({:.1}, {:.1})", x, y);
+            // Full simulation mode - find the best location if needed
+            if needs_location {
+                // Find the best location for this generator type using the full algorithm
+                if let Some(best_coordinate) = self.find_best_generator_location(
+                    generator.get_generator_type(),
+                    generator.get_size()
+                ) {
+                    generator.coordinate = best_coordinate.clone();
+                    println!("Full mode: Placed {} generator at optimal location ({:.1}, {:.1})",
+                        generator.get_generator_type(), best_coordinate.x, best_coordinate.y);
+                } else {
+                    // If no suitable location found, use a reasonable default
+                    println!("WARNING: No optimal location found for {} generator, using fallback placement",
+                        generator.get_generator_type());
+                        
+                    // Use an improved fallback method that distributes better
+                    let id_hash: u32 = generator.get_id().chars().fold(0, |acc, c| acc + c as u32);
+                    let bounds = self.get_ireland_bounds();
+                    let width = bounds.max.x - bounds.min.x;
+                    let height = bounds.max.y - bounds.min.y;
+                    
+                    // Create reasonable fallback coordinates
+                    let x = bounds.min.x + width * 0.5 + (((id_hash % 100) as f64 / 100.0) - 0.5) * width * 0.8;
+                    let y = bounds.min.y + height * 0.5 + ((((id_hash / 100) % 100) as f64 / 100.0) - 0.5) * height * 0.8;
+                    
+                    // Validate coordinates to ensure they're within bounds
+                    let valid_x = x.max(bounds.min.x).min(bounds.max.x);
+                    let valid_y = y.max(bounds.min.y).min(bounds.max.y);
+                    
+                    if valid_x != x || valid_y != y {
+                        println!("WARNING: Adjusted invalid coordinates from ({:.2}, {:.2}) to ({:.2}, {:.2})",
+                            x, y, valid_x, valid_y);
+                    }
+                    
+                    println!("Full mode fallback coordinates for {}: ({:.2}, {:.2})", 
+                             generator.get_id(), valid_x, valid_y);
+                    
+                    generator.coordinate = Coordinate::new(valid_x, valid_y);
+                }
             }
         }
         
-        // Existing add_generator logic for full simulation
+        // Common code for adding the generator to the map
         let coord = generator.get_coordinate();
         let size = generator.size;
         
@@ -637,46 +655,34 @@ impl Map {
         let grid_x = (coord.x / GRID_CELL_SIZE).floor() as i32;
         let grid_y = (coord.y / GRID_CELL_SIZE).floor() as i32;
         *self.grid_occupancy.entry((grid_x, grid_y)).or_insert(0.0) += size;
-
-        // Update spatial index
-        let radius = (size * GRID_CELL_SIZE).sqrt() * 1.5; // Reduced from 2.0
         
-        // Create a smaller protected zone with lower protection value
-        self.spatial_index.update_region(
-            coord,
-            radius * 0.5, // Smaller protected radius
-            GeneratorSuitabilityType::Protected,
-            0.7, // Lower protection value to allow some flexibility
-        );
-        
-        // Update suitability for the generator type in surrounding area
-        let (suitability_type, base_score) = match generator.get_generator_type() {
-            GeneratorType::OnshoreWind => (GeneratorSuitabilityType::Onshore, 0.4),
-            GeneratorType::OffshoreWind => (GeneratorSuitabilityType::Offshore, 0.5),
-            GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => (GeneratorSuitabilityType::Coastal, 0.5),
-            _ => (GeneratorSuitabilityType::Rural, 0.3),
-        };
-        
-        // Create graduated zones of influence
-        let zones = [
-            (1.0, base_score * 0.8),    // Inner zone
-            (2.0, base_score * 0.6),    // Middle zone
-            (3.0, base_score * 0.4),    // Outer zone
-        ];
-
-        for (radius_mult, score) in zones.iter() {
-            self.spatial_index.update_region(
-                coord,
-                radius * radius_mult,
-                suitability_type,
-                *score,
-            );
-        }
-
+        // Add to the generators list and update indices
         self.generators.push(generator);
-        if self.generators.last().unwrap().get_generator_type().is_storage() {
-            self.update_storage_cache();
+        self.after_generator_modification();
+    }
+
+    // New helper function to find a suitable location from the analysis results
+    fn find_suitable_location_from_analysis(&self, generator_type: &GeneratorType, generator_id: &str) -> Option<Coordinate> {
+        if let Some(analysis) = &self.location_analysis {
+            // Get suitable locations for this generator type
+            let suitable_locations: Vec<&LocationSuitability> = analysis.locations.iter()
+                .filter(|loc| loc.suitability_scores.contains_key(generator_type))
+                .collect();
+            
+            if suitable_locations.is_empty() {
+                return None;
+            }
+            
+            // Use the generator ID to deterministically select a location
+            // This ensures consistent placement for the same generator ID
+            let id_hash: u32 = generator_id.chars().fold(0, |acc, c| acc + c as u32);
+            let index = (id_hash as usize) % suitable_locations.len();
+            
+            // Get the selected location
+            return Some(suitable_locations[index].coordinate.clone());
         }
+        
+        None
     }
 
     pub fn remove_generator(&mut self, id: &str) -> Option<Generator> {
@@ -962,7 +968,56 @@ impl Map {
 
     // Add method to be called after generator modifications
     pub fn after_generator_modification(&mut self) {
+        // This function handles all the common post-generator addition/removal tasks
+        
+        // Update grid occupancy
         self.update_grid_occupancy();
+        
+        // Get the last added generator (if any)
+        if let Some(generator) = self.generators.last() {
+            let coord = generator.get_coordinate();
+            let size = generator.size;
+            
+            // Update spatial index
+            let radius = (size * GRID_CELL_SIZE).sqrt() * 1.5; // Reduced from 2.0
+            
+            // Create a smaller protected zone with lower protection value
+            self.spatial_index.update_region(
+                coord,
+                radius * 0.5, // Smaller protected radius
+                GeneratorSuitabilityType::Protected,
+                0.7, // Lower protection value to allow some flexibility
+            );
+            
+            // Update suitability for the generator type in surrounding area
+            let (suitability_type, base_score) = match generator.get_generator_type() {
+                GeneratorType::OnshoreWind => (GeneratorSuitabilityType::Onshore, 0.4),
+                GeneratorType::OffshoreWind => (GeneratorSuitabilityType::Offshore, 0.5),
+                GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => (GeneratorSuitabilityType::Coastal, 0.5),
+                _ => (GeneratorSuitabilityType::Rural, 0.3),
+            };
+            
+            // Create graduated zones of influence
+            let zones = [
+                (1.0, base_score * 0.8),    // Inner zone
+                (2.0, base_score * 0.6),    // Middle zone
+                (3.0, base_score * 0.4),    // Outer zone
+            ];
+
+            for (radius_mult, score) in zones.iter() {
+                self.spatial_index.update_region(
+                    coord,
+                    radius * radius_mult,
+                    suitability_type,
+                    *score,
+                );
+            }
+            
+            // Update storage cache if this is a storage generator
+            if generator.get_generator_type().is_storage() {
+                self.update_storage_cache();
+            }
+        }
     }
 
     pub fn find_best_generator_location(&self, generator_type: &GeneratorType, size: f64) -> Option<Coordinate> {
