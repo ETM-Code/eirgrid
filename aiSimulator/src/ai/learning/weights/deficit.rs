@@ -1,8 +1,11 @@
 // Deficit handling for ActionWeights
 
 use std::collections::HashMap;
+use crate::models::generator::GeneratorType;
+use crate::models::carbon_offset::CarbonOffsetType;
 use crate::ai::actions::grid_action::GridAction;
 use crate::ai::learning::constants::*;
+use crate::config::constants::DEFAULT_COST_MULTIPLIER;
 use super::ActionWeights;
 
 // Add a dummy public item to ensure this file is recognized by rust-analyzer
@@ -81,16 +84,16 @@ impl ActionWeights {
         if !self.deficit_weights.contains_key(&year) {
             // Initialize with defaults biased toward fast-responding generators
             let mut deficit_year_weights = HashMap::new();
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker), DEFICIT_GAS_PEAKER_WEIGHT);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle), DEFICIT_GAS_COMBINED_WEIGHT);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage), DEFICIT_BATTERY_WEIGHT);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage), DEFICIT_PUMPED_STORAGE_WEIGHT);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass), DEFICIT_BIOMASS_WEIGHT);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind), DEFICIT_ONSHORE_WIND_WEIGHT);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind), DEFICIT_OFFSHORE_WIND_WEIGHT);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar), DEFICIT_UTILITY_SOLAR_WEIGHT);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam), DEFICIT_HYDRO_DAM_WEIGHT);
-            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear), DEFICIT_NUCLEAR_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER), DEFICIT_GAS_PEAKER_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle, DEFAULT_COST_MULTIPLIER), DEFICIT_GAS_COMBINED_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage, DEFAULT_COST_MULTIPLIER), DEFICIT_BATTERY_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage, DEFAULT_COST_MULTIPLIER), DEFICIT_PUMPED_STORAGE_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass, DEFAULT_COST_MULTIPLIER), DEFICIT_BIOMASS_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind, DEFAULT_COST_MULTIPLIER), DEFICIT_ONSHORE_WIND_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind, DEFAULT_COST_MULTIPLIER), DEFICIT_OFFSHORE_WIND_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar, DEFAULT_COST_MULTIPLIER), DEFICIT_UTILITY_SOLAR_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam, DEFAULT_COST_MULTIPLIER), DEFICIT_HYDRO_DAM_WEIGHT);
+            deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear, DEFAULT_COST_MULTIPLIER), DEFICIT_NUCLEAR_WEIGHT);
             deficit_year_weights.insert(GridAction::DoNothing, DEFICIT_DO_NOTHING_WEIGHT);
             self.deficit_weights.insert(year, deficit_year_weights);
         }
@@ -124,7 +127,7 @@ impl ActionWeights {
         if improvement < ZERO_F64 {
             let boost_factor = ONE_F64 + (self.learning_rate * SMALL_BOOST_FACTOR); // Small boost to alternatives
             for (other_action, weight) in year_weights.iter_mut() {
-                if other_action != action && matches!(other_action, GridAction::AddGenerator(_)) {
+                if other_action != action && matches!(other_action, GridAction::AddGenerator(_, _)) {
                     *weight = (*weight * boost_factor).min(MAX_WEIGHT);
                 }
             }

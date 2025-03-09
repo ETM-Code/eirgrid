@@ -390,13 +390,16 @@ pub struct Generator {
     pub upgrade_history: Vec<(u32, f64)>, // Year -> New efficiency pairs
     pub storage: Option<PowerStorageSystem>,  // New field for storage capabilities
     
-    // New fields for construction status
+    // Construction status fields
     pub construction_status: ConstructionStatus,
     pub planning_permission_time: f64,  // Time in years for planning permission
     pub construction_time: f64,         // Time in years for construction
     pub planning_permission_year: u32,  // Year planning permission was granted
     pub construction_start_year: u32,   // Year construction started
     pub construction_complete_year: u32, // Year construction completed
+    
+    // Cost multiplier for construction speedup
+    pub construction_cost_multiplier: f64,
 }
 
 impl Generator {
@@ -441,6 +444,7 @@ impl Generator {
             planning_permission_year: 0,
             construction_start_year: 0,
             construction_complete_year: 0,
+            construction_cost_multiplier: 1.0,
         }
     }
 
@@ -456,17 +460,19 @@ impl Generator {
             return;
         }
         
-        // Calculate planning permission time
+        // Calculate planning permission time with cost multiplier
         self.planning_permission_time = calc_planning_permission_time(
             &self.generator_type, 
             year, 
-            public_opinion
+            public_opinion,
+            self.construction_cost_multiplier
         );
         
-        // Calculate construction time
+        // Calculate construction time with cost multiplier
         self.construction_time = calc_construction_time(
             &self.generator_type, 
-            year
+            year,
+            self.construction_cost_multiplier
         );
         
         // Set initial status to Planned
@@ -574,14 +580,17 @@ impl Generator {
     }
 
     pub fn get_current_cost(&self, year: u32) -> f64 {
-        calc_generator_cost(
+        let base_cost = calc_generator_cost(
             &self.generator_type,
             self.base_cost,
             year,
-            self.generator_type.is_intermittent(),
+            self.generator_type.can_be_urban(),
             self.generator_type.requires_water(),
-            self.generator_type.can_be_urban()
-        )
+            self.generator_type.requires_water()
+        );
+        
+        // Apply the construction cost multiplier
+        base_cost * self.construction_cost_multiplier
     }
 
     pub fn get_current_operating_cost(&self, year: u32) -> f64 {
@@ -708,6 +717,40 @@ impl Generator {
 
     pub fn get_size(&self) -> f64 {
         self.size
+    }
+
+    pub fn set_construction_cost_multiplier(&mut self, multiplier: f64) {
+        // Ensure the multiplier is within bounds
+        self.construction_cost_multiplier = multiplier.clamp(
+            MIN_CONSTRUCTION_COST_MULTIPLIER, 
+            MAX_CONSTRUCTION_COST_MULTIPLIER
+        );
+        
+        // Recalculate planning and construction times if already in planning phase
+        if self.construction_status == ConstructionStatus::Planned && self.commissioning_year > 0 {
+            // Use a default public opinion if we don't have access to the map
+            let default_opinion = 0.65;
+            
+            // Recalculate planning permission time
+            self.planning_permission_time = calc_planning_permission_time(
+                &self.generator_type, 
+                self.commissioning_year, 
+                default_opinion,
+                self.construction_cost_multiplier
+            );
+            
+            // Recalculate construction time
+            self.construction_time = calc_construction_time(
+                &self.generator_type, 
+                self.commissioning_year,
+                self.construction_cost_multiplier
+            );
+        }
+    }
+
+    // Get the construction cost multiplier
+    pub fn get_construction_cost_multiplier(&self) -> f64 {
+        self.construction_cost_multiplier
     }
 }
 

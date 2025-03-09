@@ -6,7 +6,7 @@ use std::fmt;
 use crate::config::const_funcs::{calc_carbon_offset_planning_time, calc_carbon_offset_construction_time};
 use crate::config::constants::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum CarbonOffsetType {
     Forest,              // Trees and natural carbon sinks
     ActiveCapture,       // Mechanical carbon capture
@@ -59,7 +59,7 @@ pub struct CarbonOffset {
     capture_efficiency: f64,   // Efficiency factor (0.0 to 1.0)
     power_consumption: f64,    // MW of power consumed (only for active capture)
     
-    // New fields for construction status
+    // Construction status fields
     construction_status: ConstructionStatus,
     planning_permission_time: f64,  // Time in years for planning permission
     construction_time: f64,         // Time in years for construction
@@ -67,6 +67,9 @@ pub struct CarbonOffset {
     construction_start_year: u32,   // Year construction started
     construction_complete_year: u32, // Year construction completed
     commissioning_year: u32,        // Year the offset was commissioned (planned)
+    
+    // Cost multiplier for construction speedup
+    construction_cost_multiplier: f64,
 }
 
 impl CarbonOffset {
@@ -94,7 +97,7 @@ impl CarbonOffset {
             capture_efficiency: capture_efficiency.clamp(0.0, 1.0),
             power_consumption,
             
-            // New fields for construction status
+            // Construction status fields
             construction_status: ConstructionStatus::Planned,
             planning_permission_time: 0.0,
             construction_time: 0.0,
@@ -102,6 +105,9 @@ impl CarbonOffset {
             construction_start_year: 0,
             construction_complete_year: 0,
             commissioning_year: 0,
+            
+            // Cost multiplier for construction speedup
+            construction_cost_multiplier: 1.0,
         }
     }
     
@@ -118,17 +124,19 @@ impl CarbonOffset {
             return;
         }
         
-        // Calculate planning permission time
+        // Calculate planning permission time with cost multiplier
         self.planning_permission_time = calc_carbon_offset_planning_time(
             &self.offset_type, 
             year, 
-            public_opinion
+            public_opinion,
+            self.construction_cost_multiplier
         );
         
-        // Calculate construction time
+        // Calculate construction time with cost multiplier
         self.construction_time = calc_carbon_offset_construction_time(
             &self.offset_type, 
-            year
+            year,
+            self.construction_cost_multiplier
         );
         
         // Set initial status to Planned
@@ -178,16 +186,12 @@ impl CarbonOffset {
     }
 
     pub fn get_current_cost(&self, year: u32) -> f64 {
-        let inflation = calc_inflation_factor(year);
-        let technology_factor = match self.offset_type {
-            CarbonOffsetType::ActiveCapture => 0.95f64, // 5% cost reduction per year
-            CarbonOffsetType::Forest => 1.0f64,        // Stable costs
-            CarbonOffsetType::CarbonCredit => 1.03f64, // 3% increase as credits become scarcer
-            CarbonOffsetType::Wetland => 1.01f64,      // 1% increase due to land costs
-        };
+        // Calculate base cost with inflation
+        let inflation_factor = (1.0 + INFLATION_RATE).powi((year - BASE_YEAR) as i32);
+        let base_cost = self.base_cost * inflation_factor;
         
-        let years_from_base = (year - 2025) as f64;
-        self.base_cost * inflation * technology_factor.powf(years_from_base)
+        // Apply the construction cost multiplier
+        base_cost * self.construction_cost_multiplier
     }
 
     pub fn get_current_operating_cost(&self, year: u32) -> f64 {
@@ -242,6 +246,40 @@ impl CarbonOffset {
             }
         }
         2025
+    }
+
+    pub fn set_construction_cost_multiplier(&mut self, multiplier: f64) {
+        // Ensure the multiplier is within bounds
+        self.construction_cost_multiplier = multiplier.clamp(
+            MIN_CONSTRUCTION_COST_MULTIPLIER, 
+            MAX_CONSTRUCTION_COST_MULTIPLIER
+        );
+        
+        // Recalculate planning and construction times if already in planning phase
+        if self.construction_status == ConstructionStatus::Planned && self.commissioning_year > 0 {
+            // Use a default public opinion if we don't have access to the map
+            let default_opinion = 0.65;
+            
+            // Recalculate planning permission time
+            self.planning_permission_time = calc_carbon_offset_planning_time(
+                &self.offset_type, 
+                self.commissioning_year, 
+                default_opinion,
+                self.construction_cost_multiplier
+            );
+            
+            // Recalculate construction time
+            self.construction_time = calc_carbon_offset_construction_time(
+                &self.offset_type, 
+                self.commissioning_year,
+                self.construction_cost_multiplier
+            );
+        }
+    }
+
+    // Get the construction cost multiplier
+    pub fn get_construction_cost_multiplier(&self) -> f64 {
+        self.construction_cost_multiplier
     }
 }
 

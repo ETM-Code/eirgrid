@@ -63,6 +63,7 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         args.enable_energy_sales(),
         args.enable_csv_export(),
         args.debug_weights(),
+        args.enable_construction_delays(),
     )?;
 
     Ok(())

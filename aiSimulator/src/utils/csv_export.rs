@@ -8,7 +8,8 @@ use super::map_handler::Map;
 use crate::core::action_weights::{GridAction, SimulationMetrics};
 use crate::models::settlement::Settlement;
 use crate::models::carbon_offset::CarbonOffset;
-use crate::config::constants::{BASE_YEAR, END_YEAR, IRELAND_MIN_LAT, IRELAND_MIN_LON, GRID_SCALE_X, GRID_SCALE_Y};
+use crate::models::carbon_offset::CarbonOffsetType;
+use crate::config::constants::{BASE_YEAR, END_YEAR, IRELAND_MIN_LAT, IRELAND_MIN_LON, GRID_SCALE_X, GRID_SCALE_Y, FOREST_BASE_COST, WETLAND_BASE_COST, ACTIVE_CAPTURE_BASE_COST, CARBON_CREDIT_BASE_COST};
 use crate::data::poi::POI;
 use crate::models::generator::{Generator, GeneratorType};
 use crate::config::const_funcs;
@@ -111,8 +112,10 @@ impl CsvExporter {
         // Write each action with its estimated cost
         for (year, action) in actions {
             let (action_type, gen_type, gen_id, operation_pct, offset_type, estimated_cost) = match action {
-                GridAction::AddGenerator(gen_type) => {
-                    let cost = gen_type.get_base_cost(*year);
+                GridAction::AddGenerator(gen_type, cost_multiplier) => {
+                    let base_cost = gen_type.get_base_cost(*year);
+                    // Apply cost multiplier
+                    let cost = base_cost * (*cost_multiplier as f64 / 100.0);
                     (
                     "AddGenerator",
                     gen_type.to_string(),
@@ -149,22 +152,24 @@ impl CsvExporter {
                     String::new(),
                     "0.00".to_string(), // Operation adjustment has no direct capital cost
                 ),
-                GridAction::AddCarbonOffset(offset_type) => {
+                GridAction::AddCarbonOffset(offset_type, cost_multiplier) => {
                     // Get cost based on offset type
-                    let offset_cost = match offset_type.as_str() {
-                        "Forest" => 1000000.0,       // Forest planting costs
-                        "ActiveCapture" => 5000000.0, // Active carbon capture technology
-                        "CarbonCredit" => 2000000.0,  // Carbon credit purchases
-                        "Wetland" => 1500000.0,      // Wetland restoration
-                        _ => 1000000.0,             // Default cost
+                    let base_offset_cost = match offset_type {
+                        CarbonOffsetType::Forest => FOREST_BASE_COST,
+                        CarbonOffsetType::ActiveCapture => ACTIVE_CAPTURE_BASE_COST,
+                        CarbonOffsetType::CarbonCredit => CARBON_CREDIT_BASE_COST,
+                        CarbonOffsetType::Wetland => WETLAND_BASE_COST,
                     };
                     
+                    // Apply cost multiplier
+                    let offset_cost = base_offset_cost * (*cost_multiplier as f64 / 100.0);
+                    
                     (
-                    "AddCarbonOffset",
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    offset_type.clone(),
+                        "AddCarbonOffset",
+                        offset_type.to_string(),
+                        String::new(),
+                        String::new(),
+                        String::new(),
                         format!("{:.2}", offset_cost),
                     )
                 },
@@ -1034,15 +1039,14 @@ impl CsvExporter {
                         let actual_output = max_power_output * (operation_percentage / 100.0) * weather_factor;
                         
                         // Calculate hourly CO2 emissions (already scaled by operation percentage)
-                        let hourly_co2 = generator.get_co2_output() * (operation_percentage / 100.0) * weather_factor / (24.0 * 30.0); // Approximate daily value
+                        let hourly_emissions = generator.get_co2_output() * (operation_percentage / 100.0);
                         
-                        // Write log entry
+                        // Write the hourly data
                         writeln!(
                             operation_log_file,
-                            "{},{},{},{},{},{},{:.4},{:.2},{:.4},{:.4},{:.4}",
+                            "{},{},{},{},{},{},{:.2},{:.2},{:.2},{:.2}",
                             year,
                             month,
-                            sample_day,
                             hour,
                             generator.get_id(),
                             generator.get_generator_type(),
@@ -1050,7 +1054,7 @@ impl CsvExporter {
                             operation_percentage,
                             actual_output,
                             weather_factor,
-                            hourly_co2
+                            hourly_emissions
                         )?;
                     }
                 }
