@@ -33,7 +33,7 @@ pub struct Args {
     #[arg(long, help = "Random seed for deterministic simulation")]
     seed: Option<u64>,
 
-    #[arg(short, long, default_value_t = true)]
+    #[arg(short, long, default_value_t = false)]
     verbose_state_logging: bool,
     
     #[arg(long, help = "Optimize for cost only, ignoring emissions and public opinion", default_value_t = false)]
@@ -42,7 +42,7 @@ pub struct Args {
     #[arg(long, help = "Enable revenue from energy sales to offset costs", default_value_t = false)]
     enable_energy_sales: bool,
 
-    #[arg(long, help = "Enable CSV export of detailed simulation results", default_value_t = false)]
+    #[arg(long, help = "Enable CSV export of detailed simulation results", default_value_t = true)]
     enable_csv_export: bool,
 
     #[arg(long, help = "Enable debug logging (more detailed output)", default_value_t = false)]
@@ -50,6 +50,9 @@ pub struct Args {
 
     #[arg(long, help = "Enable detailed weights debugging output", default_value_t = false)]
     debug_weights: bool,
+    
+    #[arg(long, help = "Enable construction delays for generators and carbon offsets", default_value_t = true)]
+    enable_construction_delays: bool,
 }
 
 // Add getter methods for all fields
@@ -116,5 +119,9 @@ impl Args {
 
     pub fn debug_weights(&self) -> bool {
         self.debug_weights
+    }
+
+    pub fn enable_construction_delays(&self) -> bool {
+        self.enable_construction_delays
     }
 }

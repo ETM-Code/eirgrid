@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::path::Path;
 use std::fs::File;
-use std::io::Write;
+use std::io::{self, BufRead, Write};
 use std::time::{Duration, Instant};
 use rayon::prelude::*;
 use parking_lot::{self, RwLock};
@@ -22,9 +22,14 @@ use crate::models::carbon_offset::CarbonOffsetType;
 use crate::core::actions::apply_action;
 use chrono::Local;
 use crate::utils::csv_export;
+use std::sync::Mutex;
 
 const FULL_RUN_PERCENTAGE: usize = 10;
 const REPLAY_BEST_STRATEGY_IN_FULL_RUNS: bool = true;
+
+// Constants for the full simulation continuation prompt
+const FULL_SIM_INTERVAL: usize = 10000;  // Ask after this many full simulations
+const FULL_SIM_THRESHOLD_PERCENT: f64 = 5.0;  // Target percentage of best score (5%)
 
 // Import metrics_to_action_result from main module as it's defined there
 fn metrics_to_action_result(metrics: &crate::core::action_weights::SimulationMetrics) -> crate::core::action_weights::ActionResult {
@@ -34,6 +39,37 @@ fn metrics_to_action_result(metrics: &crate::core::action_weights::SimulationMet
         power_balance: 0.0, // Not directly available in SimulationMetrics
         total_cost: metrics.total_cost,
     }
+}
+
+// Add this helper function to prompt the user
+fn prompt_continue_full_simulations(best_score: f64, current_score: f64) -> bool {
+    let percent_of_best = (current_score / best_score) * 100.0;
+    let percent_diff = 100.0 - percent_of_best;
+    
+    println!("\n======================================================");
+    println!("FULL SIMULATION CONTINUATION PROMPT");
+    println!("======================================================");
+    println!("Current best score from exploration: {:.4}", best_score);
+    println!("Best score from full simulations: {:.4}", current_score);
+    println!("Full simulation is {:.2}% of the way to the best score", percent_of_best);
+    println!("({:.2}% difference)", percent_diff.abs());
+    println!("Target: Get within {:.1}% of the best score", FULL_SIM_THRESHOLD_PERCENT);
+    println!("------------------------------------------------------");
+    println!("Would you like to continue running full simulations?");
+    print!("Enter 'y' to continue or any other key to stop: ");
+    
+    // Flush to ensure the prompt is displayed
+    std::io::stdout().flush().unwrap();
+    
+    // Read user input
+    let mut input = String::new();
+    match std::io::stdin().read_line(&mut input) {
+        Ok(_) => {},
+        Err(_) => return false, // If reading fails, default to stopping
+    }
+    
+    // Return true if user wants to continue
+    input.trim().to_lowercase() == "y"
 }
 
 pub fn run_multi_simulation(
@@ -57,7 +93,33 @@ pub fn run_multi_simulation(
     crate::ai::learning::constants::set_debug_weights(debug_weights);
     
     let _timing = logging::start_timing("run_multi_simulation", OperationCategory::Simulation);
-     
+    
+    // Define a struct to track full simulation data
+    struct FullSimData {
+        count: usize,
+        best_score: f64,
+        continue_sims: bool,
+        should_prompt: bool,
+    }
+    
+    // Create a shared tracking struct for full simulations
+    let full_sim_tracking = if parallel {
+        Arc::new(Mutex::new(FullSimData {
+            count: 0,
+            best_score: 0.0,
+            continue_sims: true,
+            should_prompt: false,
+        }))
+    } else {
+        // For sequential execution, we'll track this differently
+        Arc::new(Mutex::new(FullSimData {
+            count: 0,
+            best_score: 0.0,
+            continue_sims: true,
+            should_prompt: false,
+        }))
+    };
+    
     let result = (|| {
         // Create checkpoint directory if it doesn't exist
         std::fs::create_dir_all(checkpoint_dir)?;
@@ -161,6 +223,9 @@ pub fn run_multi_simulation(
         let timestamp = format!("2024{}", now.format("%m%d_%H%M%S"));
         let run_dir = format!("{}/{}", checkpoint_dir, timestamp);
         std::fs::create_dir_all(&run_dir)?;
+        
+        // Create a clone of initial weights for later use in sequential mode
+        let initial_weights_clone = initial_weights.clone();
          
         // Create shared weights
         let action_weights = Arc::new(RwLock::new(initial_weights));
@@ -341,13 +406,57 @@ pub fn run_multi_simulation(
                      
                     let result = run_iteration(i, &mut map_clone, &mut local_weights, replay_best_strategy, seed, verbose_logging, optimization_mode, enable_energy_sales)?;
                      
+                    // Track full simulation results for the user prompt functionality
+                    if is_full_run {
+                        let mut full_sim_data = full_sim_tracking.lock().unwrap();
+                        full_sim_data.count += 1;
+                        
+                        // Get the score for this simulation
+                        let score = crate::ai::score_metrics(&result.metrics, optimization_mode);
+                        
+                        // Update the best full sim score if this is better
+                        if score > full_sim_data.best_score {
+                            full_sim_data.best_score = score;
+                        }
+                        
+                        // Check if we need to prompt the user to continue
+                        if full_sim_data.count % FULL_SIM_INTERVAL == 0 {
+                            full_sim_data.should_prompt = true;
+                        }
+                    }
+                     
                     // Update best metrics immediately - changed order to transfer actions first
-                    {
-                        let mut weights = parking_lot::RwLock::write(&*action_weights);
-                        // First transfer weights and recorded actions from the local instance
-                        weights.update_weights_from(&local_weights);
-                        // Then update best strategy after we have the actions
+                    let best_metrics_after_update = {
+                        let mut weights = action_weights.write();
+                        weights.transfer_recorded_actions_from(&local_weights);
                         weights.update_best_strategy(result.metrics.clone());
+                        weights.get_simulation_metrics().cloned()
+                    };
+                    
+                    // Print iteration results at the end of the iteration
+                    let current_score = crate::ai::score_metrics(&result.metrics, optimization_mode);
+                    let thread_id = rayon::current_thread_index().unwrap_or(0);
+                    if let Some(best_metrics) = &best_metrics_after_update {
+                        let best_score = crate::ai::score_metrics(best_metrics, optimization_mode);
+                        println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
+                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
+                            current_score,
+                            result.metrics.final_net_emissions,
+                            result.metrics.total_cost / 1_000_000_000.0,
+                            result.metrics.average_public_opinion * 100.0);
+                        println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
+                            best_score,
+                            best_metrics.final_net_emissions,
+                            best_metrics.total_cost / 1_000_000_000.0,
+                            best_metrics.average_public_opinion * 100.0);
+                    } else {
+                        println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
+                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
+                            current_score,
+                            result.metrics.final_net_emissions,
+                            result.metrics.total_cost / 1_000_000_000.0,
+                            result.metrics.average_public_opinion * 100.0);
+                        println!("  Best result so far: No best result yet");
                     }
                      
                     // Increment completed iterations counter
@@ -356,7 +465,7 @@ pub fn run_multi_simulation(
                     // Save checkpoint at intervals
                     if (i + 1) % checkpoint_interval == 0 {
                         let thread_id = rayon::current_thread_index().unwrap_or(0);
-                        let weights = parking_lot::RwLock::write(&*action_weights);
+                        let weights = action_weights.write();
                          
                         // Save thread-specific weights
                         let thread_weights_path = Path::new(&run_dir)
@@ -374,6 +483,45 @@ pub fn run_multi_simulation(
                         println!("Saved checkpoint at iteration {} in {} (thread {})", i + 1, run_dir, thread_id);
                     }
                      
+                    // Check if we need to prompt the user about continuing with full simulations
+                    let should_prompt_now = {
+                        let full_sim_data = full_sim_tracking.lock().unwrap();
+                        full_sim_data.should_prompt
+                    };
+                    
+                    if should_prompt_now {
+                        // Only one thread should handle the prompt, so we'll acquire an exclusive lock
+                        let mut full_sim_data = full_sim_tracking.lock().unwrap();
+                        
+                        // Double-check that the prompt is still needed (another thread may have handled it)
+                        if full_sim_data.should_prompt {
+                            // Get the current best score from the weights
+                            let best_score = {
+                                let weights = action_weights.read();
+                                if let Some(best_metrics) = weights.get_simulation_metrics() {
+                                    crate::ai::score_metrics(best_metrics, optimization_mode)
+                                } else {
+                                    // If no best metrics yet, use a default score of 1.0
+                                    1.0
+                                }
+                            };
+                            
+                            // If we're within threshold, mark that we're done with full sims
+                            let percent_diff = 100.0 - ((full_sim_data.best_score / best_score) * 100.0);
+                            if percent_diff.abs() <= FULL_SIM_THRESHOLD_PERCENT {
+                                println!("\nFull simulation results within {}% of best score, continuing with final batch", 
+                                        FULL_SIM_THRESHOLD_PERCENT);
+                                full_sim_data.continue_sims = false;
+                            } else {
+                                // Otherwise, prompt the user
+                                full_sim_data.continue_sims = prompt_continue_full_simulations(best_score, full_sim_data.best_score);
+                            }
+                            
+                            // Mark that we've handled the prompt
+                            full_sim_data.should_prompt = false;
+                        }
+                    }
+                     
                     // Return the result (clone not needed anymore since we're returning it)
                     Ok(result)
                 })
@@ -388,9 +536,32 @@ pub fn run_multi_simulation(
                 }
             }
         } else {
+            // Sequential implementation
+            let action_weights = Arc::new(parking_lot::RwLock::new(ActionWeights::new()));
+            
+            // Load initial weights from the shared weights that were loaded earlier
+            {
+                let mut weights = action_weights.write();
+                // Use the initial weights that were loaded earlier in the function
+                *weights = initial_weights_clone.clone();
+            }
+            
+            // Create a timestamp directory for this run
+            let run_dir = format!("{}/{}", checkpoint_dir, Local::now().format("%Y%m%d_%H%M%S"));
+            std::fs::create_dir_all(&run_dir)?;
+            
             for i in start_iteration..num_iterations {
-                // Create a new map instance with shared static data
-                let mut map_clone = Map::new_with_static_data(static_data.clone());
+                // Check if we should continue with full simulations
+                if force_full_simulation {
+                    let full_sim_data = full_sim_tracking.lock().unwrap();
+                    if !full_sim_data.continue_sims && full_sim_data.count >= FULL_SIM_INTERVAL {
+                        println!("User requested to stop full simulations. Ending multi-simulation.");
+                        break;
+                    }
+                }
+                
+                // Create a clone of the base map for this iteration
+                let mut map_clone = base_map.clone();
                  
                 // Clone only the dynamic data
                 map_clone.set_generators(base_map.get_generators().to_vec());
@@ -434,14 +605,85 @@ pub fn run_multi_simulation(
                 }
                  
                 let result = run_iteration(i, &mut map_clone, &mut local_weights, replay_best_strategy, seed, verbose_logging, optimization_mode, enable_energy_sales)?;
-                 
-                // Update best metrics immediately - changed order to transfer actions first
-                {
-                    let mut weights = parking_lot::RwLock::write(&*action_weights);
-                    // First transfer weights and recorded actions from the local instance
-                    weights.update_weights_from(&local_weights);
-                    // Then update best strategy after we have the actions
+                
+                // Track full simulation results and prompt if needed
+                if is_full_run {
+                    let mut full_sim_data = full_sim_tracking.lock().unwrap();
+                    full_sim_data.count += 1;
+                    
+                    // Get the score for this simulation
+                    let score = crate::ai::score_metrics(&result.metrics, optimization_mode);
+                    
+                    // Update the best full sim score if this is better
+                    if score > full_sim_data.best_score {
+                        full_sim_data.best_score = score;
+                    }
+                    
+                    // Check if we need to prompt the user to continue
+                    if full_sim_data.count % FULL_SIM_INTERVAL == 0 {
+                        // Get the current best score from the weights
+                        let best_score = {
+                            let weights = action_weights.read();
+                            if let Some(best_metrics) = weights.get_simulation_metrics() {
+                                crate::ai::score_metrics(best_metrics, optimization_mode)
+                            } else {
+                                // If no best metrics yet, use a default score of 1.0
+                                1.0
+                            }
+                        };
+                        
+                        // If we're within threshold, mark that we're done with full sims
+                        let percent_of_best = (full_sim_data.best_score / best_score) * 100.0;
+                        let percent_diff = 100.0 - percent_of_best;
+                        if percent_diff.abs() <= FULL_SIM_THRESHOLD_PERCENT {
+                            println!("\nFull simulation results within {}% of best score, continuing with final batch", 
+                                    FULL_SIM_THRESHOLD_PERCENT);
+                            // Continue to finish the current batch
+                        } else {
+                            // Otherwise, prompt the user
+                            full_sim_data.continue_sims = prompt_continue_full_simulations(best_score, full_sim_data.best_score);
+                            
+                            if !full_sim_data.continue_sims {
+                                // Finish the current batch of FULL_SIM_INTERVAL before stopping
+                                println!("Will stop after current batch of simulations completes.");
+                            }
+                        }
+                    }
+                }
+                
+                // Update best metrics and get the current best
+                let best_metrics_after_update = {
+                    let mut weights = action_weights.write();
+                    weights.transfer_recorded_actions_from(&local_weights);
                     weights.update_best_strategy(result.metrics.clone());
+                    weights.get_simulation_metrics().cloned()
+                };
+                
+                // Print iteration results at the end of the iteration
+                let current_score = crate::ai::score_metrics(&result.metrics, optimization_mode);
+                // In sequential mode, thread is always 0
+                let thread_id = 0;
+                if let Some(best_metrics) = &best_metrics_after_update {
+                    let best_score = crate::ai::score_metrics(best_metrics, optimization_mode);
+                    println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
+                    println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
+                        current_score,
+                        result.metrics.final_net_emissions,
+                        result.metrics.total_cost / 1_000_000_000.0,
+                        result.metrics.average_public_opinion * 100.0);
+                    println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
+                        best_score,
+                        best_metrics.final_net_emissions,
+                        best_metrics.total_cost / 1_000_000_000.0,
+                        best_metrics.average_public_opinion * 100.0);
+                } else {
+                    println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
+                    println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
+                        current_score,
+                        result.metrics.final_net_emissions,
+                        result.metrics.total_cost / 1_000_000_000.0,
+                        result.metrics.average_public_opinion * 100.0);
+                    println!("  Best result so far: No best result yet");
                 }
                  
                 // Store each result for later comparison
@@ -456,7 +698,7 @@ pub fn run_multi_simulation(
                      
                     // Get a write lock to save the weights
                     {
-                        let weights = parking_lot::RwLock::write(&*action_weights);
+                        let weights = action_weights.write();
                         weights.save_to_file(checkpoint_path.to_str().unwrap())?;
                     }
                      
@@ -514,10 +756,14 @@ pub fn run_multi_simulation(
             if enable_csv_export {
                 // Create a CSV exporter instance
                 let _timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
-                let csv_exporter = csv_export::CsvExporter::new(&csv_export_dir);
+                let csv_exporter = csv_export::CsvExporter::new(&csv_export_dir, verbose_logging);
                 
                 // Create a new map and apply all the best actions to it
                 let mut final_map = base_map.clone();
+                
+                // Ensure the map is in full simulation mode for accurate generator placement
+                final_map.set_simulation_mode(false);
+                
                 println!("Applying all actions to map for CSV export...");
                 for (year, action) in &best.actions {
                     if let Err(e) = apply_action(&mut final_map, action, *year) {
@@ -790,9 +1036,73 @@ pub fn run_multi_simulation(
             
             // Save final weights in the run directory
             let final_weights_path = Path::new(&run_dir).join("best_weights.json");
-            let weights = parking_lot::RwLock::write(&*action_weights);
+            let weights = action_weights.write();
             weights.save_to_file(final_weights_path.to_str().unwrap())?;
             println!("Final weights saved to: {}", final_weights_path.display());
+            
+            // After all iterations, check if we need to run additional full simulations
+            if force_full_simulation {
+                let full_sim_data = full_sim_tracking.lock().unwrap();
+                
+                // Get the current best score from the weights
+                let best_score = {
+                    if let Some(best_metrics) = weights.get_simulation_metrics() {
+                        crate::ai::score_metrics(best_metrics, optimization_mode)
+                    } else {
+                        // If no best metrics yet, use a default score of 1.0
+                        1.0
+                    }
+                };
+                
+                // If we're not within threshold, prompt the user to run more full simulations
+                let percent_of_best = (full_sim_data.best_score / best_score) * 100.0;
+                let percent_diff = 100.0 - percent_of_best;
+                
+                if percent_diff.abs() > FULL_SIM_THRESHOLD_PERCENT && full_sim_data.count > 0 {
+                    println!("\nFull simulation results are not within {}% of best score.", FULL_SIM_THRESHOLD_PERCENT);
+                    println!("Current difference: {:.2}%", percent_diff.abs());
+                    
+                    // Prompt user to run additional full simulations
+                    let continue_sims = prompt_continue_full_simulations(best_score, full_sim_data.best_score);
+                    
+                    if continue_sims {
+                        println!("\nRunning additional full simulations...");
+                        
+                        // Release the lock before running additional simulations
+                        drop(full_sim_data);
+                        
+                        // Run additional batch of full simulations
+                        let additional_iterations = FULL_SIM_INTERVAL;
+                        println!("Running {} additional full simulations...", additional_iterations);
+                        
+                        // Create a new run directory for the additional simulations
+                        let additional_run_dir = format!("{}/{}_additional", checkpoint_dir, Local::now().format("%Y%m%d_%H%M%S"));
+                        std::fs::create_dir_all(&additional_run_dir)?;
+                        
+                        // Clone the base map for the additional simulations
+                        let base_map_clone = base_map.clone();
+                        
+                        // Run the additional simulations with force_full_simulation set to true
+                        return run_multi_simulation(
+                            &base_map_clone,
+                            additional_iterations,
+                            parallel,
+                            true, // continue from checkpoint
+                            checkpoint_dir,
+                            checkpoint_interval,
+                            progress_interval,
+                            cache_dir,
+                            true, // force full simulation
+                            seed,
+                            verbose_logging,
+                            optimization_mode,
+                            enable_energy_sales,
+                            enable_csv_export,
+                            debug_weights,
+                        );
+                    }
+                }
+            }
         }
          
         Ok(())

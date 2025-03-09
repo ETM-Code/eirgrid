@@ -155,6 +155,7 @@ impl ActionWeights {
                     deterministic_rng: None,
                     guaranteed_best_actions: false,
                     optimization_mode: None,
+                    replay_index: HashMap::new(),
                 };
                 instance.print_action_count_weights(year);
             }
@@ -184,6 +185,7 @@ impl ActionWeights {
             deterministic_rng: None,
             guaranteed_best_actions: false,
             optimization_mode: None,
+            replay_index: HashMap::new(),
         };
         
         // DIAGNOSTIC: Log the created instance details
@@ -205,6 +207,7 @@ impl ActionWeights {
         // Clear current actions
         self.current_run_actions.clear();
         self.current_deficit_actions.clear();
+        self.replay_index.clear();
         
         // Adjust exploration rate based on iteration count and stagnation
         self.exploration_rate = DEFAULT_EXPLORATION_RATE * (ONE_F64 / (ONE_F64 + EXPLORATION_DECAY_RATE * self.iteration_count as f64));
@@ -302,5 +305,15 @@ impl ActionWeights {
     pub fn get_optimization_mode(&self) -> Option<&str> {
         self.optimization_mode.as_deref()
     }
-
+    
+    /// Clears the current run actions and deficit actions
+    pub fn clear_current_run_actions(&mut self) {
+        self.current_run_actions.clear();
+        self.current_deficit_actions.clear();
+    }
+    
+    /// Clears the replay index for all years
+    pub fn clear_replay_index(&mut self) {
+        self.replay_index.clear();
+    }
 }

@@ -53,29 +53,34 @@ impl ActionWeights {
     }
 
     pub fn debug_print_recorded_actions(&self) {
-        // Only print debug info if weights debugging is enabled
-        if !crate::ai::learning::constants::is_debug_weights_enabled() {
-            return;
-        }
-        
+        println!("DEBUG: Current run has {} actions recorded", 
+                self.current_run_actions.values().map(|v| v.len()).sum::<usize>());
+    }
+    
+    /// Prints detailed information about the current run actions
+    pub fn debug_print_current_run_actions(&self) {
         let total_actions = self.current_run_actions.values().map(|v| v.len()).sum::<usize>();
         let years_with_actions = self.current_run_actions.values().filter(|v| !v.is_empty()).count();
         
-        println!("📊 DEBUG: Actions recorded in current run:");
-        println!("  Total: {} actions across {} years", total_actions, years_with_actions);
+        println!("📊 CURRENT RUN ACTIONS: {} actions across {} years", total_actions, years_with_actions);
         
-        // Add per-year breakdown for easier diagnostics
-        let min_year = START_YEAR;
-        let max_year = END_YEAR;
-        
-        println!("  Per-year action counts:");
-        for year in min_year..=max_year {
+        // Print actions per year
+        let mut years: Vec<_> = self.current_run_actions.keys().cloned().collect();
+        years.sort();
+        for year in years {
             if let Some(actions) = self.current_run_actions.get(&year) {
                 if !actions.is_empty() {
-                    println!("    Year {}: {} actions", year, actions.len());
+                    println!("  Year {}: {} actions", year, actions.len());
                 }
             }
         }
+        
+        // Print deficit actions
+        let total_deficit_actions = self.current_deficit_actions.values().map(|v| v.len()).sum::<usize>();
+        let years_with_deficit_actions = self.current_deficit_actions.values().filter(|v| !v.is_empty()).count();
+        
+        println!("📊 CURRENT RUN DEFICIT ACTIONS: {} actions across {} years", 
+                total_deficit_actions, years_with_deficit_actions);
     }
 
     pub fn debug_print_deficit_actions(&self) {

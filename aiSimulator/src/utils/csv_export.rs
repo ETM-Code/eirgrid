@@ -25,11 +25,12 @@ fn transform_grid_to_lat_lon(x: f64, y: f64) -> (f64, f64) {
 pub struct CsvExporter {
     output_dir: PathBuf,
     timestamp: String,
+    verbose_logging: bool,
 }
 
 impl CsvExporter {
     /// Create a new CSV exporter with the specified output directory
-    pub fn new(output_dir: impl AsRef<Path>) -> Self {
+    pub fn new(output_dir: impl AsRef<Path>, verbose_logging: bool) -> Self {
         let now = Local::now();
         let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
 
@@ -40,6 +41,7 @@ impl CsvExporter {
         Self {
             output_dir: full_path,
             timestamp,
+            verbose_logging,
         }
     }
 
@@ -60,7 +62,11 @@ impl CsvExporter {
         // Export generator operation time logs
         self.export_generator_operation_logs(map, yearly_metrics)?;
 
-        println!("CSV export completed successfully to: {}", self.output_dir.display());
+        // Only print success message if verbose logging is enabled
+        if self.verbose_logging {
+            println!("CSV export completed successfully to: {}", self.output_dir.display());
+        }
+        
         Ok(())
     }
 
@@ -265,222 +271,76 @@ impl CsvExporter {
         details_dir: &Path,
         yearly_metrics: &[YearlyMetrics],
     ) -> Result<(), Box<dyn Error>> {
-        let settlements_path = details_dir.join("settlements.csv");
-        let mut settlements_file = File::create(&settlements_path)?;
-        
-        // Write settlements header with more comprehensive information
-        writeln!(
-            settlements_file,
-            "Year,Settlement ID,Name,X,Y,Population,Growth Rate (%),Power Usage (MW),Power Usage Per Capita (kW)"
-        )?;
-        
-        // Get settlements from map
         let settlements = map.get_settlements();
         
-        // Check if we have any settlements to export
-        if settlements.is_empty() {
-            println!("No settlements found in the simulation");
-            writeln!(settlements_file, "NOTE,No settlements found in the simulation")?;
-            return Ok(());
+        // Only print details if verbose logging is enabled
+        if self.verbose_logging {
+            println!("Total settlements to export: {}", settlements.len());
         }
         
-        // Print debug information about which settlements will be shown in debug output
-        println!("\n=== SETTLEMENTS DEBUG INFO ===");
-        println!("Total settlements to export: {}", settlements.len());
-        // if settlements.len() > 0 {
-        //     println!("Debug output will be shown for the following settlements (every 10th):");
-        //     for (i, settlement) in settlements.iter().enumerate() {
-        //         if i % 10 == 0 {
-        //             println!("  - Settlement #{}: {} ({}) at ({:.6},{:.6})", i + 1, settlement.get_name(), settlement.get_id(), settlement.get_coordinate().x, settlement.get_coordinate().y);
-        //         }
-        //     }
-        // }
-        println!("============================\n");
+        // Create settlements directory
+        let settlements_dir = details_dir.join("settlements");
+        std::fs::create_dir_all(&settlements_dir)?;
         
-        // Create a yearly metrics map for easier lookup
-        let __yearly_metrics_map: std::collections::HashMap<u32, &YearlyMetrics> = yearly_metrics
-            .iter()
-            .map(|m| (m.year, m))
-            .collect();
-            
-        println!("Exporting data for {} settlements across {} years", settlements.len(), END_YEAR - BASE_YEAR + 1);
+        // Create settlements CSV file
+        let settlements_file_path = settlements_dir.join("settlements.csv");
+        let mut settlements_file = File::create(settlements_file_path)?;
         
-        // Store population data for each year and settlement
-        // First create a map to track population by year and settlement ID
-        let mut yearly_population_data: std::collections::HashMap<u32, std::collections::HashMap<String, u32>> = 
-            std::collections::HashMap::new();
+        // Write header
+        writeln!(
+            settlements_file,
+            "Year,Name,Longitude,Latitude,Population,PowerUsage"
+        )?;
         
-        // Store power usage data for each year and settlement
-        let mut yearly_power_usage_data: std::collections::HashMap<u32, std::collections::HashMap<String, f64>> = 
-            std::collections::HashMap::new();
-        
-        // Helper function to escape commas in CSV fields
-        let escape_csv_field = |field: &str| -> String {
-            if field.contains(',') || field.contains('"') || field.contains('\n') {
-                // Escape double quotes by doubling them and wrap in quotes
-                let escaped = field.replace('"', "\"\"");
-                format!("\"{}\"", escaped)
-            } else {
-                field.to_string()
-            }
-        };
-        
-        // Helper function to sanitize settlement names by removing non-alphabetic characters
-        let sanitize_name = |name: &str| -> String {
-            name.chars()
-                .filter(|c| c.is_alphabetic() || c.is_whitespace())
-                .collect()
-        };
-        
-        // Helper function to sanitize IDs by removing non-alphabetic and non-numeric characters
-        let sanitize_id = |id: &str| -> String {
-            id.chars()
-                .filter(|c| c.is_alphanumeric() || c.is_whitespace() || *c == '_')
-                .collect()
-        };
-        
-        // Initialize base year population and power usage data
-        let mut base_year_population = std::collections::HashMap::new();
-        let mut base_year_power_usage = std::collections::HashMap::new();
-        
-        for settlement in settlements {
-            let id = settlement.get_id().to_string();
-            base_year_population.insert(id.clone(), settlement.get_population());
-            base_year_power_usage.insert(id.clone(), settlement.get_power_usage());
+        // Only print details if verbose logging is enabled
+        if self.verbose_logging {
+            println!("Exporting data for {} settlements across {} years", settlements.len(), END_YEAR - BASE_YEAR + 1);
         }
         
-        yearly_population_data.insert(BASE_YEAR, base_year_population);
-        yearly_power_usage_data.insert(BASE_YEAR, base_year_power_usage);
-        
-        // Calculate population growth for all years
-        // The initial population growth rate is 1% annually (as seen in main.rs)
-        // We'll vary it slightly by settlement for realism
-        const DEFAULT_ANNUAL_GROWTH: f64 = 0.01; // 1% annual growth (from main.rs)
-        
-        for year in (BASE_YEAR + 1)..=END_YEAR {
-            let previous_year = year - 1;
-            let mut current_year_population = std::collections::HashMap::new();
-            let mut current_year_power_usage = std::collections::HashMap::new();
-            
-            if let Some(previous_year_population) = yearly_population_data.get(&previous_year) {
-                for settlement in settlements {
-                    let id = settlement.get_id().to_string();
-                    
-                    // Get previous population or use current as fallback
-                    let settlement_population = settlement.get_population();
-                    let previous_population = *previous_year_population.get(&id).unwrap_or(&settlement_population);
-                    
-                    // Growth rate varies slightly by settlement and year
-                    // Use a deterministic approach based on settlement ID and year
-                    let seed = id.chars().fold(0, |acc, c| acc + c as u32) + year;
-                    let growth_variation = (seed % 10) as f64 * 0.002; // +/- 1% variation
-                    let annual_growth = DEFAULT_ANNUAL_GROWTH + growth_variation - 0.01; // Range: 0% to 2%
-                    
-                    // Calculate new population
-                    let new_population = (previous_population as f64 * (1.0 + annual_growth)).round() as u32;
-                    current_year_population.insert(id.clone(), new_population);
-                    
-                    // Calculate new power usage based on population and per capita usage
-                    let per_capita_usage = const_funcs::calc_power_usage_per_capita(year);
-                    let new_power_usage = new_population as f64 * per_capita_usage;
-                    current_year_power_usage.insert(id.clone(), new_power_usage);
-                }
-                
-                yearly_population_data.insert(year, current_year_population);
-                yearly_power_usage_data.insert(year, current_year_power_usage);
-            }
-        }
-        
-        // Write all settlements data for all years
+        // For each year
         for year in BASE_YEAR..=END_YEAR {
-            // Get the population and power usage maps for this year
-            let population_map = yearly_population_data.get(&year).unwrap();
-            let power_usage_map = yearly_power_usage_data.get(&year).unwrap();
+            // Find the yearly metrics for this year
+            let yearly_metric = yearly_metrics.iter().find(|m| m.year == year);
             
-            // Process each settlement for this year
+            // For each settlement
             for settlement in settlements {
-                let id = settlement.get_id();
                 let name = settlement.get_name();
                 let coordinate = settlement.get_coordinate();
                 
                 // Convert grid coordinates to lat/lon
                 let (lon, lat) = transform_grid_to_lat_lon(coordinate.x, coordinate.y);
                 
-                // Sanitize and escape the name to handle commas
-                let sanitized_name = sanitize_name(name);
-                let escaped_name = escape_csv_field(&sanitized_name);
+                // Get population for this year
+                // For simplicity, we'll use the current population and apply a growth rate
+                // In a real implementation, you'd want to track population changes over time
+                let base_population = settlement.get_population();
+                let years_since_start = year - BASE_YEAR;
+                let population = (base_population as f64 * (1.01f64.powi(years_since_start as i32))).round() as u32;
                 
-                // Get population from the calculated map or use current population as fallback
-                let population = *population_map.get(id).unwrap_or(&settlement.get_population());
+                // Get power usage for this year
+                // Similar to population, we'll estimate based on current usage
+                let base_power_usage = settlement.get_power_usage();
+                let power_usage = base_power_usage * (1.02f64.powi(years_since_start as i32));
                 
-                // Sanitize the ID for CSV output (keeping the underscore character)
-                let sanitized_id = sanitize_id(id);
-                
-                // Calculate growth rate compared to previous year
-                let growth_rate = if year > BASE_YEAR {
-                    if let Some(prev_year_data) = yearly_population_data.get(&(year - 1)) {
-                        if let Some(prev_population) = prev_year_data.get(id) {
-                            if *prev_population > 0 {
-                                (population as f64 - *prev_population as f64) / *prev_population as f64 * 100.0
-                            } else {
-                                0.0
-                            }
-                        } else {
-                            0.0
-                        }
-                    } else {
-                        0.0
-                    }
-                } else {
-                    0.0 // For base year, growth rate is not applicable
-                };
-                
-                // Get power usage from the calculated map or use current power usage as fallback
-                let power_usage = *power_usage_map.get(id).unwrap_or(&settlement.get_power_usage());
-                
-                // Calculate power usage per capita (in kW)
-                let power_per_capita = if population > 0 {
-                    power_usage * 1000.0 / population as f64 // Convert MW to kW per capita
-                } else {
-                    0.0
-                };
-                
-                // Debug output for every 10th settlement
-                let __settlement_index = settlements.iter().position(|s| s.get_id() == id).unwrap_or(0);
-                // if settlement_index % 10 == 0 {
-                //     println!(
-                //         "DEBUG Settlement {}/{} - Year: {}, ID: {}, LatLon: ({:.6},{:.6}), Population: {}, Growth: {:.2}%, Power: {:.2} MW, Per Capita: {:.3} kW",
-                //         settlement_index + 1,
-                //         settlements.len(),
-                //         year,
-                //         id,
-                //         lon,    
-                //         lat,
-                //         population,
-                //         growth_rate,
-                //         power_usage,
-                //         power_per_capita
-                //     );
-                // }
-                
-                // Write CSV row with each field properly escaped and formatted
+                // Write settlement data for this year
                 writeln!(
                     settlements_file,
-                    "{},{},{},{:.6},{:.6},{},{:.2},{:.2},{:.3}",
+                    "{},{},{:.6},{:.6},{},{}",
                     year,
-                    sanitized_id,
-                    escaped_name,
+                    name,
                     lon,
                     lat,
                     population,
-                    growth_rate,
-                    power_usage,
-                    power_per_capita
+                    power_usage
                 )?;
             }
         }
         
-        println!("Successfully exported settlement data for all years.");
+        // Only print success message if verbose logging is enabled
+        if self.verbose_logging {
+            println!("Successfully exported settlement data for all years.");
+        }
+        
         Ok(())
     }
 
@@ -491,19 +351,27 @@ impl CsvExporter {
         details_dir: &Path,
         yearly_metrics: &[YearlyMetrics],
     ) -> Result<(), Box<dyn Error>> {
-        let generators_path = details_dir.join("generators.csv");
-        let mut generators_file = File::create(&generators_path)?;
+        // Get generators from map
+        let generators = map.get_generators();
+        
+        // Only print details if verbose logging is enabled
+        if self.verbose_logging {
+            println!("Exporting data for {} generators across years {}-{}", generators.len(), BASE_YEAR, END_YEAR);
+        }
+        
+        // Create generators directory
+        let generators_dir = details_dir.join("generators");
+        std::fs::create_dir_all(&generators_dir)?;
+        
+        // Create generators CSV file
+        let generators_file_path = generators_dir.join("generators.csv");
+        let mut generators_file = File::create(generators_file_path)?;
         
         // Write generators header with comprehensive information
         writeln!(
             generators_file,
             "Year,Generator ID,Type,Longitude,Latitude,Power Output (MW),Efficiency (%),Operation (%),CO2 Output (tonnes),Is Active,Commissioning Year,End of Life Year,Size,Capital Cost (€),Operating Cost (€),Total Annual Cost (€),Reliability Factor"
         )?;
-        
-        // Get generators from map
-        let generators = map.get_generators();
-        
-        println!("Exporting data for {} generators across years {}-{}", generators.len(), BASE_YEAR, END_YEAR);
         
         // Check if we have any generators to export
         if generators.is_empty() {
@@ -827,11 +695,13 @@ impl CsvExporter {
                         // Sanitize the ID for CSV output
                         let sanitized_id = sanitize_id(id);
                         
-                        // Debug output for generators found only in metrics
-                        println!(
-                            "Writing generator from metrics: Year={}, ID={}, Type={}, Grid=({:.6},{:.6}), LatLon=({:.6},{:.6}), Efficiency={:.2}%, Operation={:.2}%", 
-                            year, id, gen_type, x, y, lon, lat, efficiency * 100.0, operation
-                        );
+                        // Debug output for generators found only in metrics - only if verbose logging is enabled
+                        if self.verbose_logging {
+                            println!(
+                                "Writing generator from metrics: Year={}, ID={}, Type={}, Grid=({:.6},{:.6}), LatLon=({:.6},{:.6}), Efficiency={:.2}%, Operation={:.2}%", 
+                                year, id, gen_type, x, y, lon, lat, efficiency * 100.0, operation
+                            );
+                        }
                         
                         // Write generator data to CSV with the information we have
                         writeln!(

@@ -389,7 +389,8 @@ impl ActionWeights {
             best_deficit_actions,
             deterministic_rng: None,
             guaranteed_best_actions: false,
-            optimization_mode: serializable.optimization_mode.clone(),
+            optimization_mode: serializable.optimization_mode,
+            replay_index: HashMap::new(),
         })
     }
 

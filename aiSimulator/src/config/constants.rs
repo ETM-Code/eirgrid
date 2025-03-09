@@ -257,3 +257,52 @@ pub const GRID_SCALE_Y: f64 = 12500.0;
 // Energy Sales Constants
 pub const DEFAULT_ENERGY_SALES_RATE: f64 = 50_000.0;  // €50k per GWh
 pub const MW_TO_GWH_CONVERSION: f64 = 8.76;  // Convert MW (power) to GWh/year (energy), 8760 hours per year / 1000
+
+// Planning permission and construction time constants
+pub const ENABLE_CONSTRUCTION_DELAYS: bool = true;  // Default setting
+
+// Base planning permission times (in years)
+pub const ONSHORE_WIND_PLANNING_TIME: f64 = 2.0;
+pub const OFFSHORE_WIND_PLANNING_TIME: f64 = 3.0;
+pub const SOLAR_PLANNING_TIME: f64 = 1.0;
+pub const NUCLEAR_PLANNING_TIME: f64 = 5.0;
+pub const COAL_PLANNING_TIME: f64 = 3.0;
+pub const GAS_PLANNING_TIME: f64 = 2.0;
+pub const BIOMASS_PLANNING_TIME: f64 = 2.0;
+pub const HYDRO_PLANNING_TIME: f64 = 4.0;
+pub const STORAGE_PLANNING_TIME: f64 = 1.5;
+pub const TIDAL_PLANNING_TIME: f64 = 3.0;
+pub const WAVE_PLANNING_TIME: f64 = 3.0;
+
+// Base construction times (in years)
+pub const ONSHORE_WIND_CONSTRUCTION_TIME: f64 = 1.0;
+pub const OFFSHORE_WIND_CONSTRUCTION_TIME: f64 = 2.0;
+pub const SOLAR_CONSTRUCTION_TIME: f64 = 0.5;
+pub const NUCLEAR_CONSTRUCTION_TIME: f64 = 7.0;
+pub const COAL_CONSTRUCTION_TIME: f64 = 4.0;
+pub const GAS_CONSTRUCTION_TIME: f64 = 2.0;
+pub const BIOMASS_CONSTRUCTION_TIME: f64 = 2.0;
+pub const HYDRO_CONSTRUCTION_TIME: f64 = 5.0;
+pub const STORAGE_CONSTRUCTION_TIME: f64 = 1.0;
+pub const TIDAL_CONSTRUCTION_TIME: f64 = 2.0;
+pub const WAVE_CONSTRUCTION_TIME: f64 = 2.0;
+
+// Carbon offset planning and construction times
+pub const FOREST_PLANNING_TIME: f64 = 1.0;
+pub const WETLAND_PLANNING_TIME: f64 = 1.5;
+pub const ACTIVE_CAPTURE_PLANNING_TIME: f64 = 2.0;
+pub const CARBON_CREDIT_PLANNING_TIME: f64 = 0.5;
+
+pub const FOREST_CONSTRUCTION_TIME: f64 = 1.0;
+pub const WETLAND_CONSTRUCTION_TIME: f64 = 2.0;
+pub const ACTIVE_CAPTURE_CONSTRUCTION_TIME: f64 = 3.0;
+pub const CARBON_CREDIT_CONSTRUCTION_TIME: f64 = 0.2;
+
+// Time reduction factors
+pub const PLANNING_TIME_OPINION_FACTOR: f64 = 0.5;  // How much opinion affects planning time (0.0-1.0)
+pub const PLANNING_TIME_YEAR_REDUCTION: f64 = 0.02; // Annual reduction in planning time (2% per year)
+pub const CONSTRUCTION_TIME_YEAR_REDUCTION: f64 = 0.03; // Annual reduction in construction time (3% per year)
+
+// Minimum times (years) regardless of other factors
+pub const MIN_PLANNING_TIME: f64 = 0.25;  // Minimum 3 months for planning
+pub const MIN_CONSTRUCTION_TIME: f64 = 0.1;  // Minimum ~1 month for construction

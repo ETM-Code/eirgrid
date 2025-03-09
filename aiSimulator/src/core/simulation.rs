@@ -127,25 +127,45 @@ pub fn run_simulation(
 
         let mut rng = rand::thread_rng();
         let num_additional_actions = if action_weights.is_some() {
-            // Print the action count weights for this year only if debug weights is enabled
-            if crate::ai::learning::constants::is_debug_weights_enabled() {
-                local_weights.print_action_count_weights(year);
-                
-                // Get deficit actions count for detailed debugging output
-                let deficit_actions_count = local_weights.current_deficit_actions.get(&year)
-                    .map_or(0, |actions| actions.len());
-                    
-                // Sample the action count
-                let count = local_weights.sample_additional_actions(year) as usize;
-                
-                // Print detailed diagnostic information
-                println!("Year {}: Planning {} additional actions (plus {} deficit actions = {} total)",
-                        year, count, deficit_actions_count, count + deficit_actions_count);
-                
-                count
+            // Check if we're forcing replay of best actions
+            if local_weights.force_best_actions {
+                // When replaying best actions, use the exact number of actions from the best simulation
+                if let Some(best_actions) = local_weights.best_actions.as_ref().and_then(|ba| ba.get(&year)) {
+                    let count = best_actions.len();
+                    // Only print debug info if debug weights is enabled
+                    if verbose_logging && crate::ai::learning::constants::is_debug_weights_enabled() {
+                        println!("🔄 REPLAY: Using exact count of {} best actions for year {}", count, year);
+                    }
+                    count
+                } else {
+                    // If no best actions for this year, use 0
+                    // Only print debug info if debug weights is enabled
+                    if verbose_logging && crate::ai::learning::constants::is_debug_weights_enabled() {
+                        println!("🔄 REPLAY: No best actions for year {}, using 0", year);
+                    }
+                    0
+                }
             } else {
-                // Just sample the action count without extra output
-                local_weights.sample_additional_actions(year) as usize
+                // Print the action count weights for this year only if debug weights is enabled
+                if crate::ai::learning::constants::is_debug_weights_enabled() {
+                    local_weights.print_action_count_weights(year);
+                    
+                    // Get deficit actions count for detailed debugging output
+                    let deficit_actions_count = local_weights.current_deficit_actions.get(&year)
+                        .map_or(0, |actions| actions.len());
+                        
+                    // Sample the action count
+                    let count = local_weights.sample_additional_actions(year) as usize;
+                    
+                    // Print detailed diagnostic information
+                    println!("Year {}: Planning {} additional actions (plus {} deficit actions = {} total)",
+                            year, count, deficit_actions_count, count + deficit_actions_count);
+                    
+                    count
+                } else {
+                    // Just sample the action count without extra output
+                    local_weights.sample_additional_actions(year) as usize
+                }
             }
         } else {
             rng.gen_range(0..=20)
