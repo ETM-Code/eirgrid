@@ -5,7 +5,6 @@ from shapely.geometry import LineString, box, Point
 import numpy as np
 import os
 import dotenv
-import googlemaps
 
 dotenv.load_dotenv()
 GoogleAPIKey = os.getenv('GOOGLE_KEY')

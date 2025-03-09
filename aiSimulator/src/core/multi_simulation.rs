@@ -13,12 +13,13 @@ use crate::config::constants::{
     FOREST_OPERATING_COST, WETLAND_OPERATING_COST, ACTIVE_CAPTURE_OPERATING_COST, CARBON_CREDIT_OPERATING_COST, MAX_ACCEPTABLE_EMISSIONS, MAX_ACCEPTABLE_COST,
     DEVELOPING_TECH_IMPROVEMENT_RATE, EMERGING_TECH_IMPROVEMENT_RATE, MATURE_TECH_IMPROVEMENT_RATE, BASE_YEAR,
     COAL_CO2_RATE, GAS_CC_CO2_RATE, GAS_PEAKER_CO2_RATE, BIOMASS_CO2_RATE,
+    END_YEAR, MAP_MAX_X, MAP_MAX_Y,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use parking_lot::RwLock;
 use crate::utils::map_handler::Map;
 use crate::ai::learning::weights::ActionWeights;
-use crate::ai::actions::grid_action::GridAction;
+use crate::core::action_weights::GridAction;
 use crate::analysis::metrics::SimulationResult;
 use crate::core::iteration::run_iteration;
 use crate::utils::logging;
@@ -27,6 +28,11 @@ use crate::data::poi::POI;
 use crate::core::action_weights::evaluate_action_impact;
 use crate::core::actions::apply_action;
 use chrono::Local;
+use serde::{Serialize, Deserialize};
+use crate::core::action_weights::SimulationMetrics;
+use crate::config::simulation_config::SimulationConfig;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 const FULL_RUN_PERCENTAGE: usize = 10;
 const REPLAY_BEST_STRATEGY_IN_FULL_RUNS: bool = true;
@@ -778,6 +784,26 @@ pub fn run_multi_simulation(
                 // Ensure the map is in full simulation mode for accurate generator placement
                 final_map.set_simulation_mode(false);
                 
+                // Verify all generators have reasonable coordinates for CSV export
+                let generators_needing_location = final_map.get_generators()
+                    .iter()
+                    .filter(|g| {
+                        let x = g.get_coordinate().x;
+                        let y = g.get_coordinate().y;
+                        
+                        // Check if coordinates are very near corners which suggests default placement
+                        (x < 1000.0 && y < 1000.0) || 
+                        (x > MAP_MAX_X - 1000.0 && y < 1000.0) ||
+                        (x < 1000.0 && y > MAP_MAX_Y - 1000.0) ||
+                        (x > MAP_MAX_X - 1000.0 && y > MAP_MAX_Y - 1000.0)
+                    })
+                    .count();
+
+                if generators_needing_location > 0 {
+                    println!("WARNING: Found {} generators with suspicious coordinates. Coordinates may not be accurate in CSV export.", 
+                        generators_needing_location);
+                }
+
                 println!("Applying all actions to map for CSV export...");
                 for (year, action) in &best.actions {
                     if let Err(e) = apply_action(&mut final_map, action, *year) {
