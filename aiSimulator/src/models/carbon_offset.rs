@@ -3,6 +3,8 @@ use crate::data::poi::{POI, Coordinate};
 use crate::config::const_funcs::calc_inflation_factor;
 use std::str::FromStr;
 use std::fmt;
+use crate::config::const_funcs::{calc_carbon_offset_planning_time, calc_carbon_offset_construction_time};
+use crate::config::constants::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CarbonOffsetType {
@@ -37,6 +39,15 @@ impl fmt::Display for CarbonOffsetType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ConstructionStatus {
+    Planned,                // Initial state, waiting for planning permission
+    PlanningPermissionGranted, // Planning permission granted, waiting for construction
+    UnderConstruction,      // Currently being constructed
+    Operational,            // Construction complete, offset operational
+    Decommissioned,         // Offset has been decommissioned
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CarbonOffset {
     id: String,
@@ -47,6 +58,15 @@ pub struct CarbonOffset {
     size: f64,                // Size in hectares for natural solutions, capacity in tons for active capture
     capture_efficiency: f64,   // Efficiency factor (0.0 to 1.0)
     power_consumption: f64,    // MW of power consumed (only for active capture)
+    
+    // New fields for construction status
+    construction_status: ConstructionStatus,
+    planning_permission_time: f64,  // Time in years for planning permission
+    construction_time: f64,         // Time in years for construction
+    planning_permission_year: u32,  // Year planning permission was granted
+    construction_start_year: u32,   // Year construction started
+    construction_complete_year: u32, // Year construction completed
+    commissioning_year: u32,        // Year the offset was commissioned (planned)
 }
 
 impl CarbonOffset {
@@ -73,7 +93,88 @@ impl CarbonOffset {
             size,
             capture_efficiency: capture_efficiency.clamp(0.0, 1.0),
             power_consumption,
+            
+            // New fields for construction status
+            construction_status: ConstructionStatus::Planned,
+            planning_permission_time: 0.0,
+            construction_time: 0.0,
+            planning_permission_year: 0,
+            construction_start_year: 0,
+            construction_complete_year: 0,
+            commissioning_year: 0,
         }
+    }
+    
+    // New method to initialize construction times
+    pub fn initialize_construction(&mut self, year: u32, public_opinion: f64, enable_delays: bool) {
+        self.commissioning_year = year;
+        
+        if !enable_delays {
+            // If delays are disabled, set the offset to operational immediately
+            self.construction_status = ConstructionStatus::Operational;
+            self.planning_permission_year = year;
+            self.construction_start_year = year;
+            self.construction_complete_year = year;
+            return;
+        }
+        
+        // Calculate planning permission time
+        self.planning_permission_time = calc_carbon_offset_planning_time(
+            &self.offset_type, 
+            year, 
+            public_opinion
+        );
+        
+        // Calculate construction time
+        self.construction_time = calc_carbon_offset_construction_time(
+            &self.offset_type, 
+            year
+        );
+        
+        // Set initial status to Planned
+        self.construction_status = ConstructionStatus::Planned;
+    }
+    
+    // New method to update construction status based on current year
+    pub fn update_construction_status(&mut self, current_year: u32) -> bool {
+        // If already operational or decommissioned, no change needed
+        if self.construction_status == ConstructionStatus::Operational || 
+           self.construction_status == ConstructionStatus::Decommissioned {
+            return false;
+        }
+        
+        let years_since_commissioning = (current_year - self.commissioning_year) as f64;
+        
+        match self.construction_status {
+            ConstructionStatus::Planned => {
+                if years_since_commissioning >= self.planning_permission_time {
+                    self.construction_status = ConstructionStatus::PlanningPermissionGranted;
+                    self.planning_permission_year = current_year;
+                    return true;
+                }
+            },
+            ConstructionStatus::PlanningPermissionGranted => {
+                self.construction_status = ConstructionStatus::UnderConstruction;
+                self.construction_start_year = current_year;
+                return true;
+            },
+            ConstructionStatus::UnderConstruction => {
+                let years_since_construction_start = (current_year - self.construction_start_year) as f64;
+                if years_since_construction_start >= self.construction_time {
+                    self.construction_status = ConstructionStatus::Operational;
+                    self.construction_complete_year = current_year;
+                    return true;
+                }
+            },
+            _ => {}
+        }
+        
+        false
+    }
+    
+    // Check if the offset is operational
+    pub fn is_operational(&self) -> bool {
+        self.construction_status == ConstructionStatus::Operational
     }
 
     pub fn get_current_cost(&self, year: u32) -> f64 {
@@ -103,6 +204,11 @@ impl CarbonOffset {
     }
 
     pub fn calc_carbon_offset(&self, year: u32) -> f64 {
+        // If not operational, no carbon offset
+        if !self.is_operational() {
+            return 0.0;
+        }
+        
         let base_offset = match self.offset_type {
             CarbonOffsetType::Forest => self.size * 5.0,      // 5 tons per hectare per year
             CarbonOffsetType::ActiveCapture => self.size,     // Direct capture capacity in tons
@@ -113,7 +219,7 @@ impl CarbonOffset {
         let maturity_factor = match self.offset_type {
             CarbonOffsetType::Forest | CarbonOffsetType::Wetland => {
                 // Natural solutions take time to mature
-                let years_from_start = (year - 2025) as f64;
+                let years_from_start = (year - self.construction_complete_year) as f64;
                 (1.0 - (-0.1 * years_from_start).exp()).clamp(0.0, 1.0)
             },
             _ => 1.0, // Other solutions work at full capacity immediately

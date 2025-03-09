@@ -11,7 +11,7 @@ pub fn run_iteration(
     __iteration: usize,
     map: &mut Map,
     weights: &mut ActionWeights,
-   __replay_best_strategy: bool,
+    replay_best_strategy: bool,
     seed: Option<u64>,
     verbose_logging: bool,
     optimization_mode: Option<&str>,
@@ -21,6 +21,24 @@ pub fn run_iteration(
     
     // Clone the map to avoid modifying the original
     let mut map_clone = map.clone();
+    
+    // Clear current run actions to prevent accumulation across simulations
+    weights.clear_current_run_actions();
+    weights.clear_replay_index();
+    
+    if verbose_logging {
+        println!("🧹 VERBOSE: Cleared current run actions and replay index at start of iteration");
+    }
+    
+    // Set force_best_actions if replay_best_strategy is true
+    if replay_best_strategy {
+        weights.set_force_best_actions(true);
+        if verbose_logging {
+            println!("🔄 VERBOSE: Forcing use of best actions for this iteration");
+        }
+    } else {
+        weights.set_force_best_actions(false);
+    }
     
     // Run the simulation
     let (simulation_output, recorded_actions, yearly_metrics) = run_simulation(

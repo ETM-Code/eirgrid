@@ -1,8 +1,9 @@
+use crate::config::constants::*;
 use crate::models::generator::GeneratorType;
-use super::constants::*;
 use crate::data::poi::Coordinate;
 use serde_json;
 use lazy_static::lazy_static;
+use crate::models::carbon_offset::CarbonOffsetType;
 
 
 
@@ -262,4 +263,97 @@ pub fn is_point_inside_ireland(coordinate: &Coordinate) -> bool {
     }
     
     inside
+}
+
+pub fn calc_planning_permission_time(gen_type: &GeneratorType, year: u32, public_opinion: f64) -> f64 {
+    let base_time = match gen_type {
+        GeneratorType::OnshoreWind => ONSHORE_WIND_PLANNING_TIME,
+        GeneratorType::OffshoreWind => OFFSHORE_WIND_PLANNING_TIME,
+        GeneratorType::DomesticSolar | 
+        GeneratorType::CommercialSolar | 
+        GeneratorType::UtilitySolar => SOLAR_PLANNING_TIME,
+        GeneratorType::Nuclear => NUCLEAR_PLANNING_TIME,
+        GeneratorType::CoalPlant => COAL_PLANNING_TIME,
+        GeneratorType::GasCombinedCycle | 
+        GeneratorType::GasPeaker => GAS_PLANNING_TIME,
+        GeneratorType::Biomass => BIOMASS_PLANNING_TIME,
+        GeneratorType::HydroDam => HYDRO_PLANNING_TIME,
+        GeneratorType::PumpedStorage | 
+        GeneratorType::BatteryStorage => STORAGE_PLANNING_TIME,
+        GeneratorType::TidalGenerator => TIDAL_PLANNING_TIME,
+        GeneratorType::WaveEnergy => WAVE_PLANNING_TIME,
+    };
+    
+    // Calculate year factor (reduces over time)
+    let years_from_base = (year - BASE_YEAR) as f64;
+    let year_factor = (1.0 - PLANNING_TIME_YEAR_REDUCTION).powf(years_from_base);
+    
+    // Calculate opinion factor (better opinion = faster approval)
+    // Scale from 0.5 (worst opinion) to 1.5 (best opinion)
+    let opinion_factor = 1.0 - (public_opinion * PLANNING_TIME_OPINION_FACTOR);
+    
+    // Calculate final time with minimum threshold
+    (base_time * year_factor * opinion_factor).max(MIN_PLANNING_TIME)
+}
+
+pub fn calc_construction_time(gen_type: &GeneratorType, year: u32) -> f64 {
+    let base_time = match gen_type {
+        GeneratorType::OnshoreWind => ONSHORE_WIND_CONSTRUCTION_TIME,
+        GeneratorType::OffshoreWind => OFFSHORE_WIND_CONSTRUCTION_TIME,
+        GeneratorType::DomesticSolar | 
+        GeneratorType::CommercialSolar | 
+        GeneratorType::UtilitySolar => SOLAR_CONSTRUCTION_TIME,
+        GeneratorType::Nuclear => NUCLEAR_CONSTRUCTION_TIME,
+        GeneratorType::CoalPlant => COAL_CONSTRUCTION_TIME,
+        GeneratorType::GasCombinedCycle | 
+        GeneratorType::GasPeaker => GAS_CONSTRUCTION_TIME,
+        GeneratorType::Biomass => BIOMASS_CONSTRUCTION_TIME,
+        GeneratorType::HydroDam => HYDRO_CONSTRUCTION_TIME,
+        GeneratorType::PumpedStorage | 
+        GeneratorType::BatteryStorage => STORAGE_CONSTRUCTION_TIME,
+        GeneratorType::TidalGenerator => TIDAL_CONSTRUCTION_TIME,
+        GeneratorType::WaveEnergy => WAVE_CONSTRUCTION_TIME,
+    };
+    
+    // Calculate year factor (reduces over time)
+    let years_from_base = (year - BASE_YEAR) as f64;
+    let year_factor = (1.0 - CONSTRUCTION_TIME_YEAR_REDUCTION).powf(years_from_base);
+    
+    // Calculate final time with minimum threshold
+    (base_time * year_factor).max(MIN_CONSTRUCTION_TIME)
+}
+
+pub fn calc_carbon_offset_planning_time(offset_type: &CarbonOffsetType, year: u32, public_opinion: f64) -> f64 {
+    let base_time = match offset_type {
+        CarbonOffsetType::Forest => FOREST_PLANNING_TIME,
+        CarbonOffsetType::Wetland => WETLAND_PLANNING_TIME,
+        CarbonOffsetType::ActiveCapture => ACTIVE_CAPTURE_PLANNING_TIME,
+        CarbonOffsetType::CarbonCredit => CARBON_CREDIT_PLANNING_TIME,
+    };
+    
+    // Calculate year factor (reduces over time)
+    let years_from_base = (year - BASE_YEAR) as f64;
+    let year_factor = (1.0 - PLANNING_TIME_YEAR_REDUCTION).powf(years_from_base);
+    
+    // Calculate opinion factor (better opinion = faster approval)
+    let opinion_factor = 1.0 - (public_opinion * PLANNING_TIME_OPINION_FACTOR);
+    
+    // Calculate final time with minimum threshold
+    (base_time * year_factor * opinion_factor).max(MIN_PLANNING_TIME)
+}
+
+pub fn calc_carbon_offset_construction_time(offset_type: &CarbonOffsetType, year: u32) -> f64 {
+    let base_time = match offset_type {
+        CarbonOffsetType::Forest => FOREST_CONSTRUCTION_TIME,
+        CarbonOffsetType::Wetland => WETLAND_CONSTRUCTION_TIME,
+        CarbonOffsetType::ActiveCapture => ACTIVE_CAPTURE_CONSTRUCTION_TIME,
+        CarbonOffsetType::CarbonCredit => CARBON_CREDIT_CONSTRUCTION_TIME,
+    };
+    
+    // Calculate year factor (reduces over time)
+    let years_from_base = (year - BASE_YEAR) as f64;
+    let year_factor = (1.0 - CONSTRUCTION_TIME_YEAR_REDUCTION).powf(years_from_base);
+    
+    // Calculate final time with minimum threshold
+    (base_time * year_factor).max(MIN_CONSTRUCTION_TIME)
 }

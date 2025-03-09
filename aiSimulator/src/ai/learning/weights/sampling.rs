@@ -51,11 +51,20 @@ impl ActionWeights {
         if self.force_best_actions {
             if let Some(best_actions) = &self.best_actions {
                 if let Some(year_actions) = best_actions.get(&year) {
-                    let current_index = self.current_run_actions.get(&year).map_or(ZERO_USIZE, |v| v.len());
+                    // Get the current replay index for this year, or initialize it to 0
+                    let current_index = *self.replay_index.entry(year).or_insert(0);
+                    
                     if current_index < year_actions.len() {
                         let action = year_actions[current_index].clone();
-                        println!("🔄 REPLAY: Using best action #{} for year {}: {:?}", 
-                                current_index + ONE_USIZE, year, action);
+                        
+                        // Only print debug info if debug weights is enabled
+                        if crate::ai::learning::constants::is_debug_weights_enabled() {
+                            println!("🔄 REPLAY: Using best action #{} for year {}: {:?}", 
+                                    current_index + ONE_USIZE, year, action);
+                        }
+                        
+                        // Increment the replay index for this year
+                        self.replay_index.insert(year, current_index + 1);
                         
                         // Make sure to record the replayed action in the current run
                         self.current_run_actions.entry(year)
@@ -64,8 +73,11 @@ impl ActionWeights {
                         
                         return action;
                     } else {
-                        println!("⚠️ REPLAY FALLBACK: Ran out of best actions for year {} (needed action #{}, have {})", 
-                                year, current_index + ONE_USIZE, year_actions.len());
+                        // Only print debug info if debug weights is enabled
+                        if crate::ai::learning::constants::is_debug_weights_enabled() {
+                            println!("⚠️ REPLAY FALLBACK: Ran out of best actions for year {} (needed action #{}, have {})", 
+                                    year, current_index + ONE_USIZE, year_actions.len());
+                        }
                         
                         // Add smart fallback for when we run out of actions
                         let fallback_action = self.generate_smart_fallback_action(year, "ran out of best actions");
@@ -203,11 +215,21 @@ impl ActionWeights {
         if self.force_best_actions {
             if let Some(best_deficit_actions) = &self.best_deficit_actions {
                 if let Some(year_deficit_actions) = best_deficit_actions.get(&year) {
-                    let current_index = self.current_deficit_actions.get(&year).map_or(ZERO_USIZE, |v| v.len());
+                    // Use a separate key format for deficit replay index to avoid conflicts with regular actions
+                    let deficit_year_key = year + 10000; // Add 10000 to distinguish from regular action years
+                    let current_index = *self.replay_index.entry(deficit_year_key).or_insert(0);
+                    
                     if current_index < year_deficit_actions.len() {
                         let action = year_deficit_actions[current_index].clone();
-                        println!("🔄 DEFICIT REPLAY: Using best deficit action #{} for year {}: {:?}", 
-                                current_index + ONE_USIZE, year, action);
+                        
+                        // Only print debug info if debug weights is enabled
+                        if crate::ai::learning::constants::is_debug_weights_enabled() {
+                            println!("🔄 DEFICIT REPLAY: Using best deficit action #{} for year {}: {:?}", 
+                                    current_index + ONE_USIZE, year, action);
+                        }
+                        
+                        // Increment the deficit replay index for this year
+                        self.replay_index.insert(deficit_year_key, current_index + 1);
                         
                         // Make sure to record this replayed deficit action
                         self.current_deficit_actions.entry(year)
@@ -216,8 +238,11 @@ impl ActionWeights {
                         
                         return action;
                     } else {
-                        println!("⚠️ DEFICIT REPLAY FALLBACK: Ran out of best deficit actions for year {} (needed action #{}, have {})",
-                                year, current_index + ONE_USIZE, year_deficit_actions.len());
+                        // Only print debug info if debug weights is enabled
+                        if crate::ai::learning::constants::is_debug_weights_enabled() {
+                            println!("⚠️ DEFICIT REPLAY FALLBACK: Ran out of best deficit actions for year {} (needed action #{}, have {})",
+                                    year, current_index + ONE_USIZE, year_deficit_actions.len());
+                        }
                         
                         // Smart fallback for deficit
                         let fallback_action = self.generate_smart_deficit_fallback_action(year);
@@ -230,7 +255,10 @@ impl ActionWeights {
                         return fallback_action;
                     }
                 } else {
-                    println!("⚠️ DEFICIT REPLAY FALLBACK: No best deficit actions recorded for year {}", year);
+                    // Only print debug info if debug weights is enabled
+                    if crate::ai::learning::constants::is_debug_weights_enabled() {
+                        println!("⚠️ DEFICIT REPLAY FALLBACK: No best deficit actions recorded for year {}", year);
+                    }
                     
                     // Smart fallback for deficit
                     let fallback_action = self.generate_smart_deficit_fallback_action(year);

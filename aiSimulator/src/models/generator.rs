@@ -2,7 +2,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use crate::data::poi::{POI, Coordinate};
 use crate::config::constants::*;
-use crate::config::const_funcs::{calc_generator_cost, calc_operating_cost, calc_cost_opinion, calc_type_opinion};
+use crate::config::const_funcs::{calc_generator_cost, calc_operating_cost, calc_cost_opinion, calc_type_opinion, calc_planning_permission_time, calc_construction_time};
 use crate::config::simulation_config::GeneratorConstraints;
 use super::power_storage::PowerStorageSystem;
 use std::str::FromStr;
@@ -362,6 +362,15 @@ impl GeneratorType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ConstructionStatus {
+    Planned,                // Initial state, waiting for planning permission
+    PlanningPermissionGranted, // Planning permission granted, waiting for construction
+    UnderConstruction,      // Currently being constructed
+    Operational,            // Construction complete, generator operational
+    Decommissioned,         // Generator has been decommissioned
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Generator {
     pub id: String,
@@ -380,6 +389,14 @@ pub struct Generator {
     pub operation_percentage: f64,
     pub upgrade_history: Vec<(u32, f64)>, // Year -> New efficiency pairs
     pub storage: Option<PowerStorageSystem>,  // New field for storage capabilities
+    
+    // New fields for construction status
+    pub construction_status: ConstructionStatus,
+    pub planning_permission_time: f64,  // Time in years for planning permission
+    pub construction_time: f64,         // Time in years for construction
+    pub planning_permission_year: u32,  // Year planning permission was granted
+    pub construction_start_year: u32,   // Year construction started
+    pub construction_complete_year: u32, // Year construction completed
 }
 
 impl Generator {
@@ -418,7 +435,83 @@ impl Generator {
             storage,
             is_active: true,
             upgrade_history: Vec::new(),
+            construction_status: ConstructionStatus::Planned,
+            planning_permission_time: 0.0,
+            construction_time: 0.0,
+            planning_permission_year: 0,
+            construction_start_year: 0,
+            construction_complete_year: 0,
         }
+    }
+
+    pub fn initialize_construction(&mut self, year: u32, public_opinion: f64, enable_delays: bool) {
+        self.commissioning_year = year;
+        
+        if !enable_delays {
+            // If delays are disabled, set the generator to operational immediately
+            self.construction_status = ConstructionStatus::Operational;
+            self.planning_permission_year = year;
+            self.construction_start_year = year;
+            self.construction_complete_year = year;
+            return;
+        }
+        
+        // Calculate planning permission time
+        self.planning_permission_time = calc_planning_permission_time(
+            &self.generator_type, 
+            year, 
+            public_opinion
+        );
+        
+        // Calculate construction time
+        self.construction_time = calc_construction_time(
+            &self.generator_type, 
+            year
+        );
+        
+        // Set initial status to Planned
+        self.construction_status = ConstructionStatus::Planned;
+    }
+
+    pub fn update_construction_status(&mut self, current_year: u32) -> bool {
+        // If already operational or decommissioned, no change needed
+        if self.construction_status == ConstructionStatus::Operational || 
+           self.construction_status == ConstructionStatus::Decommissioned {
+            return false;
+        }
+        
+        let years_since_commissioning = (current_year - self.commissioning_year) as f64;
+        
+        match self.construction_status {
+            ConstructionStatus::Planned => {
+                if years_since_commissioning >= self.planning_permission_time {
+                    self.construction_status = ConstructionStatus::PlanningPermissionGranted;
+                    self.planning_permission_year = current_year;
+                    return true;
+                }
+            },
+            ConstructionStatus::PlanningPermissionGranted => {
+                self.construction_status = ConstructionStatus::UnderConstruction;
+                self.construction_start_year = current_year;
+                return true;
+            },
+            ConstructionStatus::UnderConstruction => {
+                let years_since_construction_start = (current_year - self.construction_start_year) as f64;
+                if years_since_construction_start >= self.construction_time {
+                    self.construction_status = ConstructionStatus::Operational;
+                    self.construction_complete_year = current_year;
+                    self.is_active = true;
+                    return true;
+                }
+            },
+            _ => {}
+        }
+        
+        false
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.is_active && self.construction_status == ConstructionStatus::Operational
     }
 
     pub fn get_current_power_output(&self, hour: Option<u8>) -> f64 {
@@ -575,10 +668,6 @@ impl Generator {
         self.operation_percentage = 0.0;
         
         closure_cost
-    }
-
-    pub fn is_active(&self) -> bool {
-        self.is_active
     }
 
     pub fn get_efficiency(&self) -> f64 {

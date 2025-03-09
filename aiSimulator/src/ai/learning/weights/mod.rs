@@ -97,4 +97,7 @@ pub struct ActionWeights {
     
     /// Optimization mode (e.g., "emissions", "cost", "balanced")
     pub optimization_mode: Option<String>,
+    
+    /// Tracks the current index when replaying best actions for each year
+    pub replay_index: HashMap<u32, usize>,
 }
