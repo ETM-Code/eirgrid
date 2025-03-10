@@ -19,3 +19,4 @@ simulation_output
 *.backup
 *.original
 oldCheckpoints
+*.txt
