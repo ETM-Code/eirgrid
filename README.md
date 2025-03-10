@@ -47,7 +47,7 @@ Web-based visualization tools for exploring simulation results:
 
 ## Key Findings
 
-The simulation reveals several key insights for Ireland's energy future:
+The simulation reveals several key insights for Ireland's energy future, based off the simulation:
 
 1. **Early Investment**: Solar and wind energy should be scaled early, with significant investment in solar by 2025 and wind by 2026.
 
@@ -124,7 +124,7 @@ The simulation reveals several key insights for Ireland's energy future:
 ## Getting Started
 
 ### Prerequisites
-- **AI Simulator**: Rust 1.70+ (with Apple Silicon optimizations if available)
+- **AI Simulator**: Rust 1.70+
 - **Map Scraper**: Python 3.8+ with required packages (see `mapScraper/requirements.txt`)
 - **Renderer**: Modern web browser supporting JavaScript ES6
 
@@ -236,16 +236,17 @@ After running a simulation, results are saved in the checkpoint directory. The m
 
 - `best_simulation.csv`: Summary metrics of the best run
 - `best_simulation_actions.csv`: Detailed actions from the best run
-- `yearly_metrics.csv`: Year-by-year metrics for the entire simulation period
+- `/yearly_details`: Year-by-year metrics for the entire simulation period (generators, carbon offsets, settlements, etc)
 
 For visualization, these files can be loaded into the renderer component.
 
 ### Visualization
 
-To view simulation results:
+To visualize simulation results:
 1. Navigate to the `renderer` directory
-2. Serve the directory with a local HTTP server or open `index.html` directly
-3. Load simulation CSV data via the interface or use sample data
+2. Place all csvs exported into the "data/yearly_details" folder"
+3. Serve the directory with a local HTTP server or open `index.html` directly
+4. Load simulation CSV data via the interface or use sample data
 
 ## Resources
 
@@ -265,7 +266,7 @@ This software is licensed under the following terms:
 
 **Requirements:**
 - Attribution: Any use of this software must include proper citation and acknowledgment to the original authors: Eoghan Collins
-- Notification: We appreciate being informed about research conducted using this software at [eoghancollins@gmail.com]
+- Notification: I appreciate being informed about research conducted using this software at [eoghancollins@gmail.com]
 
 **Prohibited Uses:**
 - Commercial use of any kind without explicit written permission
@@ -276,4 +277,4 @@ This software is licensed under the following terms:
 
 **No Warranty:** This software is provided "as is" without warranty of any kind, express or implied.
 
-For permissions beyond the scope of this license, please contact [eoghancollins@gmail.com]. 
+For permissions beyond the scope of this license, please contact [eoghancollins@gmail.com], I'd love to work with you! 
