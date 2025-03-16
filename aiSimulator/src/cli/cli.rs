@@ -51,7 +51,7 @@ pub struct Args {
     #[arg(long, help = "Enable detailed weights debugging output", default_value_t = false)]
     debug_weights: bool,
     
-    #[arg(long, help = "Enable construction delays for generators and carbon offsets", default_value_t = false)] //TODO: Make true when research is done
+    #[arg(long, help = "Enable construction delays for generators and carbon offsets", default_value_t = true)]
     enable_construction_delays: bool,
 }
 

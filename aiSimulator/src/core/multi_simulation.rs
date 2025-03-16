@@ -827,6 +827,18 @@ pub fn run_multi_simulation(
                 ) {
                     println!("\nEnhanced simulation results exported to: {}", csv_export_dir.display());
                     println!("Use these files for detailed analysis and visualization.");
+                    
+                    // Export improvement history
+                    // Clone the improvement history to avoid holding the lock during export
+                    let improvement_history = {
+                        let weights = action_weights.read();
+                        weights.get_improvement_history().to_vec()
+                    };
+                    
+                    // Export the improvement history to CSV
+                    if let Ok(()) = csv_exporter.export_improvement_history(&improvement_history) {
+                        println!("Improvement history exported with {} records", improvement_history.len());
+                    }
                 } else {
                     // Fallback to basic export if the enhanced export fails
                     let csv_filename = Path::new(&run_dir).join("best_simulation.csv");

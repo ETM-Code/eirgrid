@@ -8,6 +8,8 @@ use crate::ai::metrics::simulation_metrics::SimulationMetrics;
 use crate::ai::learning::constants::*;
 use crate::ai::score_metrics;
 use super::ActionWeights;
+use crate::utils::csv_export::ImprovementRecord;
+use chrono::Local;
 
 impl ActionWeights {
 
@@ -66,6 +68,21 @@ impl ActionWeights {
         };
 
         if should_update {
+            // Create an improvement record for tracking
+            let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            let improvement_record = ImprovementRecord {
+                iteration: self.iteration_count,
+                score: current_score,
+                net_emissions: metrics.final_net_emissions,
+                total_cost: metrics.total_cost,
+                public_opinion: metrics.average_public_opinion,
+                power_reliability: metrics.power_reliability,
+                timestamp,
+            };
+            
+            // Add to improvement history
+            self.improvement_history.push(improvement_record);
+        
             // Only print improvement message if we actually had a previous best
             if let Some(best) = &self.best_metrics {
                 let best_score = score_metrics(best, self.optimization_mode.as_deref());

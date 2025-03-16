@@ -11,6 +11,7 @@ use crate::ai::learning::constants::*;
 use crate::ai::score_metrics;
 use crate::config::constants::{DEFAULT_COST_MULTIPLIER, FAST_COST_MULTIPLIER, VERY_FAST_COST_MULTIPLIER};
 use super::ActionWeights;
+use crate::utils::csv_export::ImprovementRecord;
 
 // Add a dummy public item to ensure this file is recognized by rust-analyzer
 #[allow(dead_code)]
@@ -32,55 +33,90 @@ impl ActionWeights {
             
             // Initialize wind generator weights
             year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind, DEFAULT_COST_MULTIPLIER), ONSHORE_WIND_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind, FAST_COST_MULTIPLIER), ONSHORE_WIND_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind, VERY_FAST_COST_MULTIPLIER), ONSHORE_WIND_WEIGHT * 0.25);
+            
             year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind, DEFAULT_COST_MULTIPLIER), OFFSHORE_WIND_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind, FAST_COST_MULTIPLIER), OFFSHORE_WIND_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::OffshoreWind, VERY_FAST_COST_MULTIPLIER), OFFSHORE_WIND_WEIGHT * 0.25);
             
             // Initialize solar generator weights
             year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar, DEFAULT_COST_MULTIPLIER), DOMESTIC_SOLAR_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar, FAST_COST_MULTIPLIER), DOMESTIC_SOLAR_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar, VERY_FAST_COST_MULTIPLIER), DOMESTIC_SOLAR_WEIGHT * 0.25);
+            
             year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar, DEFAULT_COST_MULTIPLIER), COMMERCIAL_SOLAR_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar, FAST_COST_MULTIPLIER), COMMERCIAL_SOLAR_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::CommercialSolar, VERY_FAST_COST_MULTIPLIER), COMMERCIAL_SOLAR_WEIGHT * 0.25);
+            
             year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar, DEFAULT_COST_MULTIPLIER), UTILITY_SOLAR_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar, FAST_COST_MULTIPLIER), UTILITY_SOLAR_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar, VERY_FAST_COST_MULTIPLIER), UTILITY_SOLAR_WEIGHT * 0.25);
             
             // Initialize nuclear and fossil fuel generator weights
             year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear, DEFAULT_COST_MULTIPLIER), NUCLEAR_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear, FAST_COST_MULTIPLIER), NUCLEAR_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear, VERY_FAST_COST_MULTIPLIER), NUCLEAR_WEIGHT * 0.25);
+            
             year_weights.insert(GridAction::AddGenerator(GeneratorType::CoalPlant, DEFAULT_COST_MULTIPLIER), COAL_PLANT_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::CoalPlant, FAST_COST_MULTIPLIER), COAL_PLANT_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::CoalPlant, VERY_FAST_COST_MULTIPLIER), COAL_PLANT_WEIGHT * 0.25);
+            
             year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle, DEFAULT_COST_MULTIPLIER), GAS_COMBINED_CYCLE_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle, FAST_COST_MULTIPLIER), GAS_COMBINED_CYCLE_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasCombinedCycle, VERY_FAST_COST_MULTIPLIER), GAS_COMBINED_CYCLE_WEIGHT * 0.25);
+            
             year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker, DEFAULT_COST_MULTIPLIER), GAS_PEAKER_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker, FAST_COST_MULTIPLIER), GAS_PEAKER_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker, VERY_FAST_COST_MULTIPLIER), GAS_PEAKER_WEIGHT * 0.25);
+            
             year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass, DEFAULT_COST_MULTIPLIER), BIOMASS_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass, FAST_COST_MULTIPLIER), BIOMASS_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::Biomass, VERY_FAST_COST_MULTIPLIER), BIOMASS_WEIGHT * 0.25);
             
             // Initialize hydro and storage generator weights
             year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam, DEFAULT_COST_MULTIPLIER), HYDRO_DAM_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam, FAST_COST_MULTIPLIER), HYDRO_DAM_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::HydroDam, VERY_FAST_COST_MULTIPLIER), HYDRO_DAM_WEIGHT * 0.25);
+            
             year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage, DEFAULT_COST_MULTIPLIER), PUMPED_STORAGE_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage, FAST_COST_MULTIPLIER), PUMPED_STORAGE_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::PumpedStorage, VERY_FAST_COST_MULTIPLIER), PUMPED_STORAGE_WEIGHT * 0.25);
+            
             year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage, DEFAULT_COST_MULTIPLIER), BATTERY_STORAGE_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage, FAST_COST_MULTIPLIER), BATTERY_STORAGE_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::BatteryStorage, VERY_FAST_COST_MULTIPLIER), BATTERY_STORAGE_WEIGHT * 0.25);
             
             // Initialize marine generator weights
             year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator, DEFAULT_COST_MULTIPLIER), TIDAL_GENERATOR_WEIGHT);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator, FAST_COST_MULTIPLIER), TIDAL_GENERATOR_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::TidalGenerator, VERY_FAST_COST_MULTIPLIER), TIDAL_GENERATOR_WEIGHT * 0.25);
+            
             year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy, DEFAULT_COST_MULTIPLIER), WAVE_ENERGY_WEIGHT);
-            
-            // Add faster construction options with lower weights
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind, FAST_COST_MULTIPLIER), ONSHORE_WIND_WEIGHT * 0.5);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::UtilitySolar, FAST_COST_MULTIPLIER), UTILITY_SOLAR_WEIGHT * 0.5);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker, FAST_COST_MULTIPLIER), GAS_PEAKER_WEIGHT * 0.5);
-            
-            // Add very fast construction options with even lower weights
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::OnshoreWind, VERY_FAST_COST_MULTIPLIER), ONSHORE_WIND_WEIGHT * 0.25);
-            year_weights.insert(GridAction::AddGenerator(GeneratorType::GasPeaker, VERY_FAST_COST_MULTIPLIER), GAS_PEAKER_WEIGHT * 0.25);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy, FAST_COST_MULTIPLIER), WAVE_ENERGY_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddGenerator(GeneratorType::WaveEnergy, VERY_FAST_COST_MULTIPLIER), WAVE_ENERGY_WEIGHT * 0.25);
             
             // Initialize carbon offset weights
             year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::Forest, DEFAULT_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT);
-            year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::Wetland, DEFAULT_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT);
-            year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::ActiveCapture, DEFAULT_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT);
-            year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::CarbonCredit, DEFAULT_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT);
-            
-            // Add faster carbon offset options
             year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::Forest, FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::Forest, VERY_FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.25);
+            
+            year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::Wetland, DEFAULT_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT);
+            year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::Wetland, FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::Wetland, VERY_FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.25);
+            
+            year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::ActiveCapture, DEFAULT_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT);
+            year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::ActiveCapture, FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::ActiveCapture, VERY_FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.25);
+            
+            year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::CarbonCredit, DEFAULT_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT);
             year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::CarbonCredit, FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.5);
+            year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::CarbonCredit, VERY_FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.25);
             
             // Initialize other action weights
             year_weights.insert(GridAction::UpgradeEfficiency(String::new()), UPGRADE_EFFICIENCY_WEIGHT);
             year_weights.insert(GridAction::AdjustOperation(String::new(), OPERATION_PERCENTAGE_MIN), ADJUST_OPERATION_WEIGHT);
-            
             year_weights.insert(GridAction::CloseGenerator(String::new()), CLOSE_GENERATOR_WEIGHT);
-            
-            // Initialize DoNothing action weight (base value can be tuned)
             year_weights.insert(GridAction::DoNothing, DO_NOTHING_WEIGHT);
             
             // Add year's weights to the map
@@ -171,6 +207,7 @@ impl ActionWeights {
                     guaranteed_best_actions: false,
                     optimization_mode: None,
                     replay_index: HashMap::new(),
+                    improvement_history: Vec::new(),
                 };
                 instance.print_action_count_weights(year);
             }
@@ -201,6 +238,7 @@ impl ActionWeights {
             guaranteed_best_actions: false,
             optimization_mode: None,
             replay_index: HashMap::new(),
+            improvement_history: Vec::new(),
         };
         
         // DIAGNOSTIC: Log the created instance details
@@ -330,5 +368,15 @@ impl ActionWeights {
     /// Clears the replay index for all years
     pub fn clear_replay_index(&mut self) {
         self.replay_index.clear();
+    }
+    
+    /// Returns the improvement history tracking all improvements to the best strategy
+    pub fn get_improvement_history(&self) -> &[ImprovementRecord] {
+        &self.improvement_history
+    }
+    
+    /// Returns the total number of improvements found during training
+    pub fn get_improvement_count(&self) -> usize {
+        self.improvement_history.len()
     }
 }
