@@ -121,6 +121,13 @@ impl ActionWeights {
             deficit_weights: serializable_deficit_weights,
             best_deficit_actions: serializable_best_deficit_actions,
             optimization_mode: self.optimization_mode.clone(),
+            improvement_history: if !self.improvement_history.is_empty() {
+                Some(self.improvement_history.iter().map(|record| {
+                    crate::ai::learning::serialization::SerializableImprovementRecord::from(record)
+                }).collect())
+            } else {
+                None
+            },
         };
         
         let json = serde_json::to_string_pretty(&serializable)
@@ -443,6 +450,25 @@ impl ActionWeights {
             best_deficit_actions
         });
 
+        // Convert serializable improvement history to actual improvement history
+        let improvement_history = serializable.improvement_history
+            .map(|records| {
+                records.into_iter()
+                    .map(|record| {
+                        crate::utils::csv_export::ImprovementRecord {
+                            iteration: record.iteration,
+                            score: record.score,
+                            net_emissions: record.net_emissions,
+                            total_cost: record.total_cost,
+                            public_opinion: record.public_opinion,
+                            power_reliability: record.power_reliability,
+                            timestamp: record.timestamp,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_else(Vec::new);
+
         Ok(Self {
             weights,
             action_count_weights: HashMap::new(),
@@ -462,6 +488,7 @@ impl ActionWeights {
             guaranteed_best_actions: false,
             optimization_mode: serializable.optimization_mode,
             replay_index: HashMap::new(),
+            improvement_history,
         })
     }
 

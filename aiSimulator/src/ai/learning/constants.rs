@@ -13,7 +13,7 @@ pub use crate::config::constants::{MAX_ACCEPTABLE_EMISSIONS, MAX_ACCEPTABLE_COST
 pub const DEFAULT_WEIGHT: f64 = 0.5;
 pub const MIN_WEIGHT: f64 = 0.0001;  // Ensure weight doesn't go too close to zero
 pub const MAX_WEIGHT: f64 = 0.999;  // Ensure weight doesn't dominate completely
-pub const MIN_ACTION_WEIGHT: f64 = 0.01;
+pub const MIN_ACTION_WEIGHT: f64 = 0.0001;
 pub const DEFAULT_LEARNING_RATE: f64 = 0.2;
 pub const DEFAULT_EXPLORATION_RATE: f64 = 0.2;
 

@@ -315,6 +315,6 @@ pub const PLANNING_TIME_REDUCTION_FACTOR: f64 = 0.25;  // Planning time reduces 
 
 // Cost multiplier constants for AI decision making
 pub const DEFAULT_COST_MULTIPLIER: u16 = 100;  // 100% = normal cost
-pub const FAST_COST_MULTIPLIER: u16 = 150;     // 150% = faster construction
-pub const VERY_FAST_COST_MULTIPLIER: u16 = 200; // 200% = very fast construction
-pub const RUSH_COST_MULTIPLIER: u16 = 300;     // 300% = rush construction
+pub const FAST_COST_MULTIPLIER: u16 = 120;     // 120% = faster construction
+pub const VERY_FAST_COST_MULTIPLIER: u16 = 150; // 150% = very fast construction
+pub const RUSH_COST_MULTIPLIER: u16 = 200;     // 200% = rush construction

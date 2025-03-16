@@ -32,6 +32,7 @@ use lazy_static::lazy_static;
 // Internal module imports
 use crate::ai::actions::grid_action::GridAction;
 use crate::ai::metrics::simulation_metrics::SimulationMetrics;
+use crate::utils::csv_export::ImprovementRecord;
 
 /// Mutex for file operations to prevent race conditions when
 /// multiple threads try to read/write weight files
@@ -100,4 +101,7 @@ pub struct ActionWeights {
     
     /// Tracks the current index when replaying best actions for each year
     pub replay_index: HashMap<u32, usize>,
+    
+    /// Improvement history tracking - records each time the best strategy is improved
+    pub improvement_history: Vec<ImprovementRecord>,
 }

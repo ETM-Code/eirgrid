@@ -12,6 +12,8 @@ use crate::models::carbon_offset::CarbonOffsetType;
 use crate::config::constants::{BASE_YEAR, END_YEAR, IRELAND_MIN_LAT, IRELAND_MAX_LAT, IRELAND_MIN_LON, IRELAND_MAX_LON, GRID_SCALE_X, GRID_SCALE_Y, FOREST_BASE_COST, WETLAND_BASE_COST, ACTIVE_CAPTURE_BASE_COST, CARBON_CREDIT_BASE_COST, MAP_MAX_X, MAP_MAX_Y};
 use crate::data::poi::POI;
 use crate::models::generator::{Generator, GeneratorType};
+use std::str::FromStr;
+use crate::config::tech_type::{TechType, BuildSpeed, map_to_tech_type, planning_duration, construction_duration, convert_cost_multiplier};
 use crate::config::const_funcs;
 
 /// Function to transform grid coordinates back to lat/lon
@@ -57,6 +59,25 @@ fn transform_grid_to_lat_lon(x: f64, y: f64) -> (f64, f64) {
     println!("Transformed grid ({:.2}, {:.2}) to geo ({:.6}, {:.6})", x_valid, y_valid, lon, lat);
     
     (lon, lat) // Return as (longitude, latitude) for consistent ordering
+}
+
+/// ImprovementRecord represents a single improvement of the best iteration
+#[derive(Debug, Clone)]
+pub struct ImprovementRecord {
+    /// Iteration number when the improvement was found
+    pub iteration: u32,
+    /// Score value
+    pub score: f64,
+    /// Net carbon emissions (tonnes)
+    pub net_emissions: f64,
+    /// Total cost (EUR)
+    pub total_cost: f64,
+    /// Public opinion (0-1)
+    pub public_opinion: f64,
+    /// Power reliability (0-1)
+    pub power_reliability: f64,
+    /// Timestamp when the improvement was recorded
+    pub timestamp: String,
 }
 
 /// Main struct for handling CSV export
@@ -105,6 +126,66 @@ impl CsvExporter {
             println!("CSV export completed successfully to: {}", self.output_dir.display());
         }
         
+        Ok(())
+    }
+
+    /// Export improvement history to CSV
+    pub fn export_improvement_history(
+        &self,
+        improvements: &[ImprovementRecord],
+    ) -> Result<(), Box<dyn Error>> {
+        // Skip if no improvements are provided
+        if improvements.is_empty() {
+            if self.verbose_logging {
+                println!("No improvement history to export");
+            }
+            return Ok(());
+        }
+
+        // Create the file
+        let improvements_path = self.output_dir.join("improvement_history.csv");
+        let mut improvements_file = File::create(&improvements_path)?;
+
+        // Write header
+        writeln!(
+            improvements_file,
+            "Iteration,Score,Net Emissions (tonnes),Total Cost (€),Public Opinion (%),Power Reliability (%),Score Improvement (%),Timestamp"
+        )?;
+
+        // Keep track of previous values to calculate improvements
+        let mut prev_score = 0.0;
+
+        // Write each improvement record
+        for (i, record) in improvements.iter().enumerate() {
+            // Calculate score improvement percentage (for all except first record)
+            let score_improvement = if i > 0 && prev_score > 0.0 {
+                ((record.score - prev_score) / prev_score) * 100.0
+            } else {
+                0.0 // No improvement percentage for first record
+            };
+            
+            writeln!(
+                improvements_file,
+                "{},{:.6},{:.2},{:.2},{:.2},{:.2},{:.2},{}",
+                record.iteration,
+                record.score,
+                record.net_emissions,
+                record.total_cost,
+                record.public_opinion * 100.0, // Convert to percentage
+                record.power_reliability * 100.0, // Convert to percentage
+                score_improvement,
+                record.timestamp
+            )?;
+            
+            // Update previous values for next iteration
+            prev_score = record.score;
+        }
+
+        if self.verbose_logging {
+            println!("Successfully exported {} improvement records to: {}", 
+                improvements.len(), improvements_path.display());
+        }
+
         Ok(())
     }
 
@@ -409,10 +490,10 @@ impl CsvExporter {
         let generators_file_path = generators_dir.join("generators.csv");
         let mut generators_file = File::create(generators_file_path)?;
         
-        // Write generators header with comprehensive information
+        // Write generators header with comprehensive information, including construction speed and duration
         writeln!(
             generators_file,
-            "Year,Generator ID,Type,Longitude,Latitude,Power Output (MW),Efficiency (%),Operation (%),CO2 Output (tonnes),Is Active,Commissioning Year,End of Life Year,Size,Capital Cost (€),Operating Cost (€),Total Annual Cost (€),Reliability Factor"
+            "Year,Generator ID,Type,Longitude,Latitude,Power Output (MW),Efficiency (%),Operation (%),CO2 Output (tonnes),Is Active,Commissioning Year,End of Life Year,Size,Capital Cost (€),Operating Cost (€),Total Annual Cost (€),Reliability Factor,Planning Time (years),Construction Time (years),Construction Speed"
         )?;
         
         // Check if we have any generators to export
@@ -617,6 +698,20 @@ impl CsvExporter {
                     GeneratorType::WaveEnergy => 0.40,
                 };
                 
+                // Get construction speed and planning/construction durations
+                let cost_multiplier_percent = (generator.get_construction_cost_multiplier() * 100.0).round() as u16;
+                let construction_speed = BuildSpeed::from_cost_multiplier(cost_multiplier_percent);
+                let tech_type = map_to_tech_type(&generator.get_generator_type());
+                
+                // Calculate planning and construction times using the Ireland-specific functions
+                let base_planning_time = planning_duration(commissioning_year, tech_type);
+                let base_construction_time = construction_duration(commissioning_year, tech_type);
+                
+                // Apply cost multiplier effect on times
+                let cost_multiplier_factor = generator.get_construction_cost_multiplier();
+                let planning_time_with_speed = base_planning_time * (0.5 + 0.5 / cost_multiplier_factor.max(1.0));
+                let construction_time_with_speed = base_construction_time * (0.4 + 0.6 / cost_multiplier_factor.max(1.0));
+                
                 // Sanitize the ID for CSV output
                 let sanitized_id = sanitize_id(generator_id);
                 
@@ -626,10 +721,10 @@ impl CsvExporter {
                         generator_id, coordinate.x, coordinate.y, lon, lat);
                 }
                 
-                // Write generator data to CSV
+                // Write generator data to CSV, including planning and construction times
                 writeln!(
                     generators_file,
-                    "{},{},{},{:.6},{:.6},{:.2},{:.2},{:.2},{:.2},{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2}",
+                    "{},{},{},{:.6},{:.6},{:.2},{:.2},{:.2},{:.2},{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{}",
                     year,
                     sanitized_id,
                     generator_type,
@@ -645,7 +740,10 @@ impl CsvExporter {
                     capital_cost,
                     operating_cost,
                     capital_cost + operating_cost,
-                    reliability_factor
+                    reliability_factor,
+                    planning_time_with_speed,
+                    construction_time_with_speed,
+                    construction_speed.display_name()
                 )?;
             }
             
@@ -780,9 +878,23 @@ impl CsvExporter {
                         }
                         
                         // Write generator data to CSV with the information we have
+                        // Also add planning and construction time estimates based on the type
+                        let gen_type_str = extract_generator_type(id);
+                        let gen_type = match GeneratorType::from_str(&gen_type_str) {
+                            Ok(gt) => gt,
+                            Err(_) => GeneratorType::GasCombinedCycle, // Default if can't parse
+                        };
+                        
+                        let tech_type = map_to_tech_type(&gen_type);
+                        let base_planning_time = planning_duration(commissioning_year, tech_type);
+                        let base_construction_time = construction_duration(commissioning_year, tech_type);
+                        
+                        // Assume normal construction speed for generators from metrics
+                        let construction_speed = BuildSpeed::Normal;
+                        
                         writeln!(
                             generators_file,
-                            "{},{},{},{:.6},{:.6},{:.2},{:.2},{:.2},{:.2},{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2}",
+                            "{},{},{},{:.6},{:.6},{:.2},{:.2},{:.2},{:.2},{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{}",
                             year,
                             sanitized_id,
                             gen_type,
@@ -799,7 +911,10 @@ impl CsvExporter {
                             capital_cost,
                             operating_cost,
                             capital_cost + operating_cost,
-                            reliability_factor
+                            reliability_factor,
+                            base_planning_time,
+                            base_construction_time,
+                            construction_speed.display_name()
                         )?;
                         
                         processed_generators.insert(id.clone());
