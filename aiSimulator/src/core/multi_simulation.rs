@@ -449,7 +449,16 @@ pub fn run_multi_simulation(
                     let best_metrics_after_update = {
                         let mut weights = action_weights.write();
                         weights.transfer_recorded_actions_from(&local_weights);
+                        
+                        // Apply contrast learning before updating best strategy
+                        weights.apply_contrast_learning(&result.metrics);
+                        
+                        // After applying contrast learning, update the best strategy if this one is better
                         weights.update_best_strategy(result.metrics.clone());
+                        
+                        // If we're handling deficit actions, also apply deficit contrast learning
+                        weights.apply_deficit_contrast_learning();
+                        
                         weights.get_simulation_metrics().cloned()
                     };
                     
@@ -675,7 +684,16 @@ pub fn run_multi_simulation(
                 let best_metrics_after_update = {
                     let mut weights = action_weights.write();
                     weights.transfer_recorded_actions_from(&local_weights);
+                    
+                    // Apply contrast learning before updating best strategy
+                    weights.apply_contrast_learning(&result.metrics);
+                    
+                    // After applying contrast learning, update the best strategy if this one is better
                     weights.update_best_strategy(result.metrics.clone());
+                    
+                    // If we're handling deficit actions, also apply deficit contrast learning
+                    weights.apply_deficit_contrast_learning();
+                    
                     weights.get_simulation_metrics().cloned()
                 };
                 
