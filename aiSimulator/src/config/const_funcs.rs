@@ -101,7 +101,7 @@ pub fn calc_cost_opinion(cost: f64, year: u32) -> f64 {
         1.0 - normalized_cost
     } else {
         // For costs above reference, use exponential decay
-        0.5 * (-0.5 * (normalized_cost - 1.0)).exp()
+        COST_OPINION_DECAY_FACTOR * (COST_OPINION_EXP_SCALE * (normalized_cost - 1.0)).exp()
     }
 }
 

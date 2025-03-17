@@ -20,8 +20,15 @@ use crate::config::constants::{
     MAP_MAX_X,
     MAP_MAX_Y,
     ENABLE_CONSTRUCTION_DELAYS,
+    END_YEAR,
 };
-use crate::config::const_funcs::is_point_inside_polygon;
+use crate::config::const_funcs::{
+    is_point_inside_polygon, 
+    calc_planning_permission_time,
+    calc_construction_time,
+    calc_carbon_offset_planning_time,
+    calc_carbon_offset_construction_time
+};
 use crate::config::simulation_config::{SimulationConfig, GeneratorConstraints};
 use crate::models::power_storage::calculate_max_intermittent_capacity;
 use super::spatial_index::{SpatialIndex, GeneratorSuitabilityType};
@@ -527,6 +534,24 @@ impl Map {
         let public_opinion = self.calculate_public_opinion_at_location(&generator.coordinate);
         
         // Initialize construction with delays enabled/disabled based on map setting
+        if self.enable_construction_delays {
+            // Calculate planning and construction times to check if they extend beyond simulation end
+            let gen_type = generator.get_generator_type();
+            let planning_time = calc_planning_permission_time(gen_type, current_year, public_opinion, 1.0);
+            let construction_time = calc_construction_time(gen_type, current_year, 1.0);
+            
+            // Calculate when construction would complete
+            let estimated_completion_year = (current_year as f64 + planning_time + construction_time).ceil() as u32;
+            
+            // If construction would complete after the end of simulation, don't add the generator
+            if estimated_completion_year > END_YEAR {
+                println!("Action cancelled: Generator {} would complete construction in {} which is beyond simulation end year {}",
+                    generator.get_id(), estimated_completion_year, END_YEAR);
+                return;
+            }
+        }
+        
+        // Now initialize construction
         generator.initialize_construction(current_year, public_opinion, self.enable_construction_delays);
         
         // Determine if we need to assign a location
@@ -745,6 +770,23 @@ impl Map {
         let public_opinion = self.calculate_public_opinion_at_location(offset.get_coordinate());
         
         // Initialize construction with delays enabled/disabled based on map setting
+        if self.enable_construction_delays {
+            // Calculate planning and construction times to check if they extend beyond simulation end
+            let offset_type = offset.get_offset_type();
+            let planning_time = calc_carbon_offset_planning_time(offset_type, current_year, public_opinion, 1.0);
+            let construction_time = calc_carbon_offset_construction_time(offset_type, current_year, 1.0);
+            
+            // Calculate when construction would complete
+            let estimated_completion_year = (current_year as f64 + planning_time + construction_time).ceil() as u32;
+            
+            // If construction would complete after the end of simulation, don't add the offset
+            if estimated_completion_year > END_YEAR {
+                println!("Action cancelled: Carbon offset {} would complete construction in {} which is beyond simulation end year {}",
+                    offset.get_id(), estimated_completion_year, END_YEAR);
+                return;
+            }
+        }
+        
         offset.initialize_construction(current_year, public_opinion, self.enable_construction_delays);
         
         self.carbon_offsets.push(offset);

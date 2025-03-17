@@ -141,8 +141,23 @@ impl ActionWeights {
                 ZERO_F64
             };
             
-            // Only apply contrast learning if the current run is significantly worse (>3%)
-            if deterioration > DIVERGENCE_FOR_NEGATIVE_WEIGHT {
+            // Calculate dynamic threshold based on iterations without improvement
+            // Start at initial threshold (e.g., 10%) and decrease to minimum threshold (e.g., 0.001%) as iterations increase
+            let initial_threshold = CONTRAST_INITIAL_THRESHOLD;
+            let minimum_threshold = CONTRAST_MINIMUM_THRESHOLD;
+            let iterations = self.iterations_without_improvement as f64;
+            
+            // Scale factor determines how quickly the threshold decreases
+            let scale_factor = CONTRAST_SCALE_FACTOR;
+            
+            // Dynamic threshold decreases exponentially with more iterations
+            let dynamic_threshold = initial_threshold * (-iterations / scale_factor).exp().max(minimum_threshold / initial_threshold);
+            
+            // Only apply contrast learning if deterioration exceeds dynamic threshold
+            // or if we've been stagnant for a very long time (forcing contrast learning)
+            let force_contrast = self.iterations_without_improvement > HIGH_ITERATION_THRESHOLD;
+            
+            if deterioration > dynamic_threshold || force_contrast {
                 // Calculate stagnation penalty with exponential scaling
                 // For stagnation, we want more iterations to have a stronger effect, so we use a power > 1
                 let stagnation_iterations = self.iterations_without_improvement as f64 / STAGNATION_ITERATIONS_DIVISOR;
@@ -161,6 +176,7 @@ impl ActionWeights {
                 // Log the contrast learning application with more detailed information
                 println!("\n🔄 Applying enhanced contrast learning:");
                 println!("   - Current run is {:.1}% worse than best", deterioration * PERCENT_CONVERSION);
+                println!("   - Dynamic threshold: {:.4}% (iterations: {})", dynamic_threshold * PERCENT_CONVERSION, self.iterations_without_improvement);
                 println!("   - Iterations without improvement: {}", self.iterations_without_improvement);
                 println!("   - Raw deterioration: {:.4}, Scaled: {:.4}", deterioration, scaled_deterioration);
                 println!("   - Stagnation factor: {:.2}x", stagnation_factor);
@@ -261,7 +277,7 @@ impl ActionWeights {
                 // Show stats on how many weights were affected
                 if total_weights > 0 {
                     println!("   - {}/{} weights ({:.1}%) reduced to minimum value", 
-                            min_weight_count, total_weights, (min_weight_count as f64 / total_weights as f64) * 100.0);
+                            min_weight_count, total_weights, (min_weight_count as f64 / total_weights as f64) * PERCENT_CONVERSION);
                 }
 
                 // If we've been stagnating for a very long time, also apply some randomization
@@ -292,8 +308,20 @@ impl ActionWeights {
             // from the regular contrast learning as an approximation
             let deterioration = self.iterations_without_improvement as f64 / STAGNATION_ITERATIONS_DIVISOR; // Use iterations as a proxy for deterioration
             
-            // Only apply contrast learning if there's some deterioration
-            if deterioration > ZERO_F64 {
+            // Calculate dynamic threshold similar to the main contrast learning function
+            // Start at a higher threshold and decrease over time without improvements
+            let initial_threshold = DEFICIT_CONTRAST_INITIAL_THRESHOLD;
+            let minimum_threshold = DEFICIT_CONTRAST_MINIMUM_THRESHOLD;
+            let iterations = self.iterations_without_improvement as f64;
+            let scale_factor = DEFICIT_CONTRAST_SCALE_FACTOR;
+            
+            // Dynamic threshold decreases with more iterations
+            let dynamic_threshold = initial_threshold * (-iterations / scale_factor).exp().max(minimum_threshold / initial_threshold);
+            
+            // Force contrast learning after a long period without improvement
+            let force_contrast = self.iterations_without_improvement > HIGH_ITERATION_THRESHOLD;
+            
+            if deterioration > dynamic_threshold || force_contrast {
                 // Calculate stagnation penalty with exponential scaling
                 let stagnation_iterations = self.iterations_without_improvement as f64 / STAGNATION_ITERATIONS_DIVISOR;
                 let stagnation_factor = ONE_F64 + (STAGNATION_PENALTY_FACTOR * stagnation_iterations.powf(STAGNATION_EXPONENT));
@@ -309,6 +337,7 @@ impl ActionWeights {
                 
                 // Log the contrast learning application with more detailed information
                 println!("\n🔄 Applying enhanced contrast learning to deficit handling actions:");
+                println!("   - Dynamic threshold: {:.4}% (iterations: {})", dynamic_threshold * PERCENT_CONVERSION, self.iterations_without_improvement);
                 println!("   - Iterations without improvement: {}", self.iterations_without_improvement);
                 println!("   - Proxy deterioration: {:.4}, Scaled: {:.4}", deterioration, scaled_deterioration);
                 println!("   - Stagnation factor: {:.2}x", stagnation_factor);
@@ -316,7 +345,9 @@ impl ActionWeights {
                 
                 // Calculate the penalty factor - more severe for worse runs and after more stagnation
                 let penalty_factor = ONE_F64 / (ONE_F64 + adaptive_learning_rate * PENALTY_MULTIPLIER * combined_penalty);
-                let best_boost_factor = ONE_F64 + (adaptive_learning_rate * BOOST_MULTIPLIER * stagnation_factor);
+                
+                // Use a more aggressive boost factor for deficit actions since they're critical
+                let best_boost_factor = ONE_F64 + (adaptive_learning_rate * BOOST_MULTIPLIER * stagnation_factor * DEFICIT_BOOST_MULTIPLIER);
                 
                 println!("   - Penalty factor: {:.8}", penalty_factor);
                 println!("   - Best boost factor: {:.8}", best_boost_factor);

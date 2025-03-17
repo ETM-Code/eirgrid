@@ -192,12 +192,12 @@ impl GeneratorType {
             GeneratorType::CoalPlant => COAL_COST_INCREASE,
             GeneratorType::GasCombinedCycle => GAS_COST_INCREASE,
             GeneratorType::GasPeaker => GAS_COST_INCREASE,
-            GeneratorType::Biomass => 1.0,
+            GeneratorType::Biomass => 0.99,
             GeneratorType::HydroDam => HYDRO_COST_INCREASE,
             GeneratorType::PumpedStorage => HYDRO_COST_INCREASE,
-            GeneratorType::BatteryStorage => 1.0,
-            GeneratorType::TidalGenerator => 1.0,
-            GeneratorType::WaveEnergy => 1.0,
+            GeneratorType::BatteryStorage => 0.97,
+            GeneratorType::TidalGenerator => 0.95,
+            GeneratorType::WaveEnergy => 0.95,
         }
     }
 
@@ -345,7 +345,7 @@ impl GeneratorType {
         match *self {
             GeneratorType::OnshoreWind => 25,
             GeneratorType::OffshoreWind => 25,
-            GeneratorType::DomesticSolar => 20,
+            GeneratorType::DomesticSolar => 25,
             GeneratorType::CommercialSolar => 25,
             GeneratorType::UtilitySolar => 30,
             GeneratorType::Nuclear => 60,
@@ -521,7 +521,7 @@ impl Generator {
     }
 
     pub fn get_current_power_output(&self, hour: Option<u8>) -> f64 {
-        if !self.is_active {
+        if !self.is_active() {
             return 0.0;
         }
 
@@ -594,7 +594,7 @@ impl Generator {
     }
 
     pub fn get_current_operating_cost(&self, year: u32) -> f64 {
-        if !self.is_active {
+        if !self.is_active() {
             return 0.0;
         }
         let base_cost = calc_operating_cost(&self.generator_type, self.base_operating_cost, year);
@@ -619,14 +619,17 @@ impl Generator {
         if !self.is_active() {
             return 0.0;
         }
-        self.power_out * self.efficiency * self.operation_percentage * (1.0 - self.efficiency)
+        
+        // Using stored co2_out value (initialized from constants) and adjusting by
+        // operation percentage and efficiency improvements
+        self.co2_out * self.operation_percentage * (1.0 - (self.efficiency - BASE_EFFICIENCY))
     }
 
     pub fn can_upgrade_efficiency(&self, year: u32, constraints: &GeneratorConstraints) -> bool {
-        if !self.is_active {
+        if !self.is_active() {
             return false;
         }
-
+        
         // Find maximum efficiency for the current year
         let max_efficiency = constraints.max_efficiency_by_year
             .iter()
@@ -657,7 +660,7 @@ impl Generator {
         
         let clamped_percentage = new_percentage.clamp(min_percentage, MAX_OPERATION_PERCENTAGE);
         
-        if !self.is_active {
+        if !self.is_active() {
             return false;
         }
 
@@ -666,7 +669,7 @@ impl Generator {
     }
 
     pub fn close_generator(&mut self, year: u32) -> f64 {
-        if !self.is_active {
+        if !self.is_active() {
             return 0.0;
         }
 

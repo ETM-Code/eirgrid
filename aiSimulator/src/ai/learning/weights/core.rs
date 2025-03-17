@@ -271,13 +271,8 @@ impl ActionWeights {
                 println!("⚠️ Currently at {} iterations without improvement", self.iterations_without_improvement);
             }
             
-            if self.iterations_without_improvement > HIGH_ITERATION_THRESHOLD && self.iterations_without_improvement % STAGNATION_DIVISOR_INT == ZERO_U32 {
-                // If we're stagnating, periodically restore the best weights with some randomization
-                println!("⚠️ Stagnation detected: Restoring best weights with randomization after {} iterations without improvement",
-                            self.iterations_without_improvement);
-                
-                self.restore_best_weights(BEST_WEIGHT_FACTOR);
-            }
+            // Removed weight restoration to allow contrast learning to have more effect
+            // Previously restored best weights here when iterations_without_improvement > HIGH_ITERATION_THRESHOLD
             
             if self.iterations_without_improvement > FORCE_REPLAY_THRESHOLD {
                 // Based on how long we've been stagnant, consider forcing replay of best actions

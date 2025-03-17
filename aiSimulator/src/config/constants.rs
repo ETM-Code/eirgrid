@@ -111,17 +111,21 @@ pub const BATTERY_BASE_OPINION: f64 = 0.85;        // Initial public opinion of 
 pub const BATTERY_OPINION_CHANGE: f64 = 0.003;     // Annual change in battery opinion 
 
 // Scoring constants
-pub const MAX_ACCEPTABLE_EMISSIONS: f64 = 10_160_470.0;  // 10 million tonnes CO2 (converted from 10 million tons)
+pub const MAX_ACCEPTABLE_EMISSIONS: f64 = 1_000_000.0;  // 1 million tonnes CO2 (scaled to match new emission rates)
 pub const MAX_ACCEPTABLE_COST: f64 = 50_000_000_000.0;  // 50 billion euros
+
+// Cost Opinion Constants
+pub const COST_OPINION_DECAY_FACTOR: f64 = 0.5; // Decay factor for high costs
+pub const COST_OPINION_EXP_SCALE: f64 = -0.5;   // Exponential scale for cost opinion curve
 
 // Decommissioning Costs
 pub const DECOMMISSION_COST_RATIO: f64 = 0.12; // 25% of base cost for decommissioning
 
-// CO2 Emission Rates (tonnes per MW)
-pub const COAL_CO2_RATE: f64 = 197_000_000.0;  // ~1016 tonnes per MW (converted from 1000 tons)
-pub const GAS_CC_CO2_RATE: f64 = 1_188_000.0;  // ~508 tonnes per MW (converted from 500 tons)
-pub const GAS_PEAKER_CO2_RATE: f64 = 2_772_000.0;  // ~711 tonnes per MW (converted from 700 tons)
-pub const BIOMASS_CO2_RATE: f64 = 33_634_800.0;  // ~51 tonnes per MW (converted from 50 tons)
+// CO2 Emission Rates (tonnes per MW per year)
+pub const COAL_CO2_RATE: f64 = 6_300.0;  // ~6,300 tonnes per MW per year (typical coal plant)
+pub const GAS_CC_CO2_RATE: f64 = 3_500.0;  // ~3,500 tonnes per MW per year (combined cycle)
+pub const GAS_PEAKER_CO2_RATE: f64 = 4_800.0;  // ~4,800 tonnes per MW per year (peaker plant)
+pub const BIOMASS_CO2_RATE: f64 = 1_500.0;  // ~1,500 tonnes per MW per year (biomass emissions)
 
 // Geographic Constants
 pub const IRELAND_MIN_LAT: f64 = 51.4;
@@ -225,6 +229,18 @@ pub const MAX_CARBON_OFFSET_SIZE: f64 = 1000.0;
 // Carbon Offset Efficiency Range
 pub const MIN_CARBON_OFFSET_EFFICIENCY: f64 = 0.7;
 pub const MAX_CARBON_OFFSET_EFFICIENCY: f64 = 0.95;
+
+// Carbon Sequestration Rates (tonnes per hectare per year)
+pub const FOREST_SEQUESTRATION_RATE: f64 = 25.0;  // 25 tonnes CO2 per hectare per year
+pub const WETLAND_SEQUESTRATION_RATE: f64 = 40.0; // 40 tonnes CO2 per hectare per year
+pub const ACTIVE_CAPTURE_MULTIPLIER: f64 = 500.0; // Each size unit captures 500 tonnes CO2 per year
+pub const CARBON_CREDIT_MULTIPLIER: f64 = 100.0;  // Each size unit represents 100 tonnes CO2 offset
+
+// Active Capture Power Consumption
+pub const ACTIVE_CAPTURE_POWER_PER_UNIT: f64 = 0.5; // 0.5 MW per unit of capture capacity
+
+// Carbon Offset Maturity Curve
+pub const CARBON_OFFSET_MATURITY_FACTOR: f64 = -0.1; // Controls how quickly natural offsets mature
 
 // Carbon Offset Base Costs
 pub const FOREST_BASE_COST: f64 = 1_000_000.0;

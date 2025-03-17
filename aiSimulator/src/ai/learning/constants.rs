@@ -27,6 +27,7 @@ pub const ONE_USIZE: usize = 1;
 pub const ZERO_U32: u32 = 0;
 pub const ONE_U32: u32 = 1;
 pub const ZERO_U8: u8 = 0;
+pub const PERCENT_CONVERSION: f64 = 100.0; // Used to convert decimal to percentage for display
 
 //---------------------------------------------------------------------
 // Simulation Year Constants
@@ -39,7 +40,9 @@ pub const LATE_YEAR_THRESHOLD: u32 = 2045;
 //---------------------------------------------------------------------
 // Generator Weight Constants
 //---------------------------------------------------------------------
-pub const DIVERGENCE_FOR_NEGATIVE_WEIGHT: f64 = 0.03; // The difference of improvement necessary for a negative weight
+// We no longer need this constant since we now use dynamic thresholds 
+// But keeping it for backward compatibility
+pub const DIVERGENCE_FOR_NEGATIVE_WEIGHT: f64 = 0.0001; // The difference of improvement necessary for a negative weight
 pub const ONSHORE_WIND_WEIGHT: f64 = 0.08;
 pub const OFFSHORE_WIND_WEIGHT: f64 = 0.08;
 pub const DOMESTIC_SOLAR_WEIGHT: f64 = 0.05;
@@ -89,12 +92,12 @@ pub const STAGNATION_PENALTY_FACTOR: f64 = 0.2; // Base factor for stagnation pe
 pub const BEST_WEIGHT_FACTOR: f64 = 0.75;
 pub const EXPLORATION_DECAY_FACTOR: f64 = 0.01;
 pub const STAGNATION_SCALE_FACTOR: f64 = 2.0;
-pub const RANDOMIZATION_FACTOR: f64 = 0.1;
+pub const RANDOMIZATION_FACTOR: f64 = 0.25;
 pub const SMALL_BOOST_FACTOR: f64 = 0.1;
 pub const NOOP_BOOST_FACTOR: f64 = 0.2;
 pub const COST_MULTIPLICATION_FACTOR: f64 = 8.0;
 pub const RENEWABLE_FALLBACK_WEIGHT_FACTOR: f64 = 0.5;
-pub const ADAPTIVE_LEARNING_RATE_FACTOR: f64 = 0.05;
+pub const ADAPTIVE_LEARNING_RATE_FACTOR: f64 = 0.1;
 pub const MILD_PENALTY_FACTOR: f64 = 0.5;
 
 //---------------------------------------------------------------------
@@ -117,6 +120,20 @@ pub const HIGH_ITERATION_THRESHOLD: u32 = 800;
 pub const MID_ITERATION_THRESHOLD: u32 = 500;
 pub const LOW_ITERATION_THRESHOLD: u32 = 100;
 pub const WEIGHT_PRECISION_THRESHOLD: f64 = 0.000001;
+pub const ITERATIONS_FOR_RANDOMIZATION: u32 = 1200; // Iterations without improvement before applying randomization
+
+// Dynamic threshold constants for contrast learning
+pub const CONTRAST_INITIAL_THRESHOLD: f64 = 0.1; // 10% initial difference threshold
+pub const CONTRAST_MINIMUM_THRESHOLD: f64 = 0.00001; // 0.001% minimum threshold
+pub const CONTRAST_SCALE_FACTOR: f64 = 500.0; // How quickly threshold decreases with iterations
+
+// Dynamic threshold constants for deficit contrast learning
+pub const DEFICIT_CONTRAST_INITIAL_THRESHOLD: f64 = 0.05; // 5% initial threshold for deficit learning
+pub const DEFICIT_CONTRAST_MINIMUM_THRESHOLD: f64 = 0.00001; // 0.001% minimum threshold
+pub const DEFICIT_CONTRAST_SCALE_FACTOR: f64 = 400.0; // How quickly threshold decreases
+
+// Additional contrast learning factors
+pub const DEFICIT_BOOST_MULTIPLIER: f64 = 1.5; // Additional multiplier for deficit action boosts
 
 //---------------------------------------------------------------------
 // Divisor Constants
@@ -156,8 +173,6 @@ pub const SMALL_LOG_INTERVAL: u32 = 10;
 //---------------------------------------------------------------------
 // Other Constants
 //---------------------------------------------------------------------
-pub const ITERATIONS_FOR_RANDOMIZATION: u32 = 1000; // After this many iterations without improvement, apply randomization
-pub const PERCENT_CONVERSION: f64 = 100.0;
 pub const STAGNATION_SCALE_MIN: f64 = 1.0;
 pub const STAGNATION_SCALE_MAX: f64 = 3.0;
 pub const IMMEDIATE_WEIGHT_FACTOR_POSITIVE: f64 = 0.7;
