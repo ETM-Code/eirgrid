@@ -9,12 +9,34 @@ use crate::core::action_weights::{GridAction, SimulationMetrics};
 use crate::models::settlement::Settlement;
 use crate::models::carbon_offset::CarbonOffset;
 use crate::models::carbon_offset::CarbonOffsetType;
-use crate::config::constants::{BASE_YEAR, END_YEAR, IRELAND_MIN_LAT, IRELAND_MAX_LAT, IRELAND_MIN_LON, IRELAND_MAX_LON, GRID_SCALE_X, GRID_SCALE_Y, FOREST_BASE_COST, WETLAND_BASE_COST, ACTIVE_CAPTURE_BASE_COST, CARBON_CREDIT_BASE_COST, MAP_MAX_X, MAP_MAX_Y};
+use crate::config::constants::{
+    WIND_BASE_MAX_EFFICIENCY,
+    UTILITY_SOLAR_BASE_MAX_EFFICIENCY,
+    NUCLEAR_BASE_MAX_EFFICIENCY,
+    GAS_CC_BASE_MAX_EFFICIENCY,
+    HYDRO_BASE_MAX_EFFICIENCY,
+    MARINE_BASE_MAX_EFFICIENCY,
+    DEFAULT_BASE_MAX_EFFICIENCY,
+    BASE_YEAR,
+    DEVELOPING_TECH_IMPROVEMENT_RATE,
+    EMERGING_TECH_IMPROVEMENT_RATE,
+    MATURE_TECH_IMPROVEMENT_RATE,
+    END_YEAR,
+    IRELAND_MIN_LAT,
+    IRELAND_MAX_LAT,
+    IRELAND_MIN_LON,
+    IRELAND_MAX_LON,
+    FOREST_BASE_COST,
+    WETLAND_BASE_COST,
+    ACTIVE_CAPTURE_BASE_COST,
+    CARBON_CREDIT_BASE_COST,
+    MAP_MAX_X,
+    MAP_MAX_Y,
+};
 use crate::data::poi::POI;
 use crate::models::generator::{Generator, GeneratorType};
 use std::str::FromStr;
-use crate::config::tech_type::{TechType, BuildSpeed, map_to_tech_type, planning_duration, construction_duration, convert_cost_multiplier};
-use crate::config::const_funcs;
+use crate::config::tech_type::{BuildSpeed, map_to_tech_type, planning_duration, construction_duration};
 
 /// Function to transform grid coordinates back to lat/lon
 fn transform_grid_to_lat_lon(x: f64, y: f64) -> (f64, f64) {
@@ -231,9 +253,22 @@ impl CsvExporter {
         for (year, action) in actions {
             let (action_type, gen_type, gen_id, operation_pct, offset_type, estimated_cost) = match action {
                 GridAction::AddGenerator(gen_type, cost_multiplier) => {
+                    // Use calc_generator_cost instead of just base_cost to match yearly metrics calculation
                     let base_cost = gen_type.get_base_cost(*year);
+                    
+                    // Create a more accurate cost estimate using the same function used for metrics
+                    let accurate_cost = crate::config::const_funcs::calc_generator_cost(
+                        gen_type,
+                        base_cost,
+                        *year,
+                        gen_type.can_be_urban(),
+                        gen_type.requires_water(),
+                        gen_type.requires_water()
+                    );
+                    
                     // Apply cost multiplier
-                    let cost = base_cost * (*cost_multiplier as f64 / 100.0);
+                    let cost = accurate_cost * (*cost_multiplier as f64 / 100.0);
+                    
                     (
                     "AddGenerator",
                     gen_type.to_string(),
@@ -246,9 +281,35 @@ impl CsvExporter {
                 GridAction::UpgradeEfficiency(id) => {
                     // Estimate upgrade cost based on generator type and base cost
                     let upgrade_cost = if let Some(generator) = generator_map.get(id.as_str()) {
-                        // Typical efficiency increase is about 10-20%
-                        let typical_efficiency_increase = 0.15;
-                        generator.get_current_cost(*year) * typical_efficiency_increase * 0.5
+                        // Calculate max efficiency similar to how it's done in core/actions.rs
+                        let gen_type = generator.get_generator_type();
+                        let base_max = match gen_type {
+                            GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => WIND_BASE_MAX_EFFICIENCY,
+                            GeneratorType::UtilitySolar => UTILITY_SOLAR_BASE_MAX_EFFICIENCY,
+                            GeneratorType::Nuclear => NUCLEAR_BASE_MAX_EFFICIENCY,
+                            GeneratorType::GasCombinedCycle => GAS_CC_BASE_MAX_EFFICIENCY,
+                            GeneratorType::HydroDam | GeneratorType::PumpedStorage => HYDRO_BASE_MAX_EFFICIENCY,
+                            GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => MARINE_BASE_MAX_EFFICIENCY,
+                            _ => DEFAULT_BASE_MAX_EFFICIENCY,
+                        };
+                        
+                        let tech_improvement = match gen_type {
+                            GeneratorType::OnshoreWind | GeneratorType::OffshoreWind |
+                            GeneratorType::UtilitySolar => DEVELOPING_TECH_IMPROVEMENT_RATE,
+                            GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => EMERGING_TECH_IMPROVEMENT_RATE,
+                            _ => MATURE_TECH_IMPROVEMENT_RATE,
+                        }.powi((*year - BASE_YEAR) as i32);
+                        
+                        let max_efficiency = base_max * (1.0 + (1.0 - tech_improvement));
+                        
+                        // Calculate current efficiency
+                        let current_efficiency = generator.get_efficiency();
+                        
+                        // Calculate remaining potential improvement
+                        let potential_improvement = (max_efficiency - current_efficiency).max(0.0);
+                        
+                        // Cost is proportional to potential improvement * base cost
+                        generator.get_current_cost(*year) * potential_improvement * 2.0
                     } else {
                         0.0
                     };
@@ -279,15 +340,19 @@ impl CsvExporter {
                         CarbonOffsetType::Wetland => WETLAND_BASE_COST,
                     };
                     
+                    // Apply inflation to match how actual costs are calculated
+                    let inflation_factor = crate::config::const_funcs::calc_inflation_factor(*year);
+                    let adjusted_cost = base_offset_cost * inflation_factor;
+                    
                     // Apply cost multiplier
-                    let offset_cost = base_offset_cost * (*cost_multiplier as f64 / 100.0);
+                    let offset_cost = adjusted_cost * (*cost_multiplier as f64 / 100.0);
                     
                     (
                         "AddCarbonOffset",
+                        String::new(),
+                        String::new(),
+                        String::new(),
                         offset_type.to_string(),
-                        String::new(),
-                        String::new(),
-                        String::new(),
                         format!("{:.2}", offset_cost),
                     )
                 },
@@ -401,12 +466,8 @@ impl CsvExporter {
             println!("Total settlements to export: {}", settlements.len());
         }
         
-        // Create settlements directory
-        let settlements_dir = details_dir.join("settlements");
-        std::fs::create_dir_all(&settlements_dir)?;
-        
         // Create settlements CSV file
-        let settlements_file_path = settlements_dir.join("settlements.csv");
+        let settlements_file_path = details_dir.join("settlements.csv");
         let mut settlements_file = File::create(settlements_file_path)?;
         
         // Write header
@@ -482,12 +543,8 @@ impl CsvExporter {
             println!("Exporting data for {} generators across years {}-{}", generators.len(), BASE_YEAR, END_YEAR);
         }
         
-        // Create generators directory
-        let generators_dir = details_dir.join("generators");
-        std::fs::create_dir_all(&generators_dir)?;
-        
         // Create generators CSV file
-        let generators_file_path = generators_dir.join("generators.csv");
+        let generators_file_path = details_dir.join("generators.csv");
         let mut generators_file = File::create(generators_file_path)?;
         
         // Write generators header with comprehensive information, including construction speed and duration

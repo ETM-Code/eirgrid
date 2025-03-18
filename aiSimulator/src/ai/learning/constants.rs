@@ -103,8 +103,8 @@ pub const MILD_PENALTY_FACTOR: f64 = 0.5;
 //---------------------------------------------------------------------
 // Multiplier Constants
 //---------------------------------------------------------------------
-pub const PENALTY_MULTIPLIER: f64 = 2.0;
-pub const BOOST_MULTIPLIER: f64 = 3.0;
+pub const PENALTY_MULTIPLIER: f64 = 1.5;
+pub const BOOST_MULTIPLIER: f64 = 2.0;
 pub const DEFICIT_REINFORCEMENT_MULTIPLIER: f64 = 1.5;
 pub const MAX_BUDGET_MULTIPLIER: f64 = 100.0;
 pub const HIGH_COST_THRESHOLD_MULTIPLIER: f64 = 8.0;
