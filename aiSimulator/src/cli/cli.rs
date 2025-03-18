@@ -39,7 +39,7 @@ pub struct Args {
     #[arg(long, help = "Optimize for cost only, ignoring emissions and public opinion", default_value_t = false)]
     cost_only: bool,
     
-    #[arg(long, help = "Enable revenue from energy sales to offset costs", default_value_t = false)]
+    #[arg(long, help = "Enable revenue from energy sales to offset costs", default_value_t = true)]
     enable_energy_sales: bool,
 
     #[arg(long, help = "Enable CSV export of detailed simulation results", default_value_t = true)]

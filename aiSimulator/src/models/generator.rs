@@ -696,8 +696,8 @@ impl Generator {
                 }
             }
         }
-        // Default to 2025 for existing generators
-        2025
+        // Default to 2020 for existing generators
+        2020
     }
 
     pub fn get_operation_percentage(&self) -> u8 {
