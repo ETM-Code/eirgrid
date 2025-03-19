@@ -3,12 +3,15 @@ use super::metrics::YearlyMetrics;
 use crate::utils::logging::{self, OperationCategory, PowerCalcType};
 use crate::config::const_funcs;
 use crate::data::poi::POI;
+use crate::config::constants::{
+    DEFAULT_OPINION, DEFAULT_POWER, DEFAULT_COST, DEFAULT_EMISSIONS
+};
 
 pub fn calculate_average_opinion(map: &Map, year: u32) -> f64 {
     let _timing = logging::start_timing("calculate_average_opinion",
         OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
      
-    let mut total_opinion = 0.0;
+    let mut total_opinion = DEFAULT_POWER;
     let mut count = 0;
      
     for generator in map.get_generators() {
@@ -25,7 +28,7 @@ pub fn calculate_average_opinion(map: &Map, year: u32) -> f64 {
     if count > 0 {
         total_opinion / count as f64
     } else {
-        1.0
+        DEFAULT_OPINION
     }
 }
 
@@ -59,6 +62,12 @@ pub fn calculate_yearly_metrics(
     };
      
     let power_balance = total_power_gen - total_power_usage;
+
+    let power_reliability = {
+        let _timing = logging::start_timing("calc_power_reliability",
+            OperationCategory::PowerCalculation { subcategory: PowerCalcType::Balance });
+        map.calc_power_reliability(year)
+    };
      
     let (total_co2_emissions, total_carbon_offset, net_co2_emissions) = {
         let _timing = logging::start_timing("calc_emissions",
@@ -77,7 +86,7 @@ pub fn calculate_yearly_metrics(
         const_funcs::calculate_carbon_credit_revenue(net_co2_emissions, year)
     };
 
-    let mut total_opinion = 0.0;
+    let mut total_opinion = DEFAULT_POWER;
     let mut opinion_count = 0;
     let mut generator_efficiencies = Vec::new();
     let mut generator_operations = Vec::new();
@@ -98,7 +107,6 @@ pub fn calculate_yearly_metrics(
                 active_count += 1;
 
                 generator_efficiencies.push((generator.get_id().to_string(), generator.get_efficiency()));
-                // Store the operation percentage as a percentage (0-100)
                 generator_operations.push((generator.get_id().to_string(), generator.get_operation_percentage() as f64));
             }
         }
@@ -111,11 +119,13 @@ pub fn calculate_yearly_metrics(
         map.calc_yearly_capital_cost(year)
     } else if year > 2025 {
         // For subsequent years, calculate the difference from previous year
+        // This already excludes existing generators because calc_total_capital_cost filters them out
         map.calc_total_capital_cost(year) - map.calc_total_capital_cost(year - 1)
     } else {
-        0.0
+        DEFAULT_COST
     };
      
+    // This now excludes existing generators since we updated calc_total_capital_cost
     let total_capital_cost = map.calc_total_capital_cost(year);
     let inflation_factor = const_funcs::calc_inflation_factor(year);
      
@@ -124,7 +134,7 @@ pub fn calculate_yearly_metrics(
      
     // Calculate yearly and accumulated costs, subtracting energy sales revenue if enabled
     let yearly_total_cost = yearly_capital_cost + total_upgrade_costs + total_closure_costs - carbon_credit_revenue -
-        (if enable_energy_sales { yearly_energy_sales_revenue } else { 0.0 });
+        (if enable_energy_sales { yearly_energy_sales_revenue } else { DEFAULT_COST });
      
     // Properly accumulate total_cost across years by adding yearly costs to previous total
     let total_cost = match previous_metrics {
@@ -153,7 +163,8 @@ pub fn calculate_yearly_metrics(
         total_power_usage,
         total_power_generation: total_power_gen,
         power_balance,
-        average_public_opinion: if opinion_count > 0 { total_opinion / opinion_count as f64 } else { 1.0 },
+        power_reliability,
+        average_public_opinion: if opinion_count > 0 { total_opinion / opinion_count as f64 } else { DEFAULT_OPINION },
         yearly_capital_cost,
         total_capital_cost,
         inflation_factor,
@@ -175,9 +186,9 @@ pub fn calculate_yearly_metrics(
 }
 
 fn calculate_energy_sales(power_balance: f64, year: u32, enable_sales: bool) -> f64 {
-    if enable_sales && power_balance > 0.0 {
+    if enable_sales && power_balance > DEFAULT_POWER {
         const_funcs::calculate_energy_sales_revenue(power_balance, year, crate::config::constants::DEFAULT_ENERGY_SALES_RATE)
     } else {
-        0.0
+        DEFAULT_COST
     }
 }

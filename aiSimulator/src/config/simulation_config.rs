@@ -70,10 +70,10 @@ impl Default for SimulationConfig {
                     CarbonOffsetType::CarbonCredit,
                     CarbonOffsetType::Wetland,
                 ],
-                max_forest_area: 50000.0,      // 50,000 hectares
-                max_wetland_area: 20000.0,     // 20,000 hectares
-                max_active_capture: 1000.0,    // 1,000 tonnes
-                max_carbon_credits: 5000.0,    // 5,000 tonnes
+                max_forest_area: 5000000.0,      // 50,000 hectares
+                max_wetland_area: 20000000.0,     // 20,000 hectares
+                max_active_capture: 1000000.0,    // 1,000 tonnes
+                max_carbon_credits: 5000000.0,    // 5,000 tonnes
             },
         }
     }

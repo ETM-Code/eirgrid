@@ -20,15 +20,29 @@ use crate::config::constants::{
     MAP_MAX_X,
     MAP_MAX_Y,
     ENABLE_CONSTRUCTION_DELAYS,
-    END_YEAR,
+    ONSHORE_WIND_RELIABILITY, OFFSHORE_WIND_RELIABILITY, DOMESTIC_SOLAR_RELIABILITY,
+    COMMERCIAL_SOLAR_RELIABILITY, UTILITY_SOLAR_RELIABILITY, NUCLEAR_RELIABILITY,
+    COAL_RELIABILITY, GAS_CC_RELIABILITY, GAS_PEAKER_RELIABILITY, BIOMASS_RELIABILITY,
+    HYDRO_RELIABILITY, PUMPED_STORAGE_RELIABILITY, BATTERY_STORAGE_RELIABILITY,
+    TIDAL_RELIABILITY, WAVE_RELIABILITY, OPERATION_PERCENTAGE_SCALE,
+    DEFAULT_POWER, DEFAULT_OPINION,
+    // Spatial Index Constants
+    COASTAL_INFLUENCE_RADIUS, COASTAL_INFLUENCE_SCORE,
+    OFFSHORE_INFLUENCE_RADIUS, OFFSHORE_INFLUENCE_SCORE,
+    URBAN_RADIUS_FACTOR, URBAN_SCORE_DIVISOR,
+    URBAN_MIN_SCORE, URBAN_MAX_SCORE,
+    PROTECTED_URBAN_RADIUS_FACTOR, PROTECTED_URBAN_SCORE,
+    GENERATOR_RADIUS_FACTOR, GENERATOR_PROTECTED_RADIUS_FACTOR,
+    GENERATOR_PROTECTED_SCORE, GENERATOR_INFLUENCE_RADIUS_FACTOR,
+    GENERATOR_INFLUENCE_SCORE, RURAL_BASE_SCORE,
+    // Public Opinion Constants
+    OPINION_SEARCH_RADIUS, OPINION_DISTANCE_FACTOR,
+    OPINION_MIN, OPINION_MAX, OPINION_BASE_WEIGHT,
+    // Power Reliability Constants
+    RELIABILITY_THRESHOLD, LOW_SUPPLY_WEIGHT, LOW_SUPPLY_MIX_WEIGHT,
+    HIGH_SUPPLY_WEIGHT, HIGH_SUPPLY_MIX_WEIGHT
 };
-use crate::config::const_funcs::{
-    is_point_inside_polygon, 
-    calc_planning_permission_time,
-    calc_construction_time,
-    calc_carbon_offset_planning_time,
-    calc_carbon_offset_construction_time
-};
+use crate::config::const_funcs::is_point_inside_polygon;
 use crate::config::simulation_config::{SimulationConfig, GeneratorConstraints};
 use crate::models::power_storage::calculate_max_intermittent_capacity;
 use super::spatial_index::{SpatialIndex, GeneratorSuitabilityType};
@@ -403,9 +417,9 @@ impl Map {
         for point in &self.static_data.coastline_points {
             self.spatial_index.update_region(
                 point,
-                8000.0,
+                COASTAL_INFLUENCE_RADIUS,
                 GeneratorSuitabilityType::Coastal,
-                0.6,    // Reduced from 0.8 to allow more flexibility
+                COASTAL_INFLUENCE_SCORE,
             );
         }
 
@@ -413,22 +427,22 @@ impl Map {
         for settlement in &self.settlements {
             let coord = settlement.get_coordinate();
             let population = settlement.get_population();
-            let radius = (population as f64).sqrt() * 15.0;
-            let urban_score = (population as f64).log10() / 7.0;
+            let radius = (population as f64).sqrt() * URBAN_RADIUS_FACTOR;
+            let urban_score = (population as f64).log10() / URBAN_SCORE_DIVISOR;
             
             self.spatial_index.update_region(
                 coord,
                 radius,
                 GeneratorSuitabilityType::Urban,
-                urban_score.clamp(0.2, 0.8), // More lenient clamping
+                urban_score.clamp(URBAN_MIN_SCORE, URBAN_MAX_SCORE),
             );
 
-            // Protected zone is now much smaller and less restrictive
+            // Protected zone around urban areas
             self.spatial_index.update_region(
                 coord,
-                radius * 0.1, // Reduced from 0.2
+                radius * PROTECTED_URBAN_RADIUS_FACTOR,
                 GeneratorSuitabilityType::Protected,
-                0.7, // Reduced from 0.9
+                PROTECTED_URBAN_SCORE,
             );
         }
 
@@ -437,7 +451,7 @@ impl Map {
             if generator.is_active() {
                 let coord = generator.get_coordinate();
                 let size = generator.size;
-                let radius = (size * GRID_CELL_SIZE).sqrt() * 1.2; // Reduced from 1.5
+                let radius = (size * GRID_CELL_SIZE).sqrt() * GENERATOR_RADIUS_FACTOR;
                 
                 let suitability_type = match generator.get_generator_type() {
                     GeneratorType::OnshoreWind => GeneratorSuitabilityType::Onshore,
@@ -446,39 +460,39 @@ impl Map {
                     _ => GeneratorSuitabilityType::Rural,
                 };
                 
-                // Smaller protected area with lower protection
+                // Protected area around generators
                 self.spatial_index.update_region(
                     coord,
-                    radius * 0.5, // Reduced from 1.0
+                    radius * GENERATOR_PROTECTED_RADIUS_FACTOR,
                     GeneratorSuitabilityType::Protected,
-                    0.6, // Reduced from 0.9
+                    GENERATOR_PROTECTED_SCORE,
                 );
                 
-                // Reduced impact on surrounding area
+                // General influence area around generators
                 self.spatial_index.update_region(
                     coord,
-                    radius * 1.5, // Reduced from 2.0
+                    radius * GENERATOR_INFLUENCE_RADIUS_FACTOR,
                     suitability_type,
-                    0.4, // Reduced from 0.6
+                    GENERATOR_INFLUENCE_SCORE,
                 );
             }
         }
 
-        // Initialize rural areas with lower base suitability
+        // Initialize rural areas with base suitability
         self.spatial_index.update_region(
             &Coordinate::new(MAP_MAX_X / 2.0, MAP_MAX_Y / 2.0),
             (MAP_MAX_X.powi(2) + MAP_MAX_Y.powi(2)).sqrt() / 2.0,
             GeneratorSuitabilityType::Rural,
-            0.5, // Reduced from 0.8 to provide more flexibility
+            RURAL_BASE_SCORE,
         );
 
-        // Initialize offshore areas with wider influence but lower base score
+        // Initialize offshore areas with wider influence
         for point in &self.static_data.coastline_points {
             self.spatial_index.update_region(
                 point,
-                20000.0,
+                OFFSHORE_INFLUENCE_RADIUS,
                 GeneratorSuitabilityType::Offshore,
-                0.5, // Reduced from 0.7
+                OFFSHORE_INFLUENCE_SCORE,
             );
         }
     }
@@ -529,30 +543,17 @@ impl Map {
     }
 
     pub fn add_generator(&mut self, mut generator: Generator) {
+        // Check if this is an existing generator (starts with "Existing_")
+        let is_existing = generator.id.starts_with("Existing_");
+        
+        if !is_existing {
         // Initialize construction status with current year and public opinion
         let current_year = self.current_year;
         let public_opinion = self.calculate_public_opinion_at_location(&generator.coordinate);
         
         // Initialize construction with delays enabled/disabled based on map setting
-        if self.enable_construction_delays {
-            // Calculate planning and construction times to check if they extend beyond simulation end
-            let gen_type = generator.get_generator_type();
-            let planning_time = calc_planning_permission_time(gen_type, current_year, public_opinion, 1.0);
-            let construction_time = calc_construction_time(gen_type, current_year, 1.0);
-            
-            // Calculate when construction would complete
-            let estimated_completion_year = (current_year as f64 + planning_time + construction_time).ceil() as u32;
-            
-            // If construction would complete after the end of simulation, don't add the generator
-            if estimated_completion_year > END_YEAR {
-                println!("Action cancelled: Generator {} would complete construction in {} which is beyond simulation end year {}",
-                    generator.get_id(), estimated_completion_year, END_YEAR);
-                return;
-            }
-        }
-        
-        // Now initialize construction
         generator.initialize_construction(current_year, public_opinion, self.enable_construction_delays);
+        }
         
         // Determine if we need to assign a location
         let needs_location = generator.get_coordinate().x == 0.0 && generator.get_coordinate().y == 0.0;
@@ -770,23 +771,6 @@ impl Map {
         let public_opinion = self.calculate_public_opinion_at_location(offset.get_coordinate());
         
         // Initialize construction with delays enabled/disabled based on map setting
-        if self.enable_construction_delays {
-            // Calculate planning and construction times to check if they extend beyond simulation end
-            let offset_type = offset.get_offset_type();
-            let planning_time = calc_carbon_offset_planning_time(offset_type, current_year, public_opinion, 1.0);
-            let construction_time = calc_carbon_offset_construction_time(offset_type, current_year, 1.0);
-            
-            // Calculate when construction would complete
-            let estimated_completion_year = (current_year as f64 + planning_time + construction_time).ceil() as u32;
-            
-            // If construction would complete after the end of simulation, don't add the offset
-            if estimated_completion_year > END_YEAR {
-                println!("Action cancelled: Carbon offset {} would complete construction in {} which is beyond simulation end year {}",
-                    offset.get_id(), estimated_completion_year, END_YEAR);
-                return;
-            }
-        }
-        
         offset.initialize_construction(current_year, public_opinion, self.enable_construction_delays);
         
         self.carbon_offsets.push(offset);
@@ -836,9 +820,6 @@ impl Map {
             
             if generator.get_generator_type().is_intermittent() {
                 intermittent_generation += output;
-                if intermittent_generation > max_intermittent {
-                    excess_intermittent += output;
-                }
             } else if generator.get_generator_type().is_storage() {
                 storage_generation += output;
             } else {
@@ -846,7 +827,7 @@ impl Map {
             }
         }
         
-        total_generation + intermittent_generation + storage_generation
+        total_generation + intermittent_generation.min(storage_generation)
     }
 
     pub fn handle_power_deficit(&mut self, deficit: f64, __hour: Option<u8>) -> f64 {
@@ -935,6 +916,7 @@ impl Map {
             OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
         
         let generator_costs = self.generators.iter()
+            .filter(|g| !g.get_id().starts_with("Existing_")) // Exclude existing generators
             .map(|g| g.get_current_cost(year))
             .sum::<f64>();
 
@@ -950,9 +932,9 @@ impl Map {
         let _timing = logging::start_timing("calc_yearly_capital_cost", 
             OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
         
-        // Only include generators that were added in the current year
+        // Only include generators that were added in the current year and are not existing generators
         let generator_costs = self.generators.iter()
-            .filter(|g| g.get_build_year() == year)
+            .filter(|g| g.get_build_year() == year && !g.get_id().starts_with("Existing_"))
             .map(|g| g.get_current_cost(year))
             .sum::<f64>();
 
@@ -1415,7 +1397,7 @@ impl Map {
 
     pub fn set_simulation_mode(&mut self, use_fast: bool) {
         if use_fast != self.use_fast_simulation {
-            println!("Switching simulation mode to: {}", if use_fast { "FAST" } else { "FULL" });
+            // println!("Switching simulation mode to: {}", if use_fast { "FAST" } else { "FULL" });
         }
         self.use_fast_simulation = use_fast;
         if let Some(analysis) = &mut self.location_analysis {
@@ -1497,9 +1479,151 @@ impl Map {
 
     // Calculate public opinion at a specific location
     pub fn calculate_public_opinion_at_location(&self, coordinate: &Coordinate) -> f64 {
-        // Default to a moderate public opinion if no specific calculation is available
-        // In a real implementation, this would consider nearby settlements, existing generators, etc.
-        0.65
+        // Calculate opinion based on nearby generators and settlements
+        let mut total_opinion = DEFAULT_OPINION;
+        let mut weight_sum = OPINION_BASE_WEIGHT; // Start with a base weight
+        
+        // Factor in nearby generators - generators can positively or negatively affect public opinion
+        let nearby_generators = self.get_nearby_generators(coordinate, OPINION_SEARCH_RADIUS);
+        for generator in nearby_generators {
+            if generator.is_active() {
+                // Calculate distance-based influence
+                let distance = coordinate.distance_to(generator.get_coordinate());
+                let distance_factor = OPINION_BASE_WEIGHT / (OPINION_BASE_WEIGHT + distance / OPINION_DISTANCE_FACTOR);
+                
+                // Get generator's local opinion
+                let gen_opinion = self.calc_new_generator_opinion(
+                    generator.get_coordinate(),
+                    generator,
+                    self.current_year
+                );
+                
+                // Add weighted opinion
+                total_opinion += gen_opinion * distance_factor;
+                weight_sum += distance_factor;
+            }
+        }
+        
+        // Calculate final average opinion, ensuring it stays in the valid range
+        (total_opinion / weight_sum).clamp(OPINION_MIN, OPINION_MAX)
+    }
+
+    pub fn get_generator_by_id(&self, id: &str) -> Option<&Generator> {
+        self.generators.iter().find(|g| g.get_id() == id)
+    }
+
+    pub fn get_generator_reliability_factor(&self, generator_type: &GeneratorType) -> f64 {
+        match generator_type {
+            GeneratorType::OnshoreWind => ONSHORE_WIND_RELIABILITY,
+            GeneratorType::OffshoreWind => OFFSHORE_WIND_RELIABILITY,
+            GeneratorType::DomesticSolar => DOMESTIC_SOLAR_RELIABILITY,
+            GeneratorType::CommercialSolar => COMMERCIAL_SOLAR_RELIABILITY,
+            GeneratorType::UtilitySolar => UTILITY_SOLAR_RELIABILITY,
+            GeneratorType::Nuclear => NUCLEAR_RELIABILITY,
+            GeneratorType::CoalPlant => COAL_RELIABILITY,
+            GeneratorType::GasCombinedCycle => GAS_CC_RELIABILITY,
+            GeneratorType::GasPeaker => GAS_PEAKER_RELIABILITY,
+            GeneratorType::Biomass => BIOMASS_RELIABILITY,
+            GeneratorType::HydroDam => HYDRO_RELIABILITY,
+            GeneratorType::PumpedStorage => PUMPED_STORAGE_RELIABILITY,
+            GeneratorType::BatteryStorage => BATTERY_STORAGE_RELIABILITY,
+            GeneratorType::TidalGenerator => TIDAL_RELIABILITY,
+            GeneratorType::WaveEnergy => WAVE_RELIABILITY,
+        }
+    }
+
+    pub fn calc_power_reliability(&self, year: u32) -> f64 {
+        let _timing = logging::start_timing("calc_power_reliability", 
+            OperationCategory::PowerCalculation { subcategory: PowerCalcType::Balance });
+        
+        // Get active generators and storage systems
+        let active_generators: Vec<&Generator> = self.generators.iter()
+            .filter(|g| g.is_active())
+            .collect();
+        
+        // Get demand - always add a small non-zero value to avoid div by zero
+        let demand = self.calc_total_power_usage(year).max(0.1);
+        
+        // If we have no active generators or no power generation, reliability is 0
+        if active_generators.is_empty() {
+            return 0.0;
+        }
+        
+        // Initialize trackers
+        let mut total_power = 0.0;
+        let mut total_reliable_power = 0.0;
+        let mut storage_capacity = 0.0;
+        let mut storage_power = 0.0;
+        let mut intermittent_power = 0.0;
+        let mut dispatchable_power = 0.0;
+        
+        // Calculate power from generators and track storage capacity
+        for generator in &self.generators {
+            if generator.is_active() {
+                let gen_type = generator.get_generator_type();
+                let power_output = generator.get_current_power_output(None);
+                let operation_percentage = generator.get_operation_percentage() as f64;
+                
+                // Calculate effective power contribution 
+                let effective_power = power_output * (operation_percentage / OPERATION_PERCENTAGE_SCALE);
+                
+                // Only add power if it's positive (avoid numerical errors)
+                if effective_power > 0.0 {
+                    total_power += effective_power;
+                    
+                    // Track power by type
+                    if gen_type.is_storage() {
+                        storage_capacity += generator.get_storage_capacity();
+                        storage_power += effective_power;
+                    } else if gen_type.is_intermittent() {
+                        intermittent_power += effective_power;
+                    } else {
+                        dispatchable_power += effective_power;
+                    }
+                    
+                    // Calculate reliable power based on generator type
+                    let reliability_factor = self.get_generator_reliability_factor(&gen_type);
+                    total_reliable_power += effective_power * reliability_factor;
+                }
+            }
+        }
+        
+        // Special case: No power generation = 0% reliability
+        if total_power <= 0.0 {
+            return 0.0;
+        }
+        
+        // Calculate reliability components
+        
+        // 1. Supply adequacy: what percentage of demand is met 
+        let supply_adequacy = ((total_reliable_power + intermittent_power.min(storage_capacity)) / demand).min(1.0);
+        
+        // // 2. Calculate storage effectiveness
+        // let storage_factor = if storage_capacity > 0.0 {
+        //     // Calculate storage effectiveness based on:
+        //     // - How much of demand can be covered by storage
+        //     // - How much intermittent power we have that needs storage
+        //     let storage_demand_ratio = (storage_capacity / demand).min(0.5);
+        //     let intermittent_ratio = intermittent_power / total_power;
+            
+        //     // Storage is more valuable when we have more intermittent power
+        //     let storage_value = storage_demand_ratio * (1.0 + intermittent_ratio);
+        //     1.0 + (storage_value * 0.4).min(0.4) // Max 40% bonus
+        // } else {
+        //     1.0
+        // };
+        
+        // // 3. Calculate reliability mix
+        // let basic_reliability_mix = total_reliable_power / total_power;
+        
+        // // Apply storage factor to reliability mix
+        // let reliability_mix = (basic_reliability_mix * storage_factor).min(1.0);
+        
+        // // Calculate final score using weighted combinations
+        // let reliability_score = reliability_mix;
+        
+        // Cap the result between 0 and 1
+        supply_adequacy.max(0.0).min(1.0)
     }
 }
 

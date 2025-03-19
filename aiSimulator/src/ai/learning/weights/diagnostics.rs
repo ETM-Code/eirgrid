@@ -25,62 +25,71 @@ impl ActionWeights {
     }
 
     pub fn diagnose_best_actions(&self) {
-        println!("✅ Best actions recorded: {} across {} years", 
-            self.best_actions.as_ref().map_or(0, |actions| actions.values().map(|v| v.len()).sum::<usize>()),
-            self.best_actions.as_ref().map_or(0, |actions| actions.values().filter(|v| !v.is_empty()).count()));
+        // Only print if iteration count is a multiple of 100
+        if self.iteration_count % 100 == 0 {
+            println!("✅ Best actions recorded: {} across {} years", 
+                self.best_actions.as_ref().map_or(0, |actions| actions.values().map(|v| v.len()).sum::<usize>()),
+                self.best_actions.as_ref().map_or(0, |actions| actions.values().filter(|v| !v.is_empty()).count()));
+                
+            println!("✅ Best deficit actions recorded: {} across {} years",
+                self.best_deficit_actions.as_ref().map_or(0, |actions| actions.values().map(|v| v.len()).sum::<usize>()),
+                self.best_deficit_actions.as_ref().map_or(0, |actions| actions.values().filter(|v| !v.is_empty()).count()));
             
-        println!("✅ Best deficit actions recorded: {} across {} years",
-            self.best_deficit_actions.as_ref().map_or(0, |actions| actions.values().map(|v| v.len()).sum::<usize>()),
-            self.best_deficit_actions.as_ref().map_or(0, |actions| actions.values().filter(|v| !v.is_empty()).count()));
-        
-        // Print the distribution of actions per year
-        println!("Action distribution per year:");
-        
-        // If we have best metrics, also show those
-        if let Some(ref metrics) = self.best_metrics {
-            println!("✅ Best metrics recorded:");
-            println!("  Net emissions: {:.2} tonnes", metrics.final_net_emissions);
-            println!("  Is net zero: {}", if metrics.final_net_emissions <= ZERO_F64 { "true" } else { "false" });
-            println!("  Total cost: €{:.2}B", metrics.total_cost / BILLION_DIVISOR);
-            println!("  Public opinion: {:.1}%", metrics.average_public_opinion * PERCENT_CONVERSION);
-            println!("  Power reliability: {:.1}%", metrics.power_reliability * PERCENT_CONVERSION);
-        } else {
-            println!("❌ No best metrics recorded yet");
+            // Print the distribution of actions per year
+            println!("Action distribution per year:");
+            
+            // If we have best metrics, also show those
+            if let Some(ref metrics) = self.best_metrics {
+                println!("✅ Best metrics recorded:");
+                println!("  Net emissions: {:.2} tonnes", metrics.final_net_emissions);
+                println!("  Is net zero: {}", if metrics.final_net_emissions <= ZERO_F64 { "true" } else { "false" });
+                println!("  Total cost: €{:.2}B", metrics.total_cost / BILLION_DIVISOR);
+                println!("  Public opinion: {:.1}%", metrics.average_public_opinion * PERCENT_CONVERSION);
+                println!("  Power reliability: {:.1}%", metrics.power_reliability * PERCENT_CONVERSION);
+            } else {
+                println!("❌ No best metrics recorded yet");
+            }
+            
+            println!("Total iterations: {}", self.iteration_count);
+            println!("Iterations without improvement: {}", self.iterations_without_improvement);
         }
-        
-        println!("Total iterations: {}", self.iteration_count);
-        println!("Iterations without improvement: {}", self.iterations_without_improvement);
     }
 
     pub fn debug_print_recorded_actions(&self) {
-        println!("DEBUG: Current run has {} actions recorded", 
-                self.current_run_actions.values().map(|v| v.len()).sum::<usize>());
+        // Only print if iteration count is a multiple of 100
+        if self.iteration_count % 100 == 0 {
+            println!("DEBUG: Current run has {} actions recorded", 
+                    self.current_run_actions.values().map(|v| v.len()).sum::<usize>());
+        }
     }
     
     /// Prints detailed information about the current run actions
     pub fn debug_print_current_run_actions(&self) {
-        let total_actions = self.current_run_actions.values().map(|v| v.len()).sum::<usize>();
-        let years_with_actions = self.current_run_actions.values().filter(|v| !v.is_empty()).count();
-        
-        println!("📊 CURRENT RUN ACTIONS: {} actions across {} years", total_actions, years_with_actions);
-        
-        // Print actions per year
-        let mut years: Vec<_> = self.current_run_actions.keys().cloned().collect();
-        years.sort();
-        for year in years {
-            if let Some(actions) = self.current_run_actions.get(&year) {
-                if !actions.is_empty() {
-                    println!("  Year {}: {} actions", year, actions.len());
+        // Only print if iteration count is a multiple of 100
+        if self.iteration_count % 100 == 0 {
+            let total_actions = self.current_run_actions.values().map(|v| v.len()).sum::<usize>();
+            let years_with_actions = self.current_run_actions.values().filter(|v| !v.is_empty()).count();
+            
+            println!("📊 CURRENT RUN ACTIONS: {} actions across {} years", total_actions, years_with_actions);
+            
+            // Print actions per year
+            let mut years: Vec<_> = self.current_run_actions.keys().cloned().collect();
+            years.sort();
+            for year in years {
+                if let Some(actions) = self.current_run_actions.get(&year) {
+                    if !actions.is_empty() {
+                        println!("  Year {}: {} actions", year, actions.len());
+                    }
                 }
             }
+            
+            // Print deficit actions
+            let total_deficit_actions = self.current_deficit_actions.values().map(|v| v.len()).sum::<usize>();
+            let years_with_deficit_actions = self.current_deficit_actions.values().filter(|v| !v.is_empty()).count();
+            
+            println!("📊 CURRENT RUN DEFICIT ACTIONS: {} actions across {} years", 
+                    total_deficit_actions, years_with_deficit_actions);
         }
-        
-        // Print deficit actions
-        let total_deficit_actions = self.current_deficit_actions.values().map(|v| v.len()).sum::<usize>();
-        let years_with_deficit_actions = self.current_deficit_actions.values().filter(|v| !v.is_empty()).count();
-        
-        println!("📊 CURRENT RUN DEFICIT ACTIONS: {} actions across {} years", 
-                total_deficit_actions, years_with_deficit_actions);
     }
 
     pub fn debug_print_deficit_actions(&self) {
@@ -89,21 +98,24 @@ impl ActionWeights {
             return;
         }
         
-        let total_actions = self.current_deficit_actions.values().map(|v| v.len()).sum::<usize>();
-        let years_with_actions = self.current_deficit_actions.values().filter(|v| !v.is_empty()).count();
-        
-        println!("📊 DEBUG: Deficit actions recorded in current run:");
-        println!("  Total: {} deficit actions across {} years", total_actions, years_with_actions);
-        
-        // Add per-year breakdown for easier diagnostics
-        let min_year = START_YEAR;
-        let max_year = END_YEAR;
-        
-        println!("  Per-year deficit action counts:");
-        for year in min_year..=max_year {
-            if let Some(actions) = self.current_deficit_actions.get(&year) {
-                if !actions.is_empty() {
-                    println!("    Year {}: {} deficit actions", year, actions.len());
+        // Only print if iteration count is a multiple of 100
+        if self.iteration_count % 100 == 0 {
+            let total_actions = self.current_deficit_actions.values().map(|v| v.len()).sum::<usize>();
+            let years_with_actions = self.current_deficit_actions.values().filter(|v| !v.is_empty()).count();
+            
+            println!("📊 DEBUG: Deficit actions recorded in current run:");
+            println!("  Total: {} deficit actions across {} years", total_actions, years_with_actions);
+            
+            // Add per-year breakdown for easier diagnostics
+            let min_year = START_YEAR;
+            let max_year = END_YEAR;
+            
+            println!("  Per-year deficit action counts:");
+            for year in min_year..=max_year {
+                if let Some(actions) = self.current_deficit_actions.get(&year) {
+                    if !actions.is_empty() {
+                        println!("    Year {}: {} deficit actions", year, actions.len());
+                    }
                 }
             }
         }

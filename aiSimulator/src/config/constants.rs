@@ -334,3 +334,65 @@ pub const DEFAULT_COST_MULTIPLIER: u16 = 100;  // 100% = normal cost
 pub const FAST_COST_MULTIPLIER: u16 = 120;     // 120% = faster construction
 pub const VERY_FAST_COST_MULTIPLIER: u16 = 150; // 150% = very fast construction
 pub const RUSH_COST_MULTIPLIER: u16 = 200;     // 200% = rush construction
+
+// Generator Reliability Factors
+pub const ONSHORE_WIND_RELIABILITY: f64 = 0.35;
+pub const OFFSHORE_WIND_RELIABILITY: f64 = 0.35;
+pub const DOMESTIC_SOLAR_RELIABILITY: f64 = 0.25;
+pub const COMMERCIAL_SOLAR_RELIABILITY: f64 = 0.25;
+pub const UTILITY_SOLAR_RELIABILITY: f64 = 0.25;
+pub const NUCLEAR_RELIABILITY: f64 = 0.95;
+pub const COAL_RELIABILITY: f64 = 0.90;
+pub const GAS_CC_RELIABILITY: f64 = 0.85;
+pub const GAS_PEAKER_RELIABILITY: f64 = 0.90;
+pub const BIOMASS_RELIABILITY: f64 = 0.80;
+pub const HYDRO_RELIABILITY: f64 = 0.75;
+pub const PUMPED_STORAGE_RELIABILITY: f64 = 0.95;
+pub const BATTERY_STORAGE_RELIABILITY: f64 = 0.98;
+pub const TIDAL_RELIABILITY: f64 = 0.45;
+pub const WAVE_RELIABILITY: f64 = 0.40;
+
+// Operation Percentage Constants
+pub const OPERATION_PERCENTAGE_SCALE: f64 = 100.0;
+
+// Default Metric Values
+pub const DEFAULT_OPINION: f64 = 1.0;
+pub const DEFAULT_POWER: f64 = 0.0;
+pub const DEFAULT_COST: f64 = 0.0;
+pub const DEFAULT_EMISSIONS: f64 = 0.0;
+
+// Spatial Index Constants
+pub const COASTAL_INFLUENCE_RADIUS: f64 = 8000.0;
+pub const COASTAL_INFLUENCE_SCORE: f64 = 0.6;
+pub const OFFSHORE_INFLUENCE_RADIUS: f64 = 20000.0;
+pub const OFFSHORE_INFLUENCE_SCORE: f64 = 0.5;
+
+pub const URBAN_RADIUS_FACTOR: f64 = 15.0;
+pub const URBAN_SCORE_DIVISOR: f64 = 7.0;
+pub const URBAN_MIN_SCORE: f64 = 0.2;
+pub const URBAN_MAX_SCORE: f64 = 0.8;
+
+pub const PROTECTED_URBAN_RADIUS_FACTOR: f64 = 0.1;
+pub const PROTECTED_URBAN_SCORE: f64 = 0.7;
+
+pub const GENERATOR_RADIUS_FACTOR: f64 = 1.2;
+pub const GENERATOR_PROTECTED_RADIUS_FACTOR: f64 = 0.5;
+pub const GENERATOR_PROTECTED_SCORE: f64 = 0.6;
+pub const GENERATOR_INFLUENCE_RADIUS_FACTOR: f64 = 1.5;
+pub const GENERATOR_INFLUENCE_SCORE: f64 = 0.4;
+
+pub const RURAL_BASE_SCORE: f64 = 0.5;
+
+// Public Opinion Calculation Constants
+pub const OPINION_SEARCH_RADIUS: f64 = 10000.0;
+pub const OPINION_DISTANCE_FACTOR: f64 = 5000.0;
+pub const OPINION_MIN: f64 = 0.0;
+pub const OPINION_MAX: f64 = 1.0;
+pub const OPINION_BASE_WEIGHT: f64 = 1.0;
+
+// Power Reliability Calculation Constants
+pub const RELIABILITY_THRESHOLD: f64 = 0.9; // Threshold for switching between calculation modes
+pub const LOW_SUPPLY_WEIGHT: f64 = 0.7;     // Weight for supply adequacy when supply is low
+pub const LOW_SUPPLY_MIX_WEIGHT: f64 = 0.3; // Weight for reliability mix when supply is low
+pub const HIGH_SUPPLY_WEIGHT: f64 = 0.4;    // Weight for supply adequacy when supply is good
+pub const HIGH_SUPPLY_MIX_WEIGHT: f64 = 0.6; // Weight for reliability mix when supply is good

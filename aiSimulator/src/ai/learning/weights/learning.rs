@@ -8,6 +8,7 @@ use crate::ai::metrics::simulation_metrics::SimulationMetrics;
 use crate::ai::learning::constants::*;
 use crate::ai::score_metrics;
 use super::ActionWeights;
+use std::collections::HashMap;
 
 // Add a dummy public item to ensure this file is recognized by rust-analyzer
 #[allow(dead_code)]
@@ -174,14 +175,14 @@ impl ActionWeights {
                 let adaptive_learning_rate = self.learning_rate * (ONE_F64 + ADAPTIVE_LEARNING_RATE_FACTOR * self.iterations_without_improvement as f64);
                 
                 // Log the contrast learning application with more detailed information
-                println!("\n🔄 Applying enhanced contrast learning:");
-                println!("   - Current run is {:.1}% worse than best", deterioration * PERCENT_CONVERSION);
-                println!("   - Dynamic threshold: {:.4}% (iterations: {})", dynamic_threshold * PERCENT_CONVERSION, self.iterations_without_improvement);
-                println!("   - Iterations without improvement: {}", self.iterations_without_improvement);
-                println!("   - Raw deterioration: {:.4}, Scaled: {:.4}", deterioration, scaled_deterioration);
-                println!("   - Stagnation factor: {:.2}x", stagnation_factor);
-                println!("   - Combined penalty multiplier: {:.4}", combined_penalty);
-                println!("   - Adaptive learning rate: {:.4} (base: {:.4})", adaptive_learning_rate, self.learning_rate);
+                // println!("\n🔄 Applying enhanced contrast learning:");
+                // println!("   - Current run is {:.1}% worse than best", deterioration * PERCENT_CONVERSION);
+                // println!("   - Dynamic threshold: {:.4}% (iterations: {})", dynamic_threshold * PERCENT_CONVERSION, self.iterations_without_improvement);
+                // println!("   - Iterations without improvement: {}", self.iterations_without_improvement);
+                // println!("   - Raw deterioration: {:.4}, Scaled: {:.4}", deterioration, scaled_deterioration);
+                // println!("   - Stagnation factor: {:.2}x", stagnation_factor);
+                // println!("   - Combined penalty multiplier: {:.4}", combined_penalty);
+                // println!("   - Adaptive learning rate: {:.4} (base: {:.4})", adaptive_learning_rate, self.learning_rate);
                 
                 // Calculate the penalty factor - more severe for worse runs and after more stagnation
                 let penalty_factor = ONE_F64 / (ONE_F64 + adaptive_learning_rate * PENALTY_MULTIPLIER * combined_penalty);
@@ -189,13 +190,13 @@ impl ActionWeights {
                 // Calculate the boost factor for best actions - increases with stagnation
                 let best_boost_factor = ONE_F64 + (adaptive_learning_rate * BOOST_MULTIPLIER * stagnation_factor);
                 
-                println!("   - Penalty factor: {:.8}", penalty_factor);
-                println!("   - Best action boost factor: {:.8}", best_boost_factor);
+                // println!("   - Penalty factor: {:.8}", penalty_factor);
+                // println!("   - Best action boost factor: {:.8}", best_boost_factor);
                 
                 // Debug - show an example of penalty effect on a typical weight
                 let example_weight = 0.1;
                 let penalized_weight = (example_weight * penalty_factor).max(MIN_WEIGHT);
-                println!("   - Example: Weight of 0.1 becomes {:.8} after penalty", penalized_weight);
+                // println!("   - Example: Weight of 0.1 becomes {:.8} after penalty", penalized_weight);
                 
                 // Track how many weights are at minimum value
                 let mut min_weight_count = 0;
@@ -264,35 +265,52 @@ impl ActionWeights {
                         }
                         
                         // Log a summary of changes for this year
-                        if !penalized_actions.is_empty() || !boosted_actions.is_empty() {
-                            println!("   Year {}: Penalized {} actions, boosted {} actions, rewarded {} actions", 
-                                    year, penalized_actions.len(), boosted_actions.len(), reward_actions.len());
-                        }
+                        // if !penalized_actions.is_empty() || !boosted_actions.is_empty() {
+                        //     println!("   Year {}: Penalized {} actions, boosted {} actions, rewarded {} actions", 
+                        //             year, penalized_actions.len(), boosted_actions.len(), reward_actions.len());
+                        // }
                     }
                 }
                 
                 // Log summary information about the weight changes
-                println!("   - Applied enhanced contrast learning to deficit handling actions");
+                // println!("   - Applied enhanced contrast learning to deficit handling actions");
 
                 // Show stats on how many weights were affected
-                if total_weights > 0 {
-                    println!("   - {}/{} weights ({:.1}%) reduced to minimum value", 
-                            min_weight_count, total_weights, (min_weight_count as f64 / total_weights as f64) * PERCENT_CONVERSION);
-                }
+                // if total_weights > 0 {
+                //     println!("   - {}/{} weights ({:.1}%) reduced to minimum value", 
+                //             min_weight_count, total_weights, (min_weight_count as f64 / total_weights as f64) * PERCENT_CONVERSION);
+                // }
 
                 // If we've been stagnating for a very long time, also apply some randomization
                 // to break out of local optima
                 if self.iterations_without_improvement > ITERATIONS_FOR_RANDOMIZATION {
-                    println!("   - Applying weight randomization to break stagnation after {} iterations", 
-                            self.iterations_without_improvement);
+                    // println!("   - Applying weight randomization to break stagnation after {} iterations", 
+                    //         self.iterations_without_improvement);
                     
-                    let randomization_factor = RANDOMIZATION_FACTOR; // 10% random variation
+                    // Calculate linear increase in randomization factor
+                    let iterations_beyond_threshold = self.iterations_without_improvement - ITERATIONS_FOR_RANDOMIZATION;
+                    let randomization_factor = RANDOMIZATION_FACTOR * (ONE_F64 + (iterations_beyond_threshold as f64 / ITERATIONS_FOR_RANDOMIZATION as f64));
+                    
                     let mut rng = rand::thread_rng();
                     
-                    for year_weights in self.weights.values_mut() {
-                        for weight in year_weights.values_mut() {
-                            let random_factor = ONE_F64 + randomization_factor * (rng.gen::<f64>() * RANDOM_RANGE_MULTIPLIER - ONE_F64);
-                            *weight = (*weight * random_factor).clamp(MIN_WEIGHT, MAX_WEIGHT);
+                    // If we have prime weights, use them as a base
+                    if let Some(prime_weights) = &self.prime_weights {
+                        // Copy prime weights to current weights
+                        for (year, prime_year_weights) in prime_weights {
+                            let year_weights = self.weights.entry(*year).or_insert_with(HashMap::new);
+                            for (action, &prime_weight) in prime_year_weights {
+                                // Apply randomization to the prime weight
+                                let random_factor = ONE_F64 + randomization_factor * (rng.gen::<f64>() * RANDOM_RANGE_MULTIPLIER - ONE_F64);
+                                year_weights.insert(action.clone(), (prime_weight * random_factor).clamp(MIN_WEIGHT, MAX_WEIGHT));
+                            }
+                        }
+                    } else {
+                        // If no prime weights, randomize current weights
+                        for year_weights in self.weights.values_mut() {
+                            for weight in year_weights.values_mut() {
+                                let random_factor = ONE_F64 + randomization_factor * (rng.gen::<f64>() * RANDOM_RANGE_MULTIPLIER - ONE_F64);
+                                *weight = (*weight * random_factor).clamp(MIN_WEIGHT, MAX_WEIGHT);
+                            }
                         }
                     }
                 }
@@ -336,12 +354,12 @@ impl ActionWeights {
                 let adaptive_learning_rate = self.learning_rate * (ONE_F64 + ADAPTIVE_LEARNING_RATE_FACTOR * self.iterations_without_improvement as f64);
                 
                 // Log the contrast learning application with more detailed information
-                println!("\n🔄 Applying enhanced contrast learning to deficit handling actions:");
-                println!("   - Dynamic threshold: {:.4}% (iterations: {})", dynamic_threshold * PERCENT_CONVERSION, self.iterations_without_improvement);
-                println!("   - Iterations without improvement: {}", self.iterations_without_improvement);
-                println!("   - Proxy deterioration: {:.4}, Scaled: {:.4}", deterioration, scaled_deterioration);
-                println!("   - Stagnation factor: {:.2}x", stagnation_factor);
-                println!("   - Combined penalty multiplier: {:.4}", combined_penalty);
+                // println!("\n🔄 Applying enhanced contrast learning to deficit handling actions:");
+                // println!("   - Dynamic threshold: {:.4}% (iterations: {})", dynamic_threshold * PERCENT_CONVERSION, self.iterations_without_improvement);
+                // println!("   - Iterations without improvement: {}", self.iterations_without_improvement);
+                // println!("   - Proxy deterioration: {:.4}, Scaled: {:.4}", deterioration, scaled_deterioration);
+                // println!("   - Stagnation factor: {:.2}x", stagnation_factor);
+                // println!("   - Combined penalty multiplier: {:.4}", combined_penalty);
                 
                 // Calculate the penalty factor - more severe for worse runs and after more stagnation
                 let penalty_factor = ONE_F64 / (ONE_F64 + adaptive_learning_rate * PENALTY_MULTIPLIER * combined_penalty);
@@ -349,8 +367,8 @@ impl ActionWeights {
                 // Use a more aggressive boost factor for deficit actions since they're critical
                 let best_boost_factor = ONE_F64 + (adaptive_learning_rate * BOOST_MULTIPLIER * stagnation_factor * DEFICIT_BOOST_MULTIPLIER);
                 
-                println!("   - Penalty factor: {:.8}", penalty_factor);
-                println!("   - Best boost factor: {:.8}", best_boost_factor);
+                // println!("   - Penalty factor: {:.8}", penalty_factor);
+                // println!("   - Best boost factor: {:.8}", best_boost_factor);
                 
                 // For each year, compare deficit actions with the best deficit actions
                 for (year, best_year_actions) in best_deficit_actions {
@@ -376,19 +394,23 @@ impl ActionWeights {
                 }
                 
                 // Log summary information about the weight changes
-                println!("   - Applied enhanced contrast learning to deficit handling actions");
+                // println!("   - Applied enhanced contrast learning to deficit handling actions");
 
                 // If we've been stagnating for a very long time, also apply some randomization
                 // to break out of local optima
                 if self.iterations_without_improvement > ITERATIONS_FOR_RANDOMIZATION {
-                    println!("   - Applying weight randomization to deficit weights after {} iterations", 
-                            self.iterations_without_improvement);
+                    // println!("   - Applying weight randomization to deficit weights after {} iterations", 
+                    //         self.iterations_without_improvement);
+                    
+                    // Calculate linear increase in randomization factor based on iterations
+                    let iterations_beyond_threshold = self.iterations_without_improvement - ITERATIONS_FOR_RANDOMIZATION;
+                    let randomization_factor = RANDOMIZATION_FACTOR * (ONE_F64 + (iterations_beyond_threshold as f64 / ITERATIONS_FOR_RANDOMIZATION as f64));
                     
                     let mut rng = rand::thread_rng();
                     
                     for year_weights in self.deficit_weights.values_mut() {
                         for weight in year_weights.values_mut() {
-                            let random_factor = ONE_F64 + RANDOMIZATION_FACTOR * (rng.gen::<f64>() * 2.0 - 1.0);
+                            let random_factor = ONE_F64 + randomization_factor * (rng.gen::<f64>() * 2.0 - 1.0);
                             *weight = (*weight * random_factor).clamp(MIN_WEIGHT, MAX_WEIGHT);
                         }
                     }

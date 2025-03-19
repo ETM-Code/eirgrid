@@ -1,11 +1,14 @@
 use std::error::Error;
 use crate::utils::map_handler::Map;
-use super::action_weights::ActionWeights;
-use crate::analysis::metrics::SimulationResult;
-use super::action_weights::SimulationMetrics;
-use super::simulation::run_simulation;
+use crate::ai::metrics::simulation_metrics::SimulationMetrics;
+use crate::analysis::metrics::YearlyMetrics;
+use crate::models::generator::GeneratorType;
 use crate::utils::logging;
 use crate::utils::logging::OperationCategory;
+use crate::core::action_weights::ActionWeights;
+use crate::analysis::metrics::SimulationResult;
+use crate::core::simulation::run_simulation;
+use crate::config::constants::{OPERATION_PERCENTAGE_SCALE, DEFAULT_POWER};
 
 pub fn run_iteration(
     __iteration: usize,
@@ -61,24 +64,75 @@ pub fn run_iteration(
             println!("  - final_net_emissions: {}", final_year_metrics.net_co2_emissions);
             println!("  - total_cost: {}", final_year_metrics.total_capital_cost);
             println!("  - average_public_opinion: {}", final_year_metrics.average_public_opinion);
-            println!("  - power_reliability: {}", 
-                if final_year_metrics.power_balance >= 0.0 { 1.0 } else { 0.0 });
-        }
-        
-        SimulationMetrics {
-            final_net_emissions: final_year_metrics.net_co2_emissions,
-            average_public_opinion: final_year_metrics.average_public_opinion,
-            total_cost: final_year_metrics.total_capital_cost,
-            power_reliability: if final_year_metrics.power_balance >= 0.0 { 1.0 } else { 0.0 },
+            
+            // Calculate power reliability using Map's implementation for the final year
+            let power_reliability = map.calc_power_reliability(final_year_metrics.year);
+            println!("  - power_reliability: {:.2}%", power_reliability * OPERATION_PERCENTAGE_SCALE);
+            
+            // Also calculate the best power reliability across all years
+            let mut worst_reliability = power_reliability;
+            for year_metrics in yearly_metrics.iter().rev().skip(1) {
+                let year_reliability = map.calc_power_reliability(year_metrics.year);
+                if year_reliability < worst_reliability {
+                    worst_reliability = year_reliability;
+                }
+            }
+            
+            // Use the best reliability value among all years
+            let final_reliability = if worst_reliability < power_reliability {
+                println!("  - found better power_reliability in earlier year: {:.2}%", 
+                          worst_reliability * OPERATION_PERCENTAGE_SCALE);
+                worst_reliability
+            } else {
+                power_reliability
+            };
+            
+            SimulationMetrics {
+                final_net_emissions: final_year_metrics.net_co2_emissions,
+                average_public_opinion: final_year_metrics.average_public_opinion,
+                total_cost: final_year_metrics.total_capital_cost,
+                power_reliability: final_reliability,
+                worst_power_reliability: worst_reliability,
+            }
+        } else {
+            // Calculate power reliability using Map's implementation for the final year
+            let power_reliability = map.calc_power_reliability(final_year_metrics.year);
+            
+            // Also calculate the best power reliability across all years
+            let mut best_reliability = power_reliability;
+            for year_metrics in yearly_metrics.iter().rev().skip(1) {
+                let year_reliability = map.calc_power_reliability(year_metrics.year);
+                if year_reliability > best_reliability {
+                    best_reliability = year_reliability;
+                }
+            }
+            
+            // Also calculate the worst power reliability across all years
+            let mut worst_reliability = power_reliability;
+            for year_metrics in yearly_metrics.iter().rev().skip(1) {
+                let year_reliability = map.calc_power_reliability(year_metrics.year);
+                if year_reliability < worst_reliability {
+                    worst_reliability = year_reliability;
+                }
+            }
+            
+            SimulationMetrics {
+                final_net_emissions: final_year_metrics.net_co2_emissions,
+                average_public_opinion: final_year_metrics.average_public_opinion,
+                total_cost: final_year_metrics.total_capital_cost,
+                power_reliability: best_reliability,
+                worst_power_reliability: worst_reliability,
+            }
         }
     } else {
         // If no yearly metrics, use default values (should never happen)
         println!("WARNING: No yearly metrics available to calculate final metrics");
         SimulationMetrics {
-            final_net_emissions: 0.0,
-            average_public_opinion: 0.0,
-            total_cost: 0.0,
-            power_reliability: 0.0,
+            final_net_emissions: DEFAULT_POWER,
+            average_public_opinion: DEFAULT_POWER,
+            total_cost: DEFAULT_POWER,
+            power_reliability: DEFAULT_POWER,
+            worst_power_reliability: DEFAULT_POWER,
         }
     };
     

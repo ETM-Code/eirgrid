@@ -63,6 +63,9 @@ pub struct ActionWeights {
     /// Weights that produced the best results
     pub best_weights: Option<HashMap<u32, HashMap<GridAction, f64>>>,
     
+    /// Prime weights that are never affected by randomization
+    pub prime_weights: Option<HashMap<u32, HashMap<GridAction, f64>>>,
+    
     /// Actions that produced the best results
     pub best_actions: Option<HashMap<u32, Vec<GridAction>>>, 
     
@@ -104,4 +107,7 @@ pub struct ActionWeights {
     
     /// Improvement history tracking - records each time the best strategy is improved
     pub improvement_history: Vec<ImprovementRecord>,
+    
+    /// Current metrics for the ongoing simulation
+    pub current_metrics: Option<SimulationMetrics>,
 }

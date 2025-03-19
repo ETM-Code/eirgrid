@@ -208,55 +208,56 @@ impl CarbonOffset {
     }
 
     pub fn calc_carbon_offset(&self, year: u32) -> f64 {
-        // Get base offset value first
+        // If not operational, no carbon offset
+        if !self.is_operational() {
+            return 0.0;
+        }
+        
         let base_offset = match self.offset_type {
             CarbonOffsetType::Forest => self.size * FOREST_SEQUESTRATION_RATE,
             CarbonOffsetType::ActiveCapture => self.size * ACTIVE_CAPTURE_MULTIPLIER,
             CarbonOffsetType::CarbonCredit => self.size * CARBON_CREDIT_MULTIPLIER,
             CarbonOffsetType::Wetland => self.size * WETLAND_SEQUESTRATION_RATE,
         };
-        
-        // Apply effectiveness based on construction status
-        match self.construction_status {
-            ConstructionStatus::Operational => {
-                // Fully operational - calculate with maturity factor
-                let maturity_factor = match self.offset_type {
-                    CarbonOffsetType::Forest | CarbonOffsetType::Wetland => {
-                        // Natural solutions take time to mature
-                        let years_from_start = (year - self.construction_complete_year) as f64;
-                        (1.0 - (CARBON_OFFSET_MATURITY_FACTOR * years_from_start).exp()).clamp(0.0, 1.0)
-                    },
-                    _ => 1.0, // Other solutions work at full capacity immediately
-                };
-                
-                base_offset * self.capture_efficiency * maturity_factor
+
+        let maturity_factor = match self.offset_type {
+            CarbonOffsetType::Forest | CarbonOffsetType::Wetland => {
+                // Natural solutions take time to mature
+                let years_from_start = (year - self.construction_complete_year) as f64;
+                (1.0 - (CARBON_OFFSET_MATURITY_FACTOR * years_from_start).exp()).clamp(0.0, 1.0)
             },
+            _ => 1.0, // Other solutions work at full capacity immediately
+        };
+
+        // Calculate construction progress factor
+        let construction_progress = match self.construction_status {
             ConstructionStatus::UnderConstruction => {
-                // Partial effectiveness during construction phase
-                // Calculate the construction progress (0.0 to 1.0)
-                let years_in_construction = (year - self.construction_start_year) as f64;
-                let construction_progress = (years_in_construction / self.construction_time).clamp(0.0, 1.0);
-                
-                // Different offset types have different rates of effectiveness during construction
-                let construction_effectiveness = match self.offset_type {
-                    CarbonOffsetType::Forest | CarbonOffsetType::Wetland => {
-                        // Natural solutions can start working during planting
-                        construction_progress.powf(0.7) * 0.5 // More gradual increase, max 50% during construction
-                    },
-                    CarbonOffsetType::CarbonCredit => {
-                        // Carbon credits can be purchased in stages
-                        construction_progress * 0.8 // Linear increase, max 80% during construction
-                    },
-                    CarbonOffsetType::ActiveCapture => {
-                        // Mechanical systems need to be complete
-                        construction_progress.powf(2.0) * 0.3 // Slow start, max 30% during construction
-                    }
-                };
-                
-                base_offset * self.capture_efficiency * construction_effectiveness
+                let years_since_construction_start = (year - self.construction_start_year) as f64;
+                (years_since_construction_start / self.construction_time).clamp(0.0, 1.0)
             },
-            _ => 0.0, // No offset during planning or if decommissioned
-        }
+            ConstructionStatus::PlanningPermissionGranted => 0.0,
+            ConstructionStatus::Planned => 0.0,
+            ConstructionStatus::Operational => 1.0,
+            ConstructionStatus::Decommissioned => 0.0,
+        };
+
+        // For natural solutions, scale effectiveness during construction
+        let effectiveness_factor = match self.offset_type {
+            CarbonOffsetType::Forest | CarbonOffsetType::Wetland => {
+                // Start at 20% effectiveness and increase linearly during construction
+                0.2 + (0.8 * construction_progress)
+            },
+            _ => {
+                // For other types, only start working at full capacity when operational
+                if self.construction_status == ConstructionStatus::Operational {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+        };
+
+        base_offset * self.capture_efficiency * maturity_factor * effectiveness_factor
     }
 
     pub fn get_power_consumption(&self) -> f64 {
@@ -309,9 +310,8 @@ impl CarbonOffset {
         self.construction_cost_multiplier
     }
 
-    // Get the offset type
-    pub fn get_offset_type(&self) -> &CarbonOffsetType {
-        &self.offset_type
+    pub fn get_id(&self) -> &str {
+        &self.id
     }
 }
 

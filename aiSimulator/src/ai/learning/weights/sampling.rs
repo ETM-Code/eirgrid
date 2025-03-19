@@ -62,10 +62,39 @@ impl ActionWeights {
         year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::Forest, FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.5);
         year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::CarbonCredit, FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.5);
         
-        // Other actions
-        year_weights.insert(GridAction::UpgradeEfficiency(String::new()), UPGRADE_EFFICIENCY_WEIGHT);
-        year_weights.insert(GridAction::AdjustOperation(String::new(), OPERATION_PERCENTAGE_MIN), ADJUST_OPERATION_WEIGHT);
-        year_weights.insert(GridAction::CloseGenerator(String::new()), CLOSE_GENERATOR_WEIGHT);
+        // Add type-specific operation adjustment weights
+        year_weights.insert(GridAction::AdjustOperation(String::from("OnshoreWind"), OPERATION_PERCENTAGE_MIN), ONSHORE_WIND_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("OffshoreWind"), OPERATION_PERCENTAGE_MIN), OFFSHORE_WIND_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("DomesticSolar"), OPERATION_PERCENTAGE_MIN), DOMESTIC_SOLAR_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("CommercialSolar"), OPERATION_PERCENTAGE_MIN), COMMERCIAL_SOLAR_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("UtilitySolar"), OPERATION_PERCENTAGE_MIN), UTILITY_SOLAR_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("Nuclear"), OPERATION_PERCENTAGE_MIN), NUCLEAR_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("CoalPlant"), OPERATION_PERCENTAGE_MIN), COAL_PLANT_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("GasCombinedCycle"), OPERATION_PERCENTAGE_MIN), GAS_COMBINED_CYCLE_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("GasPeaker"), OPERATION_PERCENTAGE_MIN), GAS_PEAKER_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("Biomass"), OPERATION_PERCENTAGE_MIN), BIOMASS_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("HydroDam"), OPERATION_PERCENTAGE_MIN), HYDRO_DAM_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("PumpedStorage"), OPERATION_PERCENTAGE_MIN), PUMPED_STORAGE_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("BatteryStorage"), OPERATION_PERCENTAGE_MIN), BATTERY_STORAGE_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("TidalGenerator"), OPERATION_PERCENTAGE_MIN), TIDAL_GENERATOR_OPERATION_WEIGHT);
+        year_weights.insert(GridAction::AdjustOperation(String::from("WaveEnergy"), OPERATION_PERCENTAGE_MIN), WAVE_ENERGY_OPERATION_WEIGHT);
+        
+        // Add type-specific closure weights
+        year_weights.insert(GridAction::CloseGenerator(String::from("OnshoreWind")), ONSHORE_WIND_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("OffshoreWind")), OFFSHORE_WIND_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("DomesticSolar")), DOMESTIC_SOLAR_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("CommercialSolar")), COMMERCIAL_SOLAR_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("UtilitySolar")), UTILITY_SOLAR_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("Nuclear")), NUCLEAR_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("CoalPlant")), COAL_PLANT_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("GasCombinedCycle")), GAS_COMBINED_CYCLE_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("GasPeaker")), GAS_PEAKER_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("Biomass")), BIOMASS_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("HydroDam")), HYDRO_DAM_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("PumpedStorage")), PUMPED_STORAGE_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("BatteryStorage")), BATTERY_STORAGE_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("TidalGenerator")), TIDAL_GENERATOR_CLOSURE_WEIGHT);
+        year_weights.insert(GridAction::CloseGenerator(String::from("WaveEnergy")), WAVE_ENERGY_CLOSURE_WEIGHT);
         
         // Initialize DoNothing with a base weight
         year_weights.insert(GridAction::DoNothing, DO_NOTHING_WEIGHT);
@@ -117,7 +146,10 @@ impl ActionWeights {
                         return fallback_action;
                     }
                 } else {
-                    println!("⚠️ REPLAY FALLBACK: No best actions recorded for year {}", year);
+                    // Only print debug info if debug weights is enabled
+                    if crate::ai::learning::constants::is_debug_weights_enabled() {
+                        println!("⚠️ REPLAY FALLBACK: No best actions recorded for year {}", year);
+                    }
                     
                     // Add smart fallback for when no actions exist for this year
                     let fallback_action = self.generate_smart_fallback_action(year, "no best actions for year");
@@ -130,7 +162,10 @@ impl ActionWeights {
                     return fallback_action;
                 }
             } else {
-                println!("⚠️ REPLAY FALLBACK: No best actions recorded for any year");
+                // Only print debug info if debug weights is enabled
+                if crate::ai::learning::constants::is_debug_weights_enabled() {
+                    println!("⚠️ REPLAY FALLBACK: No best actions recorded for any year");
+                }
                 
                 // Add smart fallback for when no best actions exist at all
                 let fallback_action = self.generate_smart_fallback_action(year, "no best actions at all");

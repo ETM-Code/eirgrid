@@ -10,6 +10,7 @@ pub struct YearlyMetrics {
     pub total_power_usage: f64,
     pub total_power_generation: f64,
     pub power_balance: f64,
+    pub power_reliability: f64,
     pub average_public_opinion: f64,
     pub yearly_capital_cost: f64,            // Capital cost for the current year only
     pub total_capital_cost: f64,             // Accumulated capital cost up to this year
@@ -45,6 +46,7 @@ impl csv_export::YearlyMetricsLike for YearlyMetrics {
     fn get_total_power_usage(&self) -> f64 { self.total_power_usage }
     fn get_total_power_generation(&self) -> f64 { self.total_power_generation }
     fn get_power_balance(&self) -> f64 { self.power_balance }
+    fn get_power_reliability(&self) -> f64 { self.power_reliability }
     fn get_average_public_opinion(&self) -> f64 { self.average_public_opinion }
     fn get_yearly_capital_cost(&self) -> f64 { self.yearly_capital_cost }
     fn get_total_capital_cost(&self) -> f64 { self.total_capital_cost }

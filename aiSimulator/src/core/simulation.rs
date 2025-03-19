@@ -13,6 +13,7 @@ use crate::analysis::reporting::{print_yearly_summary, print_generator_details};
 use crate::config::constants::{MAX_ACCEPTABLE_COST, BASE_YEAR, END_YEAR, DEFAULT_COST_MULTIPLIER};
 use super::actions::apply_action;
 use crate::models::generator::GeneratorType;
+use crate::ai::metrics::simulation_metrics::SimulationMetrics;
 use chrono::Local;
 use std::fs::File;
 use std::io::Write;
@@ -36,6 +37,7 @@ pub fn run_simulation(
     let mut output = String::new();
     let mut recorded_actions = Vec::new();
     let mut yearly_metrics_collection = Vec::new();
+    let mut worst_power_reliability: f64 = 1.0; // Initialize to 100% (best case)
      
     let total_upgrade_costs = 0.0;
     let total_closure_costs = 0.0;
@@ -75,11 +77,15 @@ pub fn run_simulation(
      
     // At the beginning of the simulation, diagnose best actions if we have them
     if let Some(weights) = &action_weights {
-        println!("\n=== STARTING SIMULATION ===");
-        if let Some(seed_value) = seed {
-            println!("Seed: {}", seed_value);
+        // Get the current iteration count to check if we should print
+        let iteration_count = weights.iteration_count;
+        if iteration_count % 100 == 0 {  // Only print every 100 iterations
+            println!("\n=== STARTING SIMULATION ===");
+            if let Some(seed_value) = seed {
+                println!("Seed: {}", seed_value);
+            }
+            weights.diagnose_best_actions();
         }
-        weights.diagnose_best_actions();
     }
      
     for year in BASE_YEAR..=END_YEAR {
@@ -89,7 +95,22 @@ pub fn run_simulation(
         map.current_year = year;
         
         // Update construction status for all generators and offsets
-        map.update_construction_status();
+        if verbose_logging {
+            println!("Updating construction status for year {}", year);
+            let active_before = map.get_generators().iter().filter(|g| g.is_active()).count();
+            let operational_before = map.get_generators().iter().filter(|g| g.construction_status == crate::models::generator::ConstructionStatus::Operational).count();
+            
+            map.update_construction_status();
+            
+            let active_after = map.get_generators().iter().filter(|g| g.is_active()).count();
+            let operational_after = map.get_generators().iter().filter(|g| g.construction_status == crate::models::generator::ConstructionStatus::Operational).count();
+            
+            println!("Construction status update results for year {}:", year);
+            println!("  Active generators: {} → {}", active_before, active_after);
+            println!("  Operational generators: {} → {}", operational_before, operational_after);
+        } else {
+            map.update_construction_status();
+        }
          
         if action_weights.is_none() {
             println!("\nStarting year {}", year);
@@ -130,10 +151,11 @@ pub fn run_simulation(
             }
         };
 
-        if current_state.power_balance < 0.0 {
+        // Only handle power deficit if construction delays are not enabled
+        if current_state.power_balance < 0.0 && !enable_construction_delays {
             let _timing = logging::start_timing("handle_power_deficit",
                 OperationCategory::PowerCalculation { subcategory: PowerCalcType::Balance });
-            handle_power_deficit(map, -current_state.power_balance, year, &mut local_weights, optimization_mode)?;
+            handle_power_deficit(map, -current_state.power_balance, year, &mut local_weights, optimization_mode, enable_construction_delays)?;
         }
 
         let mut rng = rand::thread_rng();
@@ -201,7 +223,7 @@ pub fn run_simulation(
             None
         };
         
-        let yearly_metrics = calculate_yearly_metrics(
+        let metrics = calculate_yearly_metrics(
             map, 
             year, 
             total_upgrade_costs, 
@@ -211,53 +233,56 @@ pub fn run_simulation(
         );
          
         // Collect yearly metrics for CSV export
-        yearly_metrics_collection.push(yearly_metrics.clone());
+        yearly_metrics_collection.push(metrics.clone());
         
+        // Update worst power reliability
+        worst_power_reliability = worst_power_reliability.min(metrics.power_reliability);
+         
         // Log yearly metrics to state log file if verbose logging is enabled
         if let Some(ref mut file) = state_log_file {
             if let Err(e) = writeln!(file, "Year {} metrics:", year) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Population: {}", yearly_metrics.total_population) {
+            if let Err(e) = writeln!(file, "  Population: {}", metrics.total_population) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Power Usage: {:.2} MW", yearly_metrics.total_power_usage) {
+            if let Err(e) = writeln!(file, "  Power Usage: {:.2} MW", metrics.total_power_usage) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Power Generation: {:.2} MW", yearly_metrics.total_power_generation) {
+            if let Err(e) = writeln!(file, "  Power Generation: {:.2} MW", metrics.total_power_generation) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Power Balance: {:.2} MW", yearly_metrics.power_balance) {
+            if let Err(e) = writeln!(file, "  Power Balance: {:.2} MW", metrics.power_balance) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Yearly Carbon Credit Revenue: €{:.2}", yearly_metrics.yearly_carbon_credit_revenue) {
+            if let Err(e) = writeln!(file, "  Yearly Carbon Credit Revenue: €{:.2}", metrics.yearly_carbon_credit_revenue) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Total Carbon Credit Revenue: €{:.2}", yearly_metrics.total_carbon_credit_revenue) {
+            if let Err(e) = writeln!(file, "  Total Carbon Credit Revenue: €{:.2}", metrics.total_carbon_credit_revenue) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Yearly Energy Sales Revenue: €{:.2}", yearly_metrics.yearly_energy_sales_revenue) {
+            if let Err(e) = writeln!(file, "  Yearly Energy Sales Revenue: €{:.2}", metrics.yearly_energy_sales_revenue) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Total Energy Sales Revenue: €{:.2}", yearly_metrics.total_energy_sales_revenue) {
+            if let Err(e) = writeln!(file, "  Total Energy Sales Revenue: €{:.2}", metrics.total_energy_sales_revenue) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Yearly Total Cost: €{:.2}", yearly_metrics.yearly_total_cost) {
+            if let Err(e) = writeln!(file, "  Yearly Total Cost: €{:.2}", metrics.yearly_total_cost) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Accumulated Total Cost: €{:.2}", yearly_metrics.total_cost) {
+            if let Err(e) = writeln!(file, "  Accumulated Total Cost: €{:.2}", metrics.total_cost) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  CO2 Emissions: {:.2} tonnes", yearly_metrics.total_co2_emissions) {
+            if let Err(e) = writeln!(file, "  CO2 Emissions: {:.2} tonnes", metrics.total_co2_emissions) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Carbon Offset: {:.2} tonnes", yearly_metrics.total_carbon_offset) {
+            if let Err(e) = writeln!(file, "  Carbon Offset: {:.2} tonnes", metrics.total_carbon_offset) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Net Emissions: {:.2} tonnes", yearly_metrics.net_co2_emissions) {
+            if let Err(e) = writeln!(file, "  Net Emissions: {:.2} tonnes", metrics.net_co2_emissions) {
                 eprintln!("Error writing to state log file: {}", e);
             }
-            if let Err(e) = writeln!(file, "  Public Opinion: {:.3}", yearly_metrics.average_public_opinion) {
+            if let Err(e) = writeln!(file, "  Public Opinion: {:.3}", metrics.average_public_opinion) {
                 eprintln!("Error writing to state log file: {}", e);
             }
             if let Err(e) = writeln!(file, "----------------------------------------\n") {
@@ -266,12 +291,12 @@ pub fn run_simulation(
         }
          
         if action_weights.is_none() {
-            print_yearly_summary(&yearly_metrics);
+            print_yearly_summary(&metrics);
         }
          
         // For the last year, save metrics for final output
         if year == END_YEAR {
-            final_year_metrics = Some(yearly_metrics);
+            final_year_metrics = Some(metrics);
         }
     }
 
@@ -279,6 +304,15 @@ pub fn run_simulation(
         if action_weights.is_none() {
             print_generator_details(&metrics);
         }
+         
+        // Create final simulation metrics with worst power reliability
+        let simulation_metrics = SimulationMetrics {
+            final_net_emissions: metrics.net_co2_emissions,
+            average_public_opinion: metrics.average_public_opinion,
+            total_cost: metrics.total_cost,
+            power_reliability: metrics.power_reliability,
+            worst_power_reliability,
+        };
          
         // Format the output string
         let population = metrics.total_population;
@@ -317,7 +351,8 @@ pub fn handle_power_deficit(
     deficit: f64,
     year: u32,
     action_weights: &mut ActionWeights,
-    __optimization_mode: Option<&str>,
+    optimization_mode: Option<&str>,
+    enable_construction_delays: bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let _timing = logging::start_timing(
         "handle_power_deficit",
@@ -424,7 +459,7 @@ pub fn handle_power_deficit(
 
             // Calculate improvement based on all metrics using evaluate_action_impact
             // This uses the same logic as regular action assessment
-            let overall_improvement = evaluate_action_impact(&current_state, &new_state, None);
+            let overall_improvement = evaluate_action_impact(&current_state, &new_state, optimization_mode);
              
             // Calculate specific improvements for different metrics
              
@@ -450,20 +485,42 @@ pub fn handle_power_deficit(
                 0.0
             };
              
-            // Power balance improvement: While we need to handle the deficit, this is a means to an end, not the main goal
-            let __power_improvement = if new_state.power_balance > current_state.power_balance {
-                (new_state.power_balance - current_state.power_balance) / deficit.max(1.0)
+            // Power balance improvement: Priority when construction delays are enabled
+            let power_improvement = if enable_construction_delays {
+                // When construction delays are enabled, power balance is the top priority
+                if new_state.power_balance > current_state.power_balance {
+                    // Larger improvement for positive power balance
+                    (new_state.power_balance - current_state.power_balance) / deficit.max(1.0) * 2.0
+                } else if new_state.power_balance >= 0.0 && current_state.power_balance < 0.0 {
+                    // Extra bonus for achieving positive power balance from negative
+                    1.0
+                } else {
+                    0.0
+                }
             } else {
-                0.0
+                // Original power balance improvement logic
+                if new_state.power_balance > current_state.power_balance {
+                    (new_state.power_balance - current_state.power_balance) / deficit.max(1.0)
+                } else {
+                    0.0
+                }
             };
              
             // Combined improvement, with focus on overall result with a balance of metrics
-            // Primary focus is on the overall evaluation (70%)
-            // Secondary focus is on specific metrics that align with our goals (emissions, cost, opinion)
-            let combined_improvement = overall_improvement * 0.7 +
-                emissions_improvement * 0.15 +
-                cost_improvement * 0.1 +
-                opinion_improvement * 0.05;
+            // When construction delays are enabled, power balance is the top priority
+            let combined_improvement = if enable_construction_delays {
+                // Power balance is highest priority (50%), then emissions (20%), cost (20%), and opinion (10%)
+                power_improvement * 0.5 +
+                    emissions_improvement * 0.2 +
+                    cost_improvement * 0.2 +
+                    opinion_improvement * 0.1
+            } else {
+                // Original weighting
+                overall_improvement * 0.7 +
+                    emissions_improvement * 0.15 +
+                    cost_improvement * 0.1 +
+                    opinion_improvement * 0.05
+            };
 
             {
                 let _timing = logging::start_timing(
@@ -498,7 +555,7 @@ pub fn handle_power_deficit(
     };
      
     // Evaluate overall success using the standard action impact evaluation
-    let overall_success = evaluate_action_impact(&initial_state, &final_state, None);
+    let overall_success = evaluate_action_impact(&initial_state, &final_state, optimization_mode);
      
     // If we successfully handled the deficit and our metrics improved, provide a bonus
     if final_state.power_balance >= 0.0 && overall_success > 0.0 &&
@@ -535,6 +592,7 @@ pub fn run_simulation_with_best_actions(
     let mut output = String::new();
     let mut recorded_actions = Vec::new();
     let mut yearly_metrics_collection = Vec::new();
+    let mut worst_power_reliability: f64 = 1.0; // Initialize to 100% (best case)
      
     let total_upgrade_costs = 0.0;
     let total_closure_costs = 0.0;
@@ -550,7 +608,7 @@ pub fn run_simulation_with_best_actions(
         weights.set_rng(rng);
     }
      
-    println!("\nReplaying best strategy from previous runs with 100% probability");
+    // println!("\nReplaying best strategy from previous runs with 100% probability");
      
     // Hard-code the year range to 2025..=2050 rather than using constants
     for year in 2025..=2050 {
@@ -643,7 +701,7 @@ pub fn run_simulation_with_best_actions(
         if post_action_state.power_balance < 0.0 {
             let remaining_deficit = -post_action_state.power_balance;
             println!("Year {}: Handling remaining power deficit of {} MW", year, remaining_deficit);
-            handle_power_deficit(map, remaining_deficit, year, weights, optimization_mode)?;
+            handle_power_deficit(map, remaining_deficit, year, weights, optimization_mode, enable_construction_delays)?;
              
             // Add any new deficit actions to the recorded actions list
             if let Some(current_deficit_actions) = weights.get_deficit_actions_for_year(year) {
@@ -671,6 +729,9 @@ pub fn run_simulation_with_best_actions(
         );
         yearly_metrics_collection.push(metrics.clone());
          
+        // Update worst power reliability
+        worst_power_reliability = worst_power_reliability.min(metrics.power_reliability);
+         
         crate::analysis::reporting::print_yearly_summary(&metrics);
          
         // Save the final year metrics
@@ -682,6 +743,14 @@ pub fn run_simulation_with_best_actions(
     if let Some(metrics) = final_year_metrics {
         crate::analysis::reporting::print_generator_details(&metrics);
          
+        // Create final simulation metrics with worst power reliability
+        let simulation_metrics = SimulationMetrics {
+            final_net_emissions: metrics.net_co2_emissions,
+            average_public_opinion: metrics.average_public_opinion,
+            total_cost: metrics.total_cost,
+            power_reliability: metrics.power_reliability,
+            worst_power_reliability,
+        };
          
         // Format the output string
         let population = metrics.total_population;

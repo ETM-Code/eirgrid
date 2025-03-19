@@ -192,12 +192,12 @@ impl GeneratorType {
             GeneratorType::CoalPlant => COAL_COST_INCREASE,
             GeneratorType::GasCombinedCycle => GAS_COST_INCREASE,
             GeneratorType::GasPeaker => GAS_COST_INCREASE,
-            GeneratorType::Biomass => 0.99,
+            GeneratorType::Biomass => 1.0,
             GeneratorType::HydroDam => HYDRO_COST_INCREASE,
             GeneratorType::PumpedStorage => HYDRO_COST_INCREASE,
-            GeneratorType::BatteryStorage => 0.97,
-            GeneratorType::TidalGenerator => 0.95,
-            GeneratorType::WaveEnergy => 0.95,
+            GeneratorType::BatteryStorage => 1.0,
+            GeneratorType::TidalGenerator => 1.0,
+            GeneratorType::WaveEnergy => 1.0,
         }
     }
 
@@ -345,7 +345,7 @@ impl GeneratorType {
         match *self {
             GeneratorType::OnshoreWind => 25,
             GeneratorType::OffshoreWind => 25,
-            GeneratorType::DomesticSolar => 25,
+            GeneratorType::DomesticSolar => 20,
             GeneratorType::CommercialSolar => 25,
             GeneratorType::UtilitySolar => 30,
             GeneratorType::Nuclear => 60,
@@ -457,6 +457,7 @@ impl Generator {
             self.planning_permission_year = year;
             self.construction_start_year = year;
             self.construction_complete_year = year;
+            self.is_active = true;  // Ensure is_active is set to true
             return;
         }
         
@@ -477,6 +478,7 @@ impl Generator {
         
         // Set initial status to Planned
         self.construction_status = ConstructionStatus::Planned;
+        self.is_active = false;  // Set is_active to false until construction is complete
     }
 
     pub fn update_construction_status(&mut self, current_year: u32) -> bool {
@@ -506,7 +508,7 @@ impl Generator {
                 if years_since_construction_start >= self.construction_time {
                     self.construction_status = ConstructionStatus::Operational;
                     self.construction_complete_year = current_year;
-                    self.is_active = true;
+                    self.is_active = true;  // Set is_active to true when construction is complete
                     return true;
                 }
             },
@@ -521,7 +523,8 @@ impl Generator {
     }
 
     pub fn get_current_power_output(&self, hour: Option<u8>) -> f64 {
-        if !self.is_active() {
+        // Only return power output if the generator is active and fully constructed
+        if !self.is_active || self.construction_status != ConstructionStatus::Operational {
             return 0.0;
         }
 
@@ -594,7 +597,7 @@ impl Generator {
     }
 
     pub fn get_current_operating_cost(&self, year: u32) -> f64 {
-        if !self.is_active() {
+        if !self.is_active {
             return 0.0;
         }
         let base_cost = calc_operating_cost(&self.generator_type, self.base_operating_cost, year);
@@ -615,21 +618,33 @@ impl Generator {
             (0..years).map(|y| self.get_current_operating_cost(2025 + y)).sum::<f64>()
     }
 
-    pub fn get_co2_output(&self) -> f64 {
-        if !self.is_active() {
+    fn get_co2_rate(&self) -> f64 {
+        match self.generator_type {
+            GeneratorType::CoalPlant => COAL_CO2_RATE,
+            GeneratorType::GasCombinedCycle => GAS_CC_CO2_RATE,
+            GeneratorType::GasPeaker => GAS_PEAKER_CO2_RATE,
+            GeneratorType::Biomass => BIOMASS_CO2_RATE,
+            _ => 0.0,  // All other types have zero direct CO2 emissions
+        }
+    }
+
+    fn calculate_co2_output(&self) -> f64 {
+        if !self.is_active || self.construction_status != ConstructionStatus::Operational {
             return 0.0;
         }
-        
-        // Using stored co2_out value (initialized from constants) and adjusting by
-        // operation percentage and efficiency improvements
-        self.co2_out * self.operation_percentage * (1.0 - (self.efficiency - BASE_EFFICIENCY))
+        let base_output = self.power_out * self.efficiency * self.operation_percentage;
+        base_output * self.get_co2_rate()
+    }
+
+    pub fn get_co2_output(&self) -> f64 {
+        self.calculate_co2_output()
     }
 
     pub fn can_upgrade_efficiency(&self, year: u32, constraints: &GeneratorConstraints) -> bool {
-        if !self.is_active() {
+        if !self.is_active {
             return false;
         }
-        
+
         // Find maximum efficiency for the current year
         let max_efficiency = constraints.max_efficiency_by_year
             .iter()
@@ -643,9 +658,16 @@ impl Generator {
 
     pub fn upgrade_efficiency(&mut self, year: u32, new_efficiency: f64) -> f64 {
         let efficiency_increase = new_efficiency - self.efficiency;
-        let upgrade_cost = self.base_cost * efficiency_increase * EFFICIENCY_UPGRADE_COST_FACTOR;
+        let current_cost = self.get_current_cost(year);
+        let upgrade_cost = current_cost * efficiency_increase * EFFICIENCY_UPGRADE_COST_FACTOR;
+        
+        // Update efficiency
         self.efficiency = new_efficiency;
         self.upgrade_history.push((year, new_efficiency));
+        
+        // Update CO2 output using the helper method
+        self.co2_out = self.calculate_co2_output();
+        
         upgrade_cost
     }
 
@@ -660,16 +682,21 @@ impl Generator {
         
         let clamped_percentage = new_percentage.clamp(min_percentage, MAX_OPERATION_PERCENTAGE);
         
-        if !self.is_active() {
+        if !self.is_active {
             return false;
         }
 
+        // Update operation percentage
         self.operation_percentage = clamped_percentage as f64 / 100.0;
+        
+        // Update CO2 output using the helper method
+        self.co2_out = self.calculate_co2_output();
+        
         true
     }
 
     pub fn close_generator(&mut self, year: u32) -> f64 {
-        if !self.is_active() {
+        if !self.is_active {
             return 0.0;
         }
 
@@ -678,6 +705,7 @@ impl Generator {
         
         self.is_active = false;
         self.operation_percentage = 0.0;
+        self.co2_out = 0.0;  // Set CO2 output to 0 when generator is closed
         
         closure_cost
     }
@@ -687,6 +715,11 @@ impl Generator {
     }
 
     pub fn get_build_year(&self) -> u32 {
+        // Check if this is an existing generator
+        if self.id.starts_with("Existing_") {
+            return self.commissioning_year;
+        }
+        
         // Extract year from the ID for generators built during simulation
         if self.id.starts_with("Gen_") {
             let parts: Vec<&str> = self.id.split('_').collect();
@@ -696,8 +729,9 @@ impl Generator {
                 }
             }
         }
-        // Default to 2020 for existing generators
-        2020
+        
+        // If all else fails, fallback to the commissioning year
+        self.commissioning_year
     }
 
     pub fn get_operation_percentage(&self) -> u8 {

@@ -32,6 +32,7 @@ use crate::config::constants::{
     CARBON_CREDIT_BASE_COST,
     MAP_MAX_X,
     MAP_MAX_Y,
+    EFFICIENCY_UPGRADE_COST_FACTOR,
 };
 use crate::data::poi::POI;
 use crate::models::generator::{Generator, GeneratorType};
@@ -78,7 +79,7 @@ fn transform_grid_to_lat_lon(x: f64, y: f64) -> (f64, f64) {
     let lon = IRELAND_MIN_LON + (lon_range * x_prop);
     let lat = IRELAND_MIN_LAT + (lat_range * y_prop);
     
-    println!("Transformed grid ({:.2}, {:.2}) to geo ({:.6}, {:.6})", x_valid, y_valid, lon, lat);
+    // println!("Transformed grid ({:.2}, {:.2}) to geo ({:.6}, {:.6})", x_valid, y_valid, lon, lat);
     
     (lon, lat) // Return as (longitude, latitude) for consistent ordering
 }
@@ -232,12 +233,13 @@ impl CsvExporter {
         writeln!(summary_file, "Final Net Emissions (tonnes CO2),{}", metrics.final_net_emissions)?;
         writeln!(summary_file, "Average Public Opinion (%),{:.2}", metrics.average_public_opinion * 100.0)?;
         writeln!(summary_file, "Total Cost (€),{:.2}", metrics.total_cost)?;
-        writeln!(summary_file, "Power Reliability (%),{:.2}", metrics.power_reliability * 100.0)?;
+        writeln!(summary_file, "Current Power Reliability (%),{:.2}", metrics.power_reliability * 100.0)?;
+        writeln!(summary_file, "Worst Power Reliability (%),{:.2}", metrics.worst_power_reliability * 100.0)?;
         writeln!(summary_file, "")?;
         
         // Write actions section header
         writeln!(summary_file, "Actions Taken")?;
-        writeln!(summary_file, "Year,Action Type,Generator Type,Generator ID,Operation %,Offset Type,Estimated Cost (€)")?;
+        writeln!(summary_file, "Year,Action Type,Generator Type,Generator ID,Operation %,Offset Type,Estimated Cost (€),Success")?;
         
         // Prepare a lookup map of generators for cost estimates
         let generators = map.get_generators();
@@ -247,11 +249,11 @@ impl CsvExporter {
             .collect();
         
         // Track total action costs
-        let mut __total_action_costs = 0.0;
+        let mut total_action_costs = 0.0;
         
         // Write each action with its estimated cost
         for (year, action) in actions {
-            let (action_type, gen_type, gen_id, operation_pct, offset_type, estimated_cost) = match action {
+            let (action_type, gen_type, gen_id, operation_pct, offset_type, estimated_cost, success) = match action {
                 GridAction::AddGenerator(gen_type, cost_multiplier) => {
                     // Use calc_generator_cost instead of just base_cost to match yearly metrics calculation
                     let base_cost = gen_type.get_base_cost(*year);
@@ -270,67 +272,67 @@ impl CsvExporter {
                     let cost = accurate_cost * (*cost_multiplier as f64 / 100.0);
                     
                     (
-                    "AddGenerator",
-                    gen_type.to_string(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
+                        "AddGenerator",
+                        gen_type.to_string(),
+                        String::new(),
+                        String::new(),
+                        String::new(),
                         format!("{:.2}", cost),
+                        "Success".to_string(),
                     )
                 },
                 GridAction::UpgradeEfficiency(id) => {
-                    // Estimate upgrade cost based on generator type and base cost
+                    // Get the actual upgrade cost from the generator's upgrade history
                     let upgrade_cost = if let Some(generator) = generator_map.get(id.as_str()) {
-                        // Calculate max efficiency similar to how it's done in core/actions.rs
-                        let gen_type = generator.get_generator_type();
-                        let base_max = match gen_type {
-                            GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => WIND_BASE_MAX_EFFICIENCY,
-                            GeneratorType::UtilitySolar => UTILITY_SOLAR_BASE_MAX_EFFICIENCY,
-                            GeneratorType::Nuclear => NUCLEAR_BASE_MAX_EFFICIENCY,
-                            GeneratorType::GasCombinedCycle => GAS_CC_BASE_MAX_EFFICIENCY,
-                            GeneratorType::HydroDam | GeneratorType::PumpedStorage => HYDRO_BASE_MAX_EFFICIENCY,
-                            GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => MARINE_BASE_MAX_EFFICIENCY,
-                            _ => DEFAULT_BASE_MAX_EFFICIENCY,
-                        };
+                        // Find the upgrade that happened in this year
+                        let upgrade = generator.upgrade_history.iter()
+                            .find(|(y, _)| *y == *year);
                         
-                        let tech_improvement = match gen_type {
-                            GeneratorType::OnshoreWind | GeneratorType::OffshoreWind |
-                            GeneratorType::UtilitySolar => DEVELOPING_TECH_IMPROVEMENT_RATE,
-                            GeneratorType::TidalGenerator | GeneratorType::WaveEnergy => EMERGING_TECH_IMPROVEMENT_RATE,
-                            _ => MATURE_TECH_IMPROVEMENT_RATE,
-                        }.powi((*year - BASE_YEAR) as i32);
-                        
-                        let max_efficiency = base_max * (1.0 + (1.0 - tech_improvement));
-                        
-                        // Calculate current efficiency
-                        let current_efficiency = generator.get_efficiency();
-                        
-                        // Calculate remaining potential improvement
-                        let potential_improvement = (max_efficiency - current_efficiency).max(0.0);
-                        
-                        // Cost is proportional to potential improvement * base cost
-                        generator.get_current_cost(*year) * potential_improvement * 2.0
+                        if let Some((_, new_efficiency)) = upgrade {
+                            // Calculate the cost based on the efficiency increase
+                            let old_efficiency = generator.upgrade_history.iter()
+                                .filter(|(y, _)| *y < *year)
+                                .map(|(_, e)| *e)
+                                .last()
+                                .unwrap_or(generator.get_efficiency());
+                            
+                            let efficiency_increase = new_efficiency - old_efficiency;
+                            let current_cost = generator.get_current_cost(*year);
+                            current_cost * efficiency_increase * EFFICIENCY_UPGRADE_COST_FACTOR
+                        } else {
+                            0.0
+                        }
                     } else {
                         0.0
                     };
                     
                     (
-                    "UpgradeEfficiency",
-                    String::new(),
-                    id.clone(),
-                    String::new(),
-                    String::new(),
+                        "UpgradeEfficiency",
+                        String::new(),
+                        id.clone(),
+                        String::new(),
+                        String::new(),
                         format!("{:.2}", upgrade_cost),
+                        if upgrade_cost > 0.0 { "Success".to_string() } else { "Failed".to_string() },
                     )
                 },
-                GridAction::AdjustOperation(id, percentage) => (
-                    "AdjustOperation",
-                    String::new(),
-                    id.clone(),
-                    percentage.to_string(),
-                    String::new(),
-                    "0.00".to_string(), // Operation adjustment has no direct capital cost
-                ),
+                GridAction::AdjustOperation(id, percentage) => {
+                    let success = if let Some(generator) = generator_map.get(id.as_str()) {
+                        generator.operation_percentage == *percentage as f64 / 100.0
+                    } else {
+                        false
+                    };
+                    
+                    (
+                        "AdjustOperation",
+                        String::new(),
+                        id.clone(),
+                        percentage.to_string(),
+                        String::new(),
+                        "0.00".to_string(), // Operation adjustment has no direct capital cost
+                        if success { "Success".to_string() } else { "Failed".to_string() },
+                    )
+                },
                 GridAction::AddCarbonOffset(offset_type, cost_multiplier) => {
                     // Get cost based on offset type
                     let base_offset_cost = match offset_type {
@@ -354,6 +356,7 @@ impl CsvExporter {
                         String::new(),
                         offset_type.to_string(),
                         format!("{:.2}", offset_cost),
+                        "Success".to_string(),
                     )
                 },
                 GridAction::CloseGenerator(id) => {
@@ -365,13 +368,20 @@ impl CsvExporter {
                         0.0
                     };
                     
+                    let success = if let Some(generator) = generator_map.get(id.as_str()) {
+                        !generator.is_active
+                    } else {
+                        false
+                    };
+                    
                     (
-                    "CloseGenerator",
-                    String::new(),
-                    id.clone(),
-                    String::new(),
-                    String::new(),
+                        "CloseGenerator",
+                        String::new(),
+                        id.clone(),
+                        String::new(),
+                        String::new(),
                         format!("{:.2}", closure_cost),
+                        if success { "Success".to_string() } else { "Failed".to_string() },
                     )
                 },
                 GridAction::DoNothing => (
@@ -381,14 +391,18 @@ impl CsvExporter {
                     String::new(),
                     String::new(),
                     "0.00".to_string(),
+                    "Success".to_string(),
                 ),
             };
             
-            writeln!(
-                summary_file,
-                "{},{},{},{},{},{},{}",
-                year, action_type, gen_type, gen_id, operation_pct, offset_type, estimated_cost
-            )?;
+            // Only write successful actions
+            if success == "Success" {
+                writeln!(
+                    summary_file,
+                    "{},{},{},{},{},{},{},{}",
+                    year, action_type, gen_type, gen_id, operation_pct, offset_type, estimated_cost, success
+                )?;
+            }
         }
         
         // Add yearly summary metrics
@@ -1443,6 +1457,7 @@ pub trait YearlyMetricsLike {
     fn get_total_power_usage(&self) -> f64;
     fn get_total_power_generation(&self) -> f64;
     fn get_power_balance(&self) -> f64;
+    fn get_power_reliability(&self) -> f64;
     fn get_average_public_opinion(&self) -> f64;
     fn get_yearly_capital_cost(&self) -> f64;
     fn get_total_capital_cost(&self) -> f64;
@@ -1452,6 +1467,8 @@ pub trait YearlyMetricsLike {
     fn get_net_co2_emissions(&self) -> f64;
     fn get_yearly_carbon_credit_revenue(&self) -> f64;
     fn get_total_carbon_credit_revenue(&self) -> f64;
+    fn get_yearly_energy_sales_revenue(&self) -> f64;
+    fn get_total_energy_sales_revenue(&self) -> f64;
     fn get_generator_efficiencies(&self) -> Vec<(String, f64)>;
     fn get_generator_operations(&self) -> Vec<(String, f64)>;
     fn get_active_generators(&self) -> usize;
@@ -1459,7 +1476,5 @@ pub trait YearlyMetricsLike {
     fn get_yearly_closure_costs(&self) -> f64;
     fn get_yearly_total_cost(&self) -> f64;
     fn get_total_cost(&self) -> f64;
-    fn get_yearly_energy_sales_revenue(&self) -> f64;
-    fn get_total_energy_sales_revenue(&self) -> f64;
 }
 

@@ -11,11 +11,9 @@ use crate::ai::actions::serializable_action::SerializableAction;
 use crate::ai::learning::constants::*;
 use crate::ai::learning::serialization::SerializableWeights;
 use super::{ActionWeights, FILE_MUTEX};
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
-use serde::{Serialize, Deserialize};
 use crate::models::carbon_offset::CarbonOffsetType;
 use crate::config::constants::DEFAULT_COST_MULTIPLIER;
+use crate::ai::metrics::simulation_metrics::SimulationMetrics;
 
 // Add a dummy public item to ensure this file is recognized by rust-analyzer
 #[allow(dead_code)]
@@ -83,6 +81,22 @@ impl ActionWeights {
             serializable
         });
         
+        // Convert prime weights to serializable format
+        let serializable_prime_weights = self.prime_weights.as_ref().map(|prime_weights| {
+            let mut serializable = HashMap::new();
+            for (year, year_weights) in prime_weights {
+                let mut serializable_year_weights = Vec::new();
+                for (action, &weight) in year_weights {
+                    serializable_year_weights.push((
+                        SerializableAction::from(action),
+                        weight,
+                    ));
+                }
+                serializable.insert(*year, serializable_year_weights);
+            }
+            serializable
+        });
+        
         // Convert best actions to serializable format
         let serializable_best_actions = self.best_actions.as_ref().map(|best_actions| {
             let mut serializable = HashMap::new();
@@ -128,6 +142,7 @@ impl ActionWeights {
             } else {
                 None
             },
+            prime_weights: serializable_prime_weights,
         };
         
         let json = serde_json::to_string_pretty(&serializable)
@@ -173,6 +188,16 @@ impl ActionWeights {
                     "AdjustOperation" => {
                         let id = serializable_action.generator_id.clone().unwrap_or_default();
                         let percentage = serializable_action.operation_percentage.unwrap_or(0);
+                        // Skip legacy empty ID operations
+                        if id.is_empty() {
+                            continue;
+                        }
+                        // Validate generator type exists
+                        if let Some(gen_type_str) = &serializable_action.generator_type {
+                            if GeneratorType::from_str(gen_type_str).is_err() {
+                                continue;
+                            }
+                        }
                         GridAction::AdjustOperation(id, percentage)
                     },
                     "AddCarbonOffset" => {
@@ -191,11 +216,18 @@ impl ActionWeights {
                         }
                     },
                     "CloseGenerator" => {
-                        if let Some(id) = &serializable_action.generator_id {
-                            GridAction::CloseGenerator(id.clone())
-                        } else {
-                            GridAction::CloseGenerator(String::new())
+                        let id = serializable_action.generator_id.clone().unwrap_or_default();
+                        // Skip legacy empty ID closures
+                        if id.is_empty() {
+                            continue;
                         }
+                        // Validate generator type exists
+                        if let Some(gen_type_str) = &serializable_action.generator_type {
+                            if GeneratorType::from_str(gen_type_str).is_err() {
+                                continue;
+                            }
+                        }
+                        GridAction::CloseGenerator(id)
                     },
                     "DoNothing" => GridAction::DoNothing,
                     _ => {
@@ -235,6 +267,16 @@ impl ActionWeights {
                     "AdjustOperation" => {
                         let id = serializable_action.generator_id.clone().unwrap_or_default();
                         let percentage = serializable_action.operation_percentage.unwrap_or(0);
+                        // Skip legacy empty ID operations
+                        if id.is_empty() {
+                            continue;
+                        }
+                        // Validate generator type exists
+                        if let Some(gen_type_str) = &serializable_action.generator_type {
+                            if GeneratorType::from_str(gen_type_str).is_err() {
+                                continue;
+                            }
+                        }
                         GridAction::AdjustOperation(id, percentage)
                     },
                     "AddCarbonOffset" => {
@@ -308,6 +350,16 @@ impl ActionWeights {
                             "AdjustOperation" => {
                                 let id = serializable_action.generator_id.clone().unwrap_or_default();
                                 let percentage = serializable_action.operation_percentage.unwrap_or(0);
+                                // Skip legacy empty ID operations
+                                if id.is_empty() {
+                                    continue;
+                                }
+                                // Validate generator type exists
+                                if let Some(gen_type_str) = &serializable_action.generator_type {
+                                    if GeneratorType::from_str(gen_type_str).is_err() {
+                                        continue;
+                                    }
+                                }
                                 GridAction::AdjustOperation(id, percentage)
                             },
                             "AddCarbonOffset" => {
@@ -364,6 +416,16 @@ impl ActionWeights {
                         "AdjustOperation" => {
                             let id = serializable_action.generator_id.clone().unwrap_or_default();
                             let percentage = serializable_action.operation_percentage.unwrap_or(0);
+                            // Skip legacy empty ID operations
+                            if id.is_empty() {
+                                continue;
+                            }
+                            // Validate generator type exists
+                            if let Some(gen_type_str) = &serializable_action.generator_type {
+                                if GeneratorType::from_str(gen_type_str).is_err() {
+                                    continue;
+                                }
+                            }
                             GridAction::AdjustOperation(id, percentage)
                         },
                         "AddCarbonOffset" => {
@@ -420,6 +482,16 @@ impl ActionWeights {
                         "AdjustOperation" => {
                             let id = serializable_action.generator_id.clone().unwrap_or_default();
                             let percentage = serializable_action.operation_percentage.unwrap_or(0);
+                            // Skip legacy empty ID operations
+                            if id.is_empty() {
+                                continue;
+                            }
+                            // Validate generator type exists
+                            if let Some(gen_type_str) = &serializable_action.generator_type {
+                                if GeneratorType::from_str(gen_type_str).is_err() {
+                                    continue;
+                                }
+                            }
                             GridAction::AdjustOperation(id, percentage)
                         },
                         "AddCarbonOffset" => {
@@ -469,12 +541,79 @@ impl ActionWeights {
             })
             .unwrap_or_else(Vec::new);
 
+        // Convert serializable prime weights to actual prime weights
+        let prime_weights = serializable.prime_weights.map(|serializable_prime_weights| {
+            serializable_prime_weights.iter()
+                .map(|(year, serializable_year_weights)| {
+                    let mut year_weights = HashMap::new();
+                    for (serializable_action, weight) in serializable_year_weights {
+                        let action = match serializable_action.action_type.as_str() {
+                            "AddGenerator" => {
+                                if let Some(gen_type_str) = &serializable_action.generator_type {
+                                    match GeneratorType::from_str(gen_type_str) {
+                                        Ok(gen_type) => {
+                                            let cost_multiplier = serializable_action.cost_multiplier.unwrap_or(DEFAULT_COST_MULTIPLIER);
+                                            GridAction::AddGenerator(gen_type, cost_multiplier)
+                                        },
+                                        Err(_) => continue,
+                                    }
+                                } else {
+                                    continue;
+                                }
+                            },
+                            "UpgradeEfficiency" => {
+                                GridAction::UpgradeEfficiency(serializable_action.generator_id.clone().unwrap_or_default())
+                            },
+                            "AdjustOperation" => {
+                                let id = serializable_action.generator_id.clone().unwrap_or_default();
+                                let percentage = serializable_action.operation_percentage.unwrap_or(0);
+                                // Skip legacy empty ID operations
+                                if id.is_empty() {
+                                    continue;
+                                }
+                                // Validate generator type exists
+                                if let Some(gen_type_str) = &serializable_action.generator_type {
+                                    if GeneratorType::from_str(gen_type_str).is_err() {
+                                        continue;
+                                    }
+                                }
+                                GridAction::AdjustOperation(id, percentage)
+                            },
+                            "AddCarbonOffset" => {
+                                if let Some(offset_type_str) = &serializable_action.offset_type {
+                                    let offset_type = match offset_type_str.as_str() {
+                                        "Forest" => CarbonOffsetType::Forest,
+                                        "Wetland" => CarbonOffsetType::Wetland,
+                                        "ActiveCapture" => CarbonOffsetType::ActiveCapture,
+                                        "CarbonCredit" => CarbonOffsetType::CarbonCredit,
+                                        _ => CarbonOffsetType::Forest,
+                                    };
+                                    let cost_multiplier = serializable_action.cost_multiplier.unwrap_or(DEFAULT_COST_MULTIPLIER);
+                                    GridAction::AddCarbonOffset(offset_type, cost_multiplier)
+                                } else {
+                                    GridAction::AddCarbonOffset(CarbonOffsetType::Forest, DEFAULT_COST_MULTIPLIER)
+                                }
+                            },
+                            "CloseGenerator" => {
+                                GridAction::CloseGenerator(serializable_action.generator_id.clone().unwrap_or_default())
+                            },
+                            "DoNothing" => GridAction::DoNothing,
+                            _ => continue,
+                        };
+                        year_weights.insert(action, *weight);
+                    }
+                    (*year, year_weights)
+                })
+                .collect()
+        });
+
         Ok(Self {
             weights,
             action_count_weights: HashMap::new(),
             learning_rate: serializable.learning_rate,
             best_metrics: serializable.best_metrics,
             best_weights,
+            prime_weights,
             best_actions,
             iteration_count: serializable.iteration_count,
             iterations_without_improvement: serializable.iterations_without_improvement,
@@ -489,6 +628,7 @@ impl ActionWeights {
             optimization_mode: serializable.optimization_mode,
             replay_index: HashMap::new(),
             improvement_history,
+            current_metrics: None,
         })
     }
 

@@ -1,10 +1,11 @@
 use std::error::Error;
+use std::str::FromStr;
 use rand::Rng;
 use crate::utils::map_handler::Map;
-use crate::models::generator::{Generator, GeneratorType};
+use crate::models::generator::{Generator, GeneratorType, ConstructionStatus};
 use super::action_weights::GridAction;
 use crate::models::carbon_offset::{CarbonOffset, CarbonOffsetType};
-use crate::data::poi::Coordinate;
+use crate::data::poi::{Coordinate, POI};
 use crate::config::constants::{
     DEFAULT_GENERATOR_SIZE,
     COAL_CO2_RATE,
@@ -34,8 +35,18 @@ use crate::config::constants::{
     CARBON_CREDIT_OPERATING_COST,
     MIN_CONSTRUCTION_COST_MULTIPLIER,
     MAX_CONSTRUCTION_COST_MULTIPLIER,
+    END_YEAR,
 };
-use crate::config::const_funcs::calc_decommission_cost;
+use crate::config::const_funcs::{
+    calc_decommission_cost, 
+    calc_generator_cost, 
+    calc_operating_cost, 
+    calc_initial_co2_output, 
+    calc_planning_permission_time, 
+    calc_construction_time,
+    calc_carbon_offset_planning_time,
+    calc_carbon_offset_construction_time
+};
 
 pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(), Box<dyn Error + Send + Sync>> {
     match action {
@@ -46,6 +57,7 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
                 
             match map.find_best_generator_location(gen_type, gen_size as f64 / 100.0) {
                 Some(location) => {
+                    let location_clone = location.clone();
                     let base_efficiency = gen_type.get_base_efficiency(year);
                     let initial_co2_output = match gen_type {
                         GeneratorType::CoalPlant => COAL_CO2_RATE,
@@ -70,6 +82,21 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
                     
                     // Set the construction cost multiplier
                     generator.set_construction_cost_multiplier(cost_multiplier);
+
+                    // Calculate total construction time
+                    let public_opinion = map.calculate_public_opinion_at_location(&location_clone);
+                    let planning_time = calc_planning_permission_time(&gen_type, year, public_opinion, cost_multiplier);
+                    let construction_time = calc_construction_time(&gen_type, year, cost_multiplier);
+                    let total_time = planning_time + construction_time;
+
+                    // Check if construction will complete before simulation end
+                    if year as f64 + total_time > END_YEAR as f64 {
+                        // If construction won't complete before simulation end, don't add the generator
+                        return Ok(());
+                    }
+
+                    // Initialize construction times
+                    generator.initialize_construction(year, public_opinion, true);
                     
                     map.add_generator(generator);
                     Ok(())
@@ -117,13 +144,76 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
             Ok(())
         },
         GridAction::AdjustOperation(id, percentage) => {
-            let constraints = map.get_generator_constraints().clone();
-            if let Some(generator) = map.get_generator_mut(id) {
-                if generator.is_active() {
-                    generator.adjust_operation(*percentage, &constraints);
+            // Handle two cases:
+            // 1. When id is a full generator ID (Type_Number)
+            // 2. When id is just a generator type name (for backward compatibility with new weights system)
+            
+            // First, try to validate the generator type
+            let gen_type_str = if id.contains('_') {
+                // Case 1: ID in format "Type_Number"
+                let parts: Vec<&str> = id.split('_').collect();
+                if parts.len() < 2 {
+                    return Err(format!("Invalid generator ID format: {}", id).into());
                 }
+                parts[0]
+            } else {
+                // Case 2: ID is just the generator type
+                id
+            };
+            
+            // Validate generator type
+            if let Err(_) = GeneratorType::from_str(gen_type_str) {
+                return Err(format!("Invalid generator type: {}", gen_type_str).into());
             }
-            map.after_generator_modification();
+            
+            // For single type names, find a generator of that type
+            let generator_found = if id.contains('_') {
+                // Try to use the exact ID
+                let constraints = map.get_generator_constraints().clone();
+                if let Some(generator) = map.get_generator_mut(id) {
+                    if generator.is_active() {
+                        generator.adjust_operation(*percentage, &constraints);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                // Try to find any generator of that type
+                let constraints = map.get_generator_constraints().clone();
+                let mut success = false;
+                let gen_type = GeneratorType::from_str(id).unwrap(); // Safe unwrap because we checked above
+                
+                // First, collect IDs of matching generators to avoid borrow issues
+                let mut generator_ids = Vec::new();
+                {
+                    let generators = map.get_generators();
+                    for generator in generators {
+                        if *generator.get_generator_type() == gen_type && generator.is_active() {
+                            generator_ids.push(generator.get_id().to_string());
+                        }
+                    }
+                }
+                
+                // Now adjust the first matching generator
+                if !generator_ids.is_empty() {
+                    if let Some(gen) = map.get_generator_mut(&generator_ids[0]) {
+                        gen.adjust_operation(*percentage, &constraints);
+                        success = true;
+                    }
+                }
+                
+                if success {
+                    map.after_generator_modification();
+                }
+                success
+            };
+            
+            if generator_found {
+                map.after_generator_modification();
+            }
             Ok(())
         },
         GridAction::AddCarbonOffset(offset_type, cost_multiplier_percent) => {
@@ -143,6 +233,7 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
             let x = rng.gen_range(0.0..MAP_MAX_X);
             let y = rng.gen_range(0.0..MAP_MAX_Y);
             let location = Coordinate { x, y };
+            let location_clone = location.clone();
             
             // Calculate base cost based on type
             let base_cost = match offset_type {
@@ -173,28 +264,97 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
             
             // Set the construction cost multiplier
             offset.set_construction_cost_multiplier(cost_multiplier);
+
+            // Calculate total construction time
+            let public_opinion = map.calculate_public_opinion_at_location(&location_clone);
+            let planning_time = calc_carbon_offset_planning_time(&offset_type, year, public_opinion, cost_multiplier);
+            let construction_time = calc_carbon_offset_construction_time(&offset_type, year, cost_multiplier);
+            let total_time = planning_time + construction_time;
+
+            // Check if construction will complete before simulation end
+            if year as f64 + total_time > END_YEAR as f64 {
+                // If construction won't complete before simulation end, don't add the offset
+                return Ok(());
+            }
+
+            // Initialize construction times
+            offset.initialize_construction(year, public_opinion, true);
             
             map.add_carbon_offset(offset);
             Ok(())
         },
         GridAction::CloseGenerator(id) => {
-            if let Some(generator) = map.get_generator_mut(id) {
-                if generator.is_active() {
-                    let age = year - generator.commissioning_year;
-                    let min_age = match generator.get_generator_type() {
-                        GeneratorType::Nuclear => 1,
-                        GeneratorType::HydroDam => 1,
-                        GeneratorType::OnshoreWind | GeneratorType::OffshoreWind => 1,
-                        GeneratorType::UtilitySolar => 1,
-                        _ => 1,
-                    };
-                     
-                    if age >= min_age {
-                        generator.close_generator(year);
+            // Handle two cases:
+            // 1. When id is a full generator ID (Type_Number)
+            // 2. When id is just a generator type name (for backward compatibility with new weights system)
+            
+            // Get current_year before any other operations to avoid borrow issues
+            let current_year = map.current_year;
+            
+            // First, try to validate the generator type
+            let gen_type_str = if id.contains('_') {
+                // Case 1: ID in format "Type_Number"
+                let parts: Vec<&str> = id.split('_').collect();
+                if parts.len() < 2 {
+                    return Err(format!("Invalid generator ID format: {}", id).into());
+                }
+                parts[0]
+            } else {
+                // Case 2: ID is just the generator type
+                id
+            };
+            
+            // Validate generator type
+            if let Err(_) = GeneratorType::from_str(gen_type_str) {
+                return Err(format!("Invalid generator type: {}", gen_type_str).into());
+            }
+            
+            // For single type names, find a generator of that type
+            let generator_closed = if id.contains('_') {
+                // Try to use the exact ID
+                if let Some(generator) = map.get_generator_mut(id) {
+                    if generator.is_active() {
+                        generator.close_generator(current_year);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                // Try to find any generator of that type
+                let mut success = false;
+                let gen_type = GeneratorType::from_str(id).unwrap(); // Safe unwrap because we checked above
+                
+                // First, collect IDs of matching generators to avoid borrow issues
+                let mut generator_ids = Vec::new();
+                {
+                    let generators = map.get_generators();
+                    for generator in generators {
+                        if *generator.get_generator_type() == gen_type && generator.is_active() {
+                            generator_ids.push(generator.get_id().to_string());
+                        }
                     }
                 }
+                
+                // Now close the first matching generator
+                if !generator_ids.is_empty() {
+                    if let Some(gen) = map.get_generator_mut(&generator_ids[0]) {
+                        gen.close_generator(current_year);
+                        success = true;
+                    }
+                }
+                
+                if success {
+                    map.after_generator_modification();
+                }
+                success
+            };
+            
+            if generator_closed {
+                map.after_generator_modification();
             }
-            map.after_generator_modification();
             Ok(())
         },
         GridAction::DoNothing => {

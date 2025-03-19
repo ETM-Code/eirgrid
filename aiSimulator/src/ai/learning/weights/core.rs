@@ -113,10 +113,58 @@ impl ActionWeights {
             year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::CarbonCredit, FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.5);
             year_weights.insert(GridAction::AddCarbonOffset(CarbonOffsetType::CarbonCredit, VERY_FAST_COST_MULTIPLIER), CARBON_OFFSET_WEIGHT * 0.25);
             
-            // Initialize other action weights
-            year_weights.insert(GridAction::UpgradeEfficiency(String::new()), UPGRADE_EFFICIENCY_WEIGHT);
-            year_weights.insert(GridAction::AdjustOperation(String::new(), OPERATION_PERCENTAGE_MIN), ADJUST_OPERATION_WEIGHT);
-            year_weights.insert(GridAction::CloseGenerator(String::new()), CLOSE_GENERATOR_WEIGHT);
+            // Initialize other action weights with type-specific weights
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("OnshoreWind")), ONSHORE_WIND_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("OffshoreWind")), OFFSHORE_WIND_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("DomesticSolar")), DOMESTIC_SOLAR_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("CommercialSolar")), COMMERCIAL_SOLAR_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("UtilitySolar")), UTILITY_SOLAR_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("Nuclear")), NUCLEAR_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("CoalPlant")), COAL_PLANT_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("GasCombinedCycle")), GAS_COMBINED_CYCLE_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("GasPeaker")), GAS_PEAKER_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("Biomass")), BIOMASS_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("HydroDam")), HYDRO_DAM_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("PumpedStorage")), PUMPED_STORAGE_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("BatteryStorage")), BATTERY_STORAGE_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("TidalGenerator")), TIDAL_GENERATOR_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::UpgradeEfficiency(String::from("WaveEnergy")), WAVE_ENERGY_OPERATION_WEIGHT);
+
+            // Add type-specific operation adjustment weights
+            year_weights.insert(GridAction::AdjustOperation(String::from("OnshoreWind"), OPERATION_PERCENTAGE_MIN), ONSHORE_WIND_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("OffshoreWind"), OPERATION_PERCENTAGE_MIN), OFFSHORE_WIND_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("DomesticSolar"), OPERATION_PERCENTAGE_MIN), DOMESTIC_SOLAR_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("CommercialSolar"), OPERATION_PERCENTAGE_MIN), COMMERCIAL_SOLAR_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("UtilitySolar"), OPERATION_PERCENTAGE_MIN), UTILITY_SOLAR_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("Nuclear"), OPERATION_PERCENTAGE_MIN), NUCLEAR_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("CoalPlant"), OPERATION_PERCENTAGE_MIN), COAL_PLANT_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("GasCombinedCycle"), OPERATION_PERCENTAGE_MIN), GAS_COMBINED_CYCLE_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("GasPeaker"), OPERATION_PERCENTAGE_MIN), GAS_PEAKER_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("Biomass"), OPERATION_PERCENTAGE_MIN), BIOMASS_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("HydroDam"), OPERATION_PERCENTAGE_MIN), HYDRO_DAM_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("PumpedStorage"), OPERATION_PERCENTAGE_MIN), PUMPED_STORAGE_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("BatteryStorage"), OPERATION_PERCENTAGE_MIN), BATTERY_STORAGE_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("TidalGenerator"), OPERATION_PERCENTAGE_MIN), TIDAL_GENERATOR_OPERATION_WEIGHT);
+            year_weights.insert(GridAction::AdjustOperation(String::from("WaveEnergy"), OPERATION_PERCENTAGE_MIN), WAVE_ENERGY_OPERATION_WEIGHT);
+
+            // Add type-specific closure weights
+            year_weights.insert(GridAction::CloseGenerator(String::from("OnshoreWind")), ONSHORE_WIND_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("OffshoreWind")), OFFSHORE_WIND_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("DomesticSolar")), DOMESTIC_SOLAR_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("CommercialSolar")), COMMERCIAL_SOLAR_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("UtilitySolar")), UTILITY_SOLAR_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("Nuclear")), NUCLEAR_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("CoalPlant")), COAL_PLANT_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("GasCombinedCycle")), GAS_COMBINED_CYCLE_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("GasPeaker")), GAS_PEAKER_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("Biomass")), BIOMASS_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("HydroDam")), HYDRO_DAM_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("PumpedStorage")), PUMPED_STORAGE_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("BatteryStorage")), BATTERY_STORAGE_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("TidalGenerator")), TIDAL_GENERATOR_CLOSURE_WEIGHT);
+            year_weights.insert(GridAction::CloseGenerator(String::from("WaveEnergy")), WAVE_ENERGY_CLOSURE_WEIGHT);
+
+            // Add DoNothing action with base weight
             year_weights.insert(GridAction::DoNothing, DO_NOTHING_WEIGHT);
             
             // Add year's weights to the map
@@ -141,6 +189,30 @@ impl ActionWeights {
             
             // Include nuclear with a lower weight due to long build time
             deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::Nuclear, DEFAULT_COST_MULTIPLIER), DEFICIT_NUCLEAR_WEIGHT);
+            
+            // Add type-specific operation adjustment weights for deficit handling
+            deficit_year_weights.insert(GridAction::AdjustOperation(String::from("GasPeaker"), OPERATION_PERCENTAGE_MIN), DEFICIT_GAS_PEAKER_WEIGHT);
+            deficit_year_weights.insert(GridAction::AdjustOperation(String::from("GasCombinedCycle"), OPERATION_PERCENTAGE_MIN), DEFICIT_GAS_COMBINED_WEIGHT);
+            deficit_year_weights.insert(GridAction::AdjustOperation(String::from("BatteryStorage"), OPERATION_PERCENTAGE_MIN), DEFICIT_BATTERY_WEIGHT);
+            deficit_year_weights.insert(GridAction::AdjustOperation(String::from("PumpedStorage"), OPERATION_PERCENTAGE_MIN), DEFICIT_PUMPED_STORAGE_WEIGHT);
+            deficit_year_weights.insert(GridAction::AdjustOperation(String::from("Biomass"), OPERATION_PERCENTAGE_MIN), DEFICIT_BIOMASS_WEIGHT);
+            deficit_year_weights.insert(GridAction::AdjustOperation(String::from("HydroDam"), OPERATION_PERCENTAGE_MIN), DEFICIT_HYDRO_DAM_WEIGHT);
+            
+            // Add type-specific closure weights for deficit handling
+            deficit_year_weights.insert(GridAction::CloseGenerator(String::from("GasPeaker")), DEFICIT_GAS_PEAKER_WEIGHT * 0.5);
+            deficit_year_weights.insert(GridAction::CloseGenerator(String::from("GasCombinedCycle")), DEFICIT_GAS_COMBINED_WEIGHT * 0.5);
+            deficit_year_weights.insert(GridAction::CloseGenerator(String::from("BatteryStorage")), DEFICIT_BATTERY_WEIGHT * 0.5);
+            deficit_year_weights.insert(GridAction::CloseGenerator(String::from("PumpedStorage")), DEFICIT_PUMPED_STORAGE_WEIGHT * 0.5);
+            deficit_year_weights.insert(GridAction::CloseGenerator(String::from("Biomass")), DEFICIT_BIOMASS_WEIGHT * 0.5);
+            deficit_year_weights.insert(GridAction::CloseGenerator(String::from("HydroDam")), DEFICIT_HYDRO_DAM_WEIGHT * 0.5);
+            
+            // Add type-specific efficiency upgrade weights for deficit handling
+            deficit_year_weights.insert(GridAction::UpgradeEfficiency(String::from("GasPeaker")), DEFICIT_GAS_PEAKER_WEIGHT);
+            deficit_year_weights.insert(GridAction::UpgradeEfficiency(String::from("GasCombinedCycle")), DEFICIT_GAS_COMBINED_WEIGHT);
+            deficit_year_weights.insert(GridAction::UpgradeEfficiency(String::from("BatteryStorage")), DEFICIT_BATTERY_WEIGHT);
+            deficit_year_weights.insert(GridAction::UpgradeEfficiency(String::from("PumpedStorage")), DEFICIT_PUMPED_STORAGE_WEIGHT);
+            deficit_year_weights.insert(GridAction::UpgradeEfficiency(String::from("Biomass")), DEFICIT_BIOMASS_WEIGHT);
+            deficit_year_weights.insert(GridAction::UpgradeEfficiency(String::from("HydroDam")), DEFICIT_HYDRO_DAM_WEIGHT);
             
             // Add other types with minimal weights
             deficit_year_weights.insert(GridAction::AddGenerator(GeneratorType::DomesticSolar, DEFAULT_COST_MULTIPLIER), DEFICIT_SMALL_GENERATOR_WEIGHT);
@@ -194,6 +266,7 @@ impl ActionWeights {
                     learning_rate: DEFAULT_LEARNING_RATE,
                     best_metrics: None,
                     best_weights: None,
+                    prime_weights: None,
                     best_actions: None,
                     iteration_count: 0,
                     iterations_without_improvement: 0,
@@ -208,6 +281,7 @@ impl ActionWeights {
                     optimization_mode: None,
                     replay_index: HashMap::new(),
                     improvement_history: Vec::new(),
+                    current_metrics: None,
                 };
                 instance.print_action_count_weights(year);
             }
@@ -216,8 +290,8 @@ impl ActionWeights {
         }
         
         // DIAGNOSTIC: Add logging to check ActionWeights initialization
-        println!("DIAGNOSTIC: Initializing new ActionWeights");
-        println!("  - Starting with weights for {} years", weights.len());
+        // println!("DIAGNOSTIC: Initializing new ActionWeights");
+        // println!("  - Starting with weights for {} years", weights.len());
         
         let instance = Self {
             weights,
@@ -225,6 +299,7 @@ impl ActionWeights {
             learning_rate: DEFAULT_LEARNING_RATE,
             best_metrics: None,
             best_weights: None,
+            prime_weights: None,
             best_actions: None,
             iteration_count: 0,
             iterations_without_improvement: 0,
@@ -239,12 +314,13 @@ impl ActionWeights {
             optimization_mode: None,
             replay_index: HashMap::new(),
             improvement_history: Vec::new(),
+            current_metrics: None,
         };
         
         // DIAGNOSTIC: Log the created instance details
-        println!("  - Instance created with iteration_count: {}", instance.iteration_count);
-        println!("  - Instance has best_metrics: {}", instance.best_metrics.is_some());
-        println!("  - Instance has best_actions: {}", instance.best_actions.is_some());
+        // println!("  - Instance created with iteration_count: {}", instance.iteration_count);
+        // println!("  - Instance has best_metrics: {}", instance.best_metrics.is_some());
+        // println!("  - Instance has best_actions: {}", instance.best_actions.is_some());
         
         instance
     }
@@ -255,7 +331,7 @@ impl ActionWeights {
 
     pub fn start_new_iteration(&mut self) {
         // DIAGNOSTIC: Log the beginning of a new iteration
-        println!("DIAGNOSTIC: Starting iteration {}", self.iteration_count + 1);
+        // println!("DIAGNOSTIC: Starting iteration {}", self.iteration_count + 1);
         
         // Clear current actions
         self.current_run_actions.clear();
@@ -310,11 +386,11 @@ impl ActionWeights {
             }
         }
         
-        // DIAGNOSTIC: Log the iteration preparation details
-        println!("  - Cleared action records for current run");
-        println!("  - Set exploration_rate to {:.6}", self.exploration_rate);
-        println!("  - force_best_actions: {}", self.force_best_actions);
-        println!("  - iterations_without_improvement: {}", self.iterations_without_improvement);
+        // // DIAGNOSTIC: Log the iteration preparation details
+        // println!("  - Cleared action records for current run");
+        // println!("  - Set exploration_rate to {:.6}", self.exploration_rate);
+        // println!("  - force_best_actions: {}", self.force_best_actions);
+        // println!("  - iterations_without_improvement: {}", self.iterations_without_improvement);
     }
 
     pub fn get_year_weights(&self, year: u32) -> Option<&HashMap<GridAction, f64>> {
@@ -373,5 +449,48 @@ impl ActionWeights {
     /// Returns the total number of improvements found during training
     pub fn get_improvement_count(&self) -> usize {
         self.improvement_history.len()
+    }
+
+    pub fn update_best_metrics(&mut self, metrics: SimulationMetrics) {
+        // Update current metrics
+        self.current_metrics = Some(metrics.clone());
+        
+        // Update best metrics if we don't have any or if the new metrics are better
+        let should_update = match &self.best_metrics {
+            None => true,
+            Some(best) => {
+                let best_score = score_metrics(best, self.optimization_mode.as_deref());
+                let current_score = score_metrics(&metrics, self.optimization_mode.as_deref());
+                current_score > best_score
+            }
+        };
+
+        if should_update {
+            self.best_metrics = Some(metrics);
+        }
+    }
+    
+    /// Reset weights using prime weights if available
+    /// Used when simulation mode changes or simulation is restarted
+    pub fn reset_to_prime_weights(&mut self) {
+        if let Some(prime_weights) = &self.prime_weights {
+            println!("Resetting weights to prime weights");
+            
+            // Create a deep copy of prime weights
+            let mut new_weights = HashMap::new();
+            for (year, prime_year_weights) in prime_weights {
+                let mut year_weights = HashMap::new();
+                for (action, &weight) in prime_year_weights {
+                    year_weights.insert(action.clone(), weight);
+                }
+                new_weights.insert(*year, year_weights);
+            }
+            
+            // Replace current weights with prime weights
+            self.weights = new_weights;
+            
+            // Reset iterations without improvement to avoid immediate randomization
+            self.iterations_without_improvement = 0;
+        }
     }
 }

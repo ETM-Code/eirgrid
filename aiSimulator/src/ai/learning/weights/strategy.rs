@@ -16,41 +16,47 @@ impl ActionWeights {
 // This file contains extracted code from the original weights.rs file
 // Appropriate imports will need to be added based on the specific requirements
 
-    pub fn update_best_strategy(&mut self, metrics: SimulationMetrics) {
+    pub fn update_best_strategy(&mut self, mut metrics: SimulationMetrics) {
+        // Add diagnostic logging for power reliability
+        // println!("DIAGNOSTIC: Initial power reliability: {:.4}%", metrics.power_reliability * 100.0);
+        
+  
+        // println!("POWER RELIABILITY FIX: Using actual calculated reliability of {:.4}%", metrics.power_reliability * 100.0);
+        
         let current_score = score_metrics(&metrics, self.optimization_mode.as_deref());
         
         // Debug: Print current_run_actions info with more detailed breakdown - only if debug weights is enabled
         if crate::ai::learning::constants::is_debug_weights_enabled() {
             let total_curr_actions = self.current_run_actions.values().map(|v| v.len()).sum::<usize>();
             let years_with_curr_actions = self.current_run_actions.values().filter(|v| !v.is_empty()).count();
-            println!("DEBUG: Before update - Current run has {} actions across {} years", 
-                    total_curr_actions, years_with_curr_actions);
+            // println!("DEBUG: Before update - Current run has {} actions across {} years", 
+            //         total_curr_actions, years_with_curr_actions);
             
             // More detailed per-year breakdown for the current run
-            println!("Current run actions per year:");
+            // println!("Current run actions per year:");
             
             // If we have empty current_run_actions but non-empty best actions, something's wrong
-            if total_curr_actions == ZERO_USIZE && self.best_actions.is_some() {
-                println!("⚠️ WARNING: Attempting to update best strategy with 0 actions in current run!");
-                println!("This suggests actions aren't being recorded properly during simulation");
-            }
+            // if total_curr_actions == ZERO_USIZE && self.best_actions.is_some() {
+            //     println!("⚠️ WARNING: Attempting to update best strategy with 0 actions in current run!");
+            //     println!("This suggests actions aren't being recorded properly during simulation");
+            // }
             
             // DIAGNOSTIC: Add logging to check metrics values
-            println!("DIAGNOSTIC: Metrics values before processing:");
-            println!("  - final_net_emissions: {}", metrics.final_net_emissions);
-            println!("  - total_cost: {}", metrics.total_cost);
-            println!("  - average_public_opinion: {}", metrics.average_public_opinion);
-            println!("  - power_reliability: {}", metrics.power_reliability);
-            println!("  - iteration_count: {}", self.iteration_count);
+            // println!("DIAGNOSTIC: Metrics values before processing:");
+            // println!("  - final_net_emissions: {}", metrics.final_net_emissions);
+            // println!("  - total_cost: {}", metrics.total_cost);
+            // println!("  - average_public_opinion: {}", metrics.average_public_opinion);
+            // println!("  - power_reliability: {:.4}%", metrics.power_reliability * 100.0);
+            // println!("  - iteration_count: {}", self.iteration_count);
         }
         
         // Increment iteration count
         self.iteration_count += 1;
         
         // Print iteration count update only if debug weights is enabled
-        if crate::ai::learning::constants::is_debug_weights_enabled() {
-            println!("DIAGNOSTIC: Incremented iteration_count to {}", self.iteration_count);
-        }
+        // if crate::ai::learning::constants::is_debug_weights_enabled() {
+        //     println!("DIAGNOSTIC: Incremented iteration_count to {}", self.iteration_count);
+        // }
         
         let should_update = match &self.best_metrics {
             None => true,
@@ -169,10 +175,14 @@ impl ActionWeights {
             }
             
             // DIAGNOSTIC: Log before updating best metrics
-            println!("DIAGNOSTIC: Updating best_metrics from current metrics");
+            // println!("DIAGNOSTIC: Updating best_metrics from current metrics");
             
             self.best_metrics = Some(metrics);
             self.best_weights = Some(self.weights.clone());
+            
+            // Always update prime weights when we find an improvement
+            // This ensures prime weights always hold our very best weights
+            self.prime_weights = Some(self.weights.clone());
             
             // Make sure we have entries for each year even if they're empty
             let mut complete_actions = HashMap::new();
@@ -187,14 +197,14 @@ impl ActionWeights {
             // Then copy over any actions we actually have
             for (year, actions) in &self.current_run_actions {
                 if !actions.is_empty() {
-                    println!("DEBUG: Copying {} actions for year {} to best_actions", actions.len(), year);
+                    // println!("DEBUG: Copying {} actions for year {} to best_actions", actions.len(), year);
                     complete_actions.insert(*year, actions.clone());
                 }
             }
             
             for (year, actions) in &self.current_deficit_actions {
                 if !actions.is_empty() {
-                    println!("DEBUG: Copying {} deficit actions for year {} to best_deficit_actions", actions.len(), year);
+                    // println!("DEBUG: Copying {} deficit actions for year {} to best_deficit_actions", actions.len(), year);
                     complete_deficit_actions.insert(*year, actions.clone());
                 }
             }
@@ -202,18 +212,18 @@ impl ActionWeights {
             // Debug: Check if we're actually capturing any actions
             let total_complete_actions = complete_actions.values().map(|v| v.len()).sum::<usize>();
             let years_with_complete_actions = complete_actions.values().filter(|v| !v.is_empty()).count();
-            println!("DEBUG: Created best_actions map with {} actions across {} years", 
-                    total_complete_actions, years_with_complete_actions);
+            // println!("DEBUG: Created best_actions map with {} actions across {} years", 
+            //          total_complete_actions, years_with_complete_actions);
             
             // More detailed per-year breakdown for complete_actions
-            println!("Complete actions per year (to be stored as best):");
-            for year in START_YEAR..=END_YEAR {
-                if let Some(actions) = complete_actions.get(&year) {
-                    if !actions.is_empty() {
-                        println!("  Year {}: {} actions", year, actions.len());
-                    }
-                }
-            }
+            // println!("Complete actions per year (to be stored as best):");
+            // for year in START_YEAR..=END_YEAR {
+            //     if let Some(actions) = complete_actions.get(&year) {
+            //         if !actions.is_empty() {
+            //             println!("  Year {}: {} actions", year, actions.len());
+            //         }
+            //     }
+            // }
             
             // Store the complete maps
             self.best_actions = Some(complete_actions);
@@ -223,18 +233,18 @@ impl ActionWeights {
             if let Some(ref best_actions) = self.best_actions {
                 let total_best_actions = best_actions.values().map(|v| v.len()).sum::<usize>();
                 let years_with_best_actions = best_actions.values().filter(|v| !v.is_empty()).count();
-                println!("DEBUG: After update - best_actions now has {} actions across {} years", 
-                        total_best_actions, years_with_best_actions);
+                // println!("DEBUG: After update - best_actions now has {} actions across {} years", 
+                //          total_best_actions, years_with_best_actions);
                 
                 // Detailed per-year breakdown of best actions
-                println!("Best actions per year after storage:");
-                for year in START_YEAR..=END_YEAR {
-                    if let Some(actions) = best_actions.get(&year) {
-                        if !actions.is_empty() {
-                            println!("  Year {}: {} best actions", year, actions.len());
-                        }
-                    }
-                }
+                // println!("Best actions per year after storage:");
+                // for year in START_YEAR..=END_YEAR {
+                //     if let Some(actions) = best_actions.get(&year) {
+                //         if !actions.is_empty() {
+                //             println!("  Year {}: {} best actions", year, actions.len());
+                //         }
+                //     }
+                // }
             }
             
             // Reset iterations without improvement counter when we find a better strategy
@@ -245,8 +255,8 @@ impl ActionWeights {
             
             // Occasionally log if we have many iterations without improvement
             if self.iterations_without_improvement % SMALL_LOG_INTERVAL == ZERO_U32 {
-                println!("⏳ {} iterations without finding a better strategy", 
-                        self.iterations_without_improvement);
+                // println!("⏳ {} iterations without finding a better strategy", 
+                //          self.iterations_without_improvement);
             }
         }
     }
@@ -261,7 +271,7 @@ impl ActionWeights {
         if let Some(ref best_actions) = self.best_actions {
             // If we have best_actions but not for this specific year, return empty vec instead of None
             return best_actions.get(&year).or_else(|| {
-                println!("⚠️ WARNING: Best actions exist but none for year {}", year);
+                // println!("⚠️ WARNING: Best actions exist but none for year {}", year);
                 None
             });
         }
@@ -330,8 +340,8 @@ impl ActionWeights {
             let total_actions = self.current_run_actions.values().map(|v| v.len()).sum::<usize>();
             let years_with_actions = self.current_run_actions.values().filter(|v| !v.is_empty()).count();
             
-            println!("DEBUG: Transferred {} actions across {} years from local weights", 
-                    total_actions, years_with_actions);
+            // println!("DEBUG: Transferred {} actions across {} years from local weights", 
+            //          total_actions, years_with_actions);
         }
     }
 

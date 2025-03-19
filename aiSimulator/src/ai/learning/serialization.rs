@@ -40,6 +40,10 @@ pub struct SerializableWeights {
     pub learning_rate: f64,
     pub best_metrics: Option<SimulationMetrics>,
     pub best_weights: Option<HashMap<u32, Vec<(SerializableAction, f64)>>>,
+    
+    /// Prime weights that are never affected by randomization
+    pub prime_weights: Option<HashMap<u32, Vec<(SerializableAction, f64)>>>,
+    
     pub best_actions: Option<HashMap<u32, Vec<SerializableAction>>>,
     pub iteration_count: u32,
     pub iterations_without_improvement: u32,

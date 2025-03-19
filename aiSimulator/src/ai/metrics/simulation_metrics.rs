@@ -7,6 +7,7 @@ pub struct SimulationMetrics {
     pub average_public_opinion: f64,
     pub total_cost: f64,
     pub power_reliability: f64,
+    pub worst_power_reliability: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

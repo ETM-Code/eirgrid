@@ -224,6 +224,11 @@ pub fn run_multi_simulation(
                         println!("Best score from loaded weights: {:.4}", best_score);
                         println!("{}", "=".repeat(80));
                     }
+                    
+                    // Reset to prime weights if available when loading from checkpoint
+                    // This ensures we use the best stable weights from the previous run
+                    merged_weights.reset_to_prime_weights();
+                    
                     merged_weights
                 } else {
                     println!("No weights found in latest directory, starting fresh");
@@ -406,6 +411,11 @@ pub fn run_multi_simulation(
                     if total_completed == num_iterations.saturating_sub(final_full_sim_count) {
                         println!("\nSwitching to full simulation mode for final {} iterations ({:.1}% of total)",
                             final_full_sim_count, FULL_RUN_PERCENTAGE as f64);
+                        
+                        // Reset to prime weights if available when transitioning to full simulation mode
+                        // This ensures we use the best stable weights for full evaluation
+                        let mut weights_for_reset = action_weights.write();
+                        weights_for_reset.reset_to_prime_weights();
                     }
                      
                     // Create local weights and immediately drop the read lock
@@ -420,9 +430,9 @@ pub fn run_multi_simulation(
                         local_weights.has_best_actions();
                      
                     // Log if we're replaying the best strategy
-                    if replay_best_strategy {
-                        println!("🔁 Iteration {} is replaying the best strategy for thorough analysis", i + 1);
-                    }
+                    // if replay_best_strategy {
+                    //     println!("🔁 Iteration {} is replaying the best strategy for thorough analysis", i + 1);
+                    // }
                      
                     let result = run_iteration(i, &mut map_clone, &mut local_weights, replay_best_strategy, seed, verbose_logging, optimization_mode, enable_energy_sales, enable_construction_delays)?;
                      
@@ -465,27 +475,52 @@ pub fn run_multi_simulation(
                     // Print iteration results at the end of the iteration
                     let current_score = crate::ai::score_metrics(&result.metrics, optimization_mode);
                     let thread_id = rayon::current_thread_index().unwrap_or(0);
-                    if let Some(best_metrics) = &best_metrics_after_update {
-                        let best_score = crate::ai::score_metrics(best_metrics, optimization_mode);
-                        println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
-                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
-                            current_score,
-                            result.metrics.final_net_emissions,
-                            result.metrics.total_cost / 1_000_000_000.0,
-                            result.metrics.average_public_opinion * 100.0);
-                        println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
-                            best_score,
-                            best_metrics.final_net_emissions,
-                            best_metrics.total_cost / 1_000_000_000.0,
-                            best_metrics.average_public_opinion * 100.0);
-                    } else {
-                        println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
-                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
-                            current_score,
-                            result.metrics.final_net_emissions,
-                            result.metrics.total_cost / 1_000_000_000.0,
-                            result.metrics.average_public_opinion * 100.0);
-                        println!("  Best result so far: No best result yet");
+                    if (i + 1) % 100 == 0 {  // Only print every 100 iterations
+                        if let Some(best_metrics) = &best_metrics_after_update {
+                            let best_score = crate::ai::score_metrics(best_metrics, optimization_mode);
+                            println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
+                            println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%)",
+                                current_score,
+                                result.metrics.final_net_emissions,
+                                result.metrics.total_cost / 1_000_000_000.0,
+                                result.metrics.average_public_opinion * 100.0,
+                                result.metrics.power_reliability * 100.0);
+                            println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%)",
+                                best_score,
+                                best_metrics.final_net_emissions,
+                                best_metrics.total_cost / 1_000_000_000.0,
+                                best_metrics.average_public_opinion * 100.0,
+                                best_metrics.power_reliability * 100.0);
+                            
+                            // Determine and display the current tier
+                            let tier = if result.metrics.power_reliability < 0.95 {
+                                "Tier 1 (Power Reliability)"
+                            } else if result.metrics.final_net_emissions > 0.0 {
+                                "Tier 2 (Emissions Reduction)"
+                            } else {
+                                "Tier 3 (Cost & Opinion)"
+                            };
+                            println!("  Current Tier: {}", tier);
+                        } else {
+                            println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
+                            println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%)",
+                                current_score,
+                                result.metrics.final_net_emissions,
+                                result.metrics.total_cost / 1_000_000_000.0,
+                                result.metrics.average_public_opinion * 100.0,
+                                result.metrics.power_reliability * 100.0);
+                            println!("  Best result so far: No best result yet");
+                            
+                            // Determine and display the current tier
+                            let tier = if result.metrics.power_reliability < 0.95 {
+                                "Tier 1 (Power Reliability)"
+                            } else if result.metrics.final_net_emissions > 0.0 {
+                                "Tier 2 (Emissions Reduction)"
+                            } else {
+                                "Tier 3 (Cost & Opinion)"
+                            };
+                            println!("  Current Tier: {}", tier);
+                        }
                     }
                      
                     // Increment completed iterations counter
@@ -509,7 +544,9 @@ pub fn run_multi_simulation(
                         let iteration_path = Path::new(&run_dir).join("checkpoint_iteration.txt");
                         std::fs::write(iteration_path, (i + 1).to_string())?;
                          
-                        println!("Saved checkpoint at iteration {} in {} (thread {})", i + 1, run_dir, thread_id);
+                        if (i + 1) % 100 == 0 {  // Only print every 100 iterations
+                            println!("Saved checkpoint at iteration {} in {} (thread {})", i + 1, run_dir, thread_id);
+                        }
                     }
                      
                     // Check if we need to prompt the user about continuing with full simulations
@@ -615,6 +652,13 @@ pub fn run_multi_simulation(
                 if total_completed == num_iterations.saturating_sub(final_full_sim_count) {
                     println!("\nSwitching to full simulation mode for final {} iterations ({:.1}% of total)",
                         final_full_sim_count, FULL_RUN_PERCENTAGE as f64);
+                    
+                    // Reset to prime weights if available when transitioning to full simulation mode
+                    // This ensures we use the best stable weights for full evaluation
+                    {
+                        let mut weights_for_reset = action_weights.write();
+                        weights_for_reset.reset_to_prime_weights();
+                    }
                 }
                  
                 // Create local weights and immediately drop the read lock
@@ -701,27 +745,52 @@ pub fn run_multi_simulation(
                 let current_score = crate::ai::score_metrics(&result.metrics, optimization_mode);
                 // In sequential mode, thread is always 0
                 let thread_id = 0;
-                if let Some(best_metrics) = &best_metrics_after_update {
-                    let best_score = crate::ai::score_metrics(best_metrics, optimization_mode);
-                    println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
-                    println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
-                        current_score,
-                        result.metrics.final_net_emissions,
-                        result.metrics.total_cost / 1_000_000_000.0,
-                        result.metrics.average_public_opinion * 100.0);
-                    println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
-                        best_score,
-                        best_metrics.final_net_emissions,
-                        best_metrics.total_cost / 1_000_000_000.0,
-                        best_metrics.average_public_opinion * 100.0);
-                } else {
-                    println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
-                    println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
-                        current_score,
-                        result.metrics.final_net_emissions,
-                        result.metrics.total_cost / 1_000_000_000.0,
-                        result.metrics.average_public_opinion * 100.0);
-                    println!("  Best result so far: No best result yet");
+                if (i + 1) % 100 == 0 {  // Only print every 100 iterations
+                    if let Some(best_metrics) = &best_metrics_after_update {
+                        let best_score = crate::ai::score_metrics(best_metrics, optimization_mode);
+                        println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
+                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%)",
+                            current_score,
+                            result.metrics.final_net_emissions,
+                            result.metrics.total_cost / 1_000_000_000.0,
+                            result.metrics.average_public_opinion * 100.0,
+                            result.metrics.power_reliability * 100.0);
+                        println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%)",
+                            best_score,
+                            best_metrics.final_net_emissions,
+                            best_metrics.total_cost / 1_000_000_000.0,
+                            best_metrics.average_public_opinion * 100.0,
+                            best_metrics.power_reliability * 100.0);
+                        
+                        // Determine and display the current tier
+                        let tier = if result.metrics.power_reliability < 0.95 {
+                            "Tier 1 (Power Reliability)"
+                        } else if result.metrics.final_net_emissions > 0.0 {
+                            "Tier 2 (Emissions Reduction)"
+                        } else {
+                            "Tier 3 (Cost & Opinion)"
+                        };
+                        println!("  Current Tier: {}", tier);
+                    } else {
+                        println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
+                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%)",
+                            current_score,
+                            result.metrics.final_net_emissions,
+                            result.metrics.total_cost / 1_000_000_000.0,
+                            result.metrics.average_public_opinion * 100.0,
+                            result.metrics.power_reliability * 100.0);
+                        println!("  Best result so far: No best result yet");
+                        
+                        // Determine and display the current tier
+                        let tier = if result.metrics.power_reliability < 0.95 {
+                            "Tier 1 (Power Reliability)"
+                        } else if result.metrics.final_net_emissions > 0.0 {
+                            "Tier 2 (Emissions Reduction)"
+                        } else {
+                            "Tier 3 (Cost & Opinion)"
+                        };
+                        println!("  Current Tier: {}", tier);
+                    }
                 }
                  
                 // Store each result for later comparison
@@ -744,7 +813,9 @@ pub fn run_multi_simulation(
                     let iteration_path = Path::new(&run_dir).join("checkpoint_iteration.txt");
                     std::fs::write(iteration_path, (i + 1).to_string())?;
                      
-                    println!("Saved checkpoint at iteration {} in {}", i + 1, run_dir);
+                    if (i + 1) % 100 == 0 {  // Only print every 100 iterations
+                        println!("Saved checkpoint at iteration {} in {}", i + 1, run_dir);
+                    }
                 }
                  
                 // Check if this result is better than our best result
@@ -835,6 +906,7 @@ pub fn run_multi_simulation(
                 println!("  - total_cost: {}", best.metrics.total_cost);
                 println!("  - average_public_opinion: {}", best.metrics.average_public_opinion);
                 println!("  - power_reliability: {}", best.metrics.power_reliability);
+                println!("  - worst_power_reliability: {}", best.metrics.worst_power_reliability);
                 println!("  - Number of yearly metrics: {}", best.yearly_metrics.len());
                 
                 if let Ok(()) = csv_exporter.export_simulation_results(

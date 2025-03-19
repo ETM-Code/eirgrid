@@ -1,11 +1,13 @@
 use std::fs::File;
 use std::io::Read;
 use csv::ReaderBuilder;
-use crate::models::generator::{Generator, GeneratorType};
+use crate::models::generator::{Generator, GeneratorType, ConstructionStatus};
 use super::poi::Coordinate;
 use crate::config::constants::*;
 use crate::config::constants::{IRELAND_MIN_LAT, IRELAND_MAX_LAT, IRELAND_MIN_LON, IRELAND_MAX_LON};
 use crate::config::const_funcs::{calc_generator_cost, calc_operating_cost, calc_initial_co2_output, calc_decommission_cost, transform_lat_lon_to_grid, is_location_on_land, is_coastal_location};
+use std::error::Error;
+use std::fmt;
 
 #[derive(Debug)]
 pub enum GeneratorLoadError {
@@ -186,7 +188,7 @@ pub fn load_generators(csv_path: &str, year: u32) -> Result<Vec<Generator>, Gene
         let decommission_cost = calc_decommission_cost(base_cost);
 
         // Create the generator
-        let generator = Generator::new(
+        let mut generator = Generator::new(
             format!("Existing_{}_{}", gen_type.to_string(), id_counter),
             location,
             gen_type.clone(),
@@ -199,8 +201,21 @@ pub fn load_generators(csv_path: &str, year: u32) -> Result<Vec<Generator>, Gene
             decommission_cost,
         );
 
+        // Set the generator as operational since it's imported
+        generator.construction_status = ConstructionStatus::Operational;
+        generator.planning_permission_year = year;
+        generator.construction_start_year = year;
+        generator.construction_complete_year = year;
+        generator.commissioning_year = year;  // Set commissioning year
+        generator.is_active = true;  // Ensure it's marked as active
+
         generators.push(generator);
         id_counter += 1;
+    }
+    
+    println!("INFO: Generator loading complete: {} generators created", generators.len());
+    if generators.is_empty() {
+        println!("WARNING: No generators were successfully loaded!");
     }
 
     Ok(generators)
