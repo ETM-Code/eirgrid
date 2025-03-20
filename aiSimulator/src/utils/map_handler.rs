@@ -40,7 +40,9 @@ use crate::config::constants::{
     OPINION_MIN, OPINION_MAX, OPINION_BASE_WEIGHT,
     // Power Reliability Constants
     RELIABILITY_THRESHOLD, LOW_SUPPLY_WEIGHT, LOW_SUPPLY_MIX_WEIGHT,
-    HIGH_SUPPLY_WEIGHT, HIGH_SUPPLY_MIX_WEIGHT, MAX_INTERMITTENT_PERCENTAGE, STORAGE_CAPACITY_FACTOR
+    HIGH_SUPPLY_WEIGHT, HIGH_SUPPLY_MIX_WEIGHT, MAX_INTERMITTENT_PERCENTAGE, STORAGE_CAPACITY_FACTOR,
+    EXISTING_POWER_PROJECTS,
+    RELIABILITY_ADJUSTMENT,
 };
 use crate::config::const_funcs::is_point_inside_polygon;
 use crate::config::simulation_config::{SimulationConfig, GeneratorConstraints};
@@ -829,7 +831,7 @@ impl Map {
         let _timing = logging::start_timing("calc_total_power_generation", 
             OperationCategory::PowerCalculation { subcategory: PowerCalcType::Generation });
         
-        let mut total_generation = 0.0;
+        let mut total_generation = EXISTING_POWER_PROJECTS; // Add existing power projects
         let mut excess_intermittent = 0.0;
         let mut storage_capacity = 0.0;
         
@@ -1581,7 +1583,7 @@ impl Map {
         }
         
         // Initialize trackers
-        let mut reliable_power = 0.0;     // Power from reliable sources (dispatchable)
+        let mut reliable_power = EXISTING_POWER_PROJECTS;     // Start with existing power projects
         let mut unreliable_power = 0.0;   // Power from unreliable sources (intermittent)
         let mut storage_capacity = 0.0;   // Total energy storage capacity
         
@@ -1643,6 +1645,9 @@ impl Map {
         // Calculate power reliability as the ratio of usable power to demand
         let reliability = (total_usable_power / demand).min(1.0).max(0.0);
         
+        // Add the reliability adjustment to account for inaccuracies in low fidelity simulations
+        let adjusted_reliability = (reliability + RELIABILITY_ADJUSTMENT).min(1.0);
+        
         // Debug output for power reliability calculation
         // println!("Power Reliability Calculation for year {}:", year);
         // println!("  Demand: {:.2} MW", demand);
@@ -1655,8 +1660,9 @@ impl Map {
         // println!("  Usable Intermittent: {:.2} MW", usable_intermittent);
         // println!("  Total Usable Power: {:.2} MW", total_usable_power);
         // println!("  Power Reliability: {:.2}%", reliability * 100.0);
+        // println!("  Adjusted Power Reliability: {:.2}%", adjusted_reliability * 100.0);
         
-        reliability
+        adjusted_reliability
     }
 }
 

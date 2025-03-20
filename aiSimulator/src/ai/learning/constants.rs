@@ -15,7 +15,7 @@ pub const MIN_WEIGHT: f64 = 0.0001;  // Ensure weight doesn't go too close to ze
 pub const MAX_WEIGHT: f64 = 0.999;  // Ensure weight doesn't dominate completely
 pub const MIN_ACTION_WEIGHT: f64 = 0.0001;
 pub const DEFAULT_LEARNING_RATE: f64 = 0.2;
-pub const DEFAULT_EXPLORATION_RATE: f64 = 0.2;
+pub const DEFAULT_EXPLORATION_RATE: f64 = 0.4;
 
 //---------------------------------------------------------------------
 // Common Numeric Constants
@@ -116,9 +116,9 @@ pub const MAX_ACTIONS_MULTIPLIER: f64 = 12.0;
 //---------------------------------------------------------------------
 pub const FORCE_REPLAY_THRESHOLD: u32 = 1000; // After this many iterations without improvement, start forcing replay
 pub const PERCENTAGE_THRESHOLD: f64 = 0.9;
-pub const HIGH_ITERATION_THRESHOLD: u32 = 800;
-pub const MID_ITERATION_THRESHOLD: u32 = 500;
-pub const LOW_ITERATION_THRESHOLD: u32 = 100;
+pub const HIGH_ITERATION_THRESHOLD: u32 = 100000;
+pub const MID_ITERATION_THRESHOLD: u32 = 20000;
+pub const LOW_ITERATION_THRESHOLD: u32 = 10000;
 pub const WEIGHT_PRECISION_THRESHOLD: f64 = 0.000001;
 pub const ITERATIONS_FOR_RANDOMIZATION: u32 = 1200; // Iterations without improvement before applying randomization
 
@@ -148,8 +148,8 @@ pub const EXPLORATION_DIVISOR: f64 = 2.0;
 //---------------------------------------------------------------------
 // Rate Constants
 //---------------------------------------------------------------------
-pub const EXPLORATION_DECAY_RATE: f64 = 0.1;
-pub const ACTION_COUNT_DECAY_RATE: f64 = 0.8;
+pub const EXPLORATION_DECAY_RATE: f64 = 0.01;
+pub const ACTION_COUNT_DECAY_RATE: f64 = 0.08;
 
 //---------------------------------------------------------------------
 // Exponent Constants

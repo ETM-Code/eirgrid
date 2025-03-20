@@ -166,13 +166,16 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
                 return Err(format!("Invalid generator type: {}", gen_type_str).into());
             }
             
+            // Calculate current power balance before any mutable borrows
+            let current_power_balance = map.calc_total_power_generation(map.current_year, None) - map.calc_total_power_usage(map.current_year);
+            
             // For single type names, find a generator of that type
             let generator_found = if id.contains('_') {
                 // Try to use the exact ID
                 let constraints = map.get_generator_constraints().clone();
                 if let Some(generator) = map.get_generator_mut(id) {
                     if generator.is_active() {
-                        generator.adjust_operation(*percentage, &constraints);
+                        generator.adjust_operation(*percentage, &constraints, current_power_balance);
                         true
                     } else {
                         false
@@ -200,7 +203,7 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
                 // Now adjust the first matching generator
                 if !generator_ids.is_empty() {
                     if let Some(gen) = map.get_generator_mut(&generator_ids[0]) {
-                        gen.adjust_operation(*percentage, &constraints);
+                        gen.adjust_operation(*percentage, &constraints, current_power_balance);
                         success = true;
                     }
                 }
@@ -309,12 +312,15 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
                 return Err(format!("Invalid generator type: {}", gen_type_str).into());
             }
             
+            // Calculate current power balance before any mutable borrows
+            let current_power_balance = map.calc_total_power_generation(map.current_year, None) - map.calc_total_power_usage(map.current_year);
+            
             // For single type names, find a generator of that type
             let generator_closed = if id.contains('_') {
                 // Try to use the exact ID
                 if let Some(generator) = map.get_generator_mut(id) {
                     if generator.is_active() {
-                        generator.close_generator(current_year);
+                        generator.close_generator(current_year, current_power_balance);
                         true
                     } else {
                         false
@@ -341,7 +347,7 @@ pub fn apply_action(map: &mut Map, action: &GridAction, year: u32) -> Result<(),
                 // Now close the first matching generator
                 if !generator_ids.is_empty() {
                     if let Some(gen) = map.get_generator_mut(&generator_ids[0]) {
-                        gen.close_generator(current_year);
+                        gen.close_generator(current_year, current_power_balance);
                         success = true;
                     }
                 }

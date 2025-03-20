@@ -6,6 +6,7 @@ use crate::config::const_funcs::{calc_generator_cost, calc_operating_cost, calc_
 use crate::config::simulation_config::GeneratorConstraints;
 use super::power_storage::PowerStorageSystem;
 use std::str::FromStr;
+use crate::utils::map_handler::Map;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum GeneratorType {
@@ -671,7 +672,7 @@ impl Generator {
         upgrade_cost
     }
 
-    pub fn adjust_operation(&mut self, new_percentage: u8, __constraints: &GeneratorConstraints) -> bool {
+    pub fn adjust_operation(&mut self, new_percentage: u8, constraints: &GeneratorConstraints, current_power_balance: f64) -> bool {
         let min_percentage = match self.generator_type {
             GeneratorType::Nuclear => NUCLEAR_MIN_OPERATION,
             GeneratorType::HydroDam | GeneratorType::PumpedStorage => HYDRO_MIN_OPERATION,
@@ -686,6 +687,20 @@ impl Generator {
             return false;
         }
 
+        // Calculate current power output
+        let current_power = self.get_current_power_output(None);
+        
+        // Calculate new power output
+        let new_power = current_power * (clamped_percentage as f64 / 100.0) / self.operation_percentage;
+        
+        // Calculate power balance change
+        let power_balance_change = new_power - current_power;
+        
+        // Check if the change would bring power balance into negative
+        if current_power_balance + power_balance_change < 0.0 {
+            return false;
+        }
+
         // Update operation percentage
         self.operation_percentage = clamped_percentage as f64 / 100.0;
         
@@ -695,8 +710,16 @@ impl Generator {
         true
     }
 
-    pub fn close_generator(&mut self, year: u32) -> f64 {
+    pub fn close_generator(&mut self, year: u32, current_power_balance: f64) -> f64 {
         if !self.is_active {
+            return 0.0;
+        }
+
+        // Calculate current power output
+        let current_power = self.get_current_power_output(None);
+        
+        // Check if closing would bring power balance into negative
+        if current_power_balance - current_power < 0.0 {
             return 0.0;
         }
 

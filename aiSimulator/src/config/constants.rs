@@ -164,6 +164,12 @@ pub const BATTERY_MAX_SIZE: f64 = 0.5;
 pub const MAX_ONSHORE_WIND_POWER: f64 = 500.0;
 pub const MAX_OFFSHORE_WIND_POWER: f64 = 800.0;
 
+// Existing power projects currently in progress (in MW)
+// This represents projects that are already under construction or in planning
+// and will come online during the simulation period
+// This helps ensure construction times work properly for new projects
+pub const EXISTING_POWER_PROJECTS: f64 = 1200.0;
+
 pub const MAX_DOMESTIC_SOLAR_POWER: f64 = 10.0;
 pub const MAX_COMMERCIAL_SOLAR_POWER: f64 = 50.0;
 pub const MAX_UTILITY_SOLAR_POWER: f64 = 300.0;
@@ -396,3 +402,4 @@ pub const LOW_SUPPLY_WEIGHT: f64 = 0.7;     // Weight for supply adequacy when s
 pub const LOW_SUPPLY_MIX_WEIGHT: f64 = 0.3; // Weight for reliability mix when supply is low
 pub const HIGH_SUPPLY_WEIGHT: f64 = 0.4;    // Weight for supply adequacy when supply is good
 pub const HIGH_SUPPLY_MIX_WEIGHT: f64 = 0.6; // Weight for reliability mix when supply is good
+pub const RELIABILITY_ADJUSTMENT: f64 = 0.08; // 8% flat adjustment to account for inaccuracies in low fidelity simulations

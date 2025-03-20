@@ -319,7 +319,7 @@ pub fn run_multi_simulation(
                     ETA: {:.1} minutes\n\
                     \n\
                     Best Score: {:.9} {}\n\
-                    Target: 1.0000 (Net Zero + Max Public Opinion){}\n\
+                    Target: 3.0000 (Net Zero + Max Public Opinion + Full Power Reliability + Min Cost){}\n\
                     \n\
                     Score Explanation:\n\
                     - Score < 1.0000: Working on reducing emissions\n\

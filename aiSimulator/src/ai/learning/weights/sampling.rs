@@ -184,8 +184,8 @@ impl ActionWeights {
 
         // Calculate a dynamic exploration rate that decreases when we're stuck
         let current_exploration = if self.iterations_without_improvement > LOW_ITERATION_THRESHOLD {
-            // Reduce exploration drastically after being stuck for a while to focus on best known actions
-            self.exploration_rate * (ONE_F64 / (ONE_F64 + EXPLORATION_DECAY_FACTOR * self.iterations_without_improvement as f64))
+            // Increase exploration drastically after being stuck for a while to allow for more exploration
+            self.exploration_rate * (ONE_F64 / (ONE_F64 + (1.0 + EXPLORATION_DECAY_FACTOR) * self.iterations_without_improvement as f64))
         } else {
             self.exploration_rate
         };

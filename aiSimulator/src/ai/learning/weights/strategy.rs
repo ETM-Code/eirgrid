@@ -140,7 +140,7 @@ impl ActionWeights {
                     opinion_change * PERCENT_CONVERSION);
                 
                 // Power reliability comparison
-                let reliability_change = metrics.power_reliability - best.power_reliability;
+                let reliability_change = metrics.worst_power_reliability - best.worst_power_reliability;
                 let reliability_emoji = if reliability_change >= ZERO_F64 { "✅" } else { "⚠️" };
                 println!("  {reliability_emoji} Power reliability: {:.1}% → {:.1}% ({:+.1}%)",
                     best.worst_power_reliability * PERCENT_CONVERSION,

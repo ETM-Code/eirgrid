@@ -52,16 +52,22 @@ impl ActionWeights {
         // Combine immediate and final impacts with adaptive weighting
         // If we're doing better than our best, weight immediate impact more
         // If we're doing worse, weight final impact more to encourage exploration
-        let immediate_weight = if relative_improvement > ZERO_F64 { IMMEDIATE_WEIGHT_FACTOR_POSITIVE } else { IMMEDIATE_WEIGHT_FACTOR_NEGATIVE };
+        let immediate_weight = if relative_improvement > ZERO_F64 { 
+            0.03 // Only 3% weight for immediate improvements
+        } else { 
+            0.01 // Even less weight (1%) for immediate improvements when doing worse
+        };
         let combined_improvement = immediate_weight * improvement + (ONE_F64 - immediate_weight) * relative_improvement;
         
-        // Calculate weight adjustment
+        // Calculate weight adjustment with increased sensitivity to long-term improvements
         let adjustment_factor = if combined_improvement > ZERO_F64 {
             // For improvements, increase weight proportionally to the improvement
-            ONE_F64 + (self.learning_rate * combined_improvement)
+            // Increased multiplier for long-term improvements
+            ONE_F64 + (self.learning_rate * combined_improvement * 2.0)
         } else {
             // For deteriorations, decrease weight proportionally to how bad it was
-            ONE_F64 / (ONE_F64 + (self.learning_rate * combined_improvement.abs()))
+            // More severe penalty for long-term deterioration
+            ONE_F64 / (ONE_F64 + (self.learning_rate * combined_improvement.abs() * 2.5))
         };
         
         // Apply the adjustment with bounds
@@ -91,12 +97,37 @@ impl ActionWeights {
     pub fn update_action_count_weights(&mut self, year: u32, action_count: u32, improvement: f64) {
         if let Some(year_counts) = self.action_count_weights.get_mut(&year) {
             if let Some(weight) = year_counts.get_mut(&action_count) {
-                // Amplify the improvement based on how low the action count is
-                // Lower action counts get more positive reinforcement for success
+                // Get current power reliability from best metrics
+                let current_reliability = self.best_metrics.as_ref()
+                    .map(|m| m.worst_power_reliability)
+                    .unwrap_or(0.0);
+                
+                // Calculate how many recent iterations have met the reliability target (95%)
+                let recent_iterations = self.improvement_history.len().min(100); // Look at last 100 iterations
+                let iterations_meeting_target = self.improvement_history.iter()
+                    .rev()
+                    .take(recent_iterations)
+                    .filter(|record| record.power_reliability >= 0.95)
+                    .count();
+                
+                let reliability_percentage = if recent_iterations > 0 {
+                    iterations_meeting_target as f64 / recent_iterations as f64
+                } else {
+                    0.0
+                };
+                
+                // Calculate action count bonus based on reliability status
                 let action_count_bonus = if improvement > 0.0 {
-                    // Apply additional bonus for lower action counts when successful
-                    // This gives stronger positive reinforcement for strategies with fewer actions
-                    1.0 + (MAX_ACTION_COUNT as f64 - action_count as f64) / MAX_ACTION_COUNT as f64
+                    if current_reliability < 0.95 {
+                        // Below target: favor higher action counts
+                        1.0 + (action_count as f64 / MAX_ACTION_COUNT as f64)
+                    } else if reliability_percentage >= 0.1 {
+                        // Above target and maintaining it: favor lower action counts
+                        1.0 + ((MAX_ACTION_COUNT as f64 - action_count as f64) / MAX_ACTION_COUNT as f64)
+                    } else {
+                        // Above target but not maintaining it: neutral weighting
+                        1.0
+                    }
                 } else {
                     1.0 // No bonus for negative improvements
                 };
@@ -116,8 +147,9 @@ impl ActionWeights {
                 
                 // Print information about significant weight updates only if debug weights is enabled
                 if improvement.abs() > 0.05 && crate::ai::learning::constants::is_debug_weights_enabled() {
-                    println!("Updated action count weight for {} actions in year {}: {:.4} (improvement: {:.4}, adjusted: {:.4})",
-                             action_count, year, *weight, improvement, adjusted_improvement);
+                    println!("Updated action count weight for {} actions in year {}: {:.4} (improvement: {:.4}, adjusted: {:.4}, reliability: {:.1}%, meeting target: {:.1}%)",
+                             action_count, year, *weight, improvement, adjusted_improvement,
+                             current_reliability * 100.0, reliability_percentage * 100.0);
                 }
                 
                 // Normalize weights
