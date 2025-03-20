@@ -175,8 +175,10 @@ impl ActionWeights {
                 let adaptive_learning_rate = self.learning_rate * (ONE_F64 + ADAPTIVE_LEARNING_RATE_FACTOR * self.iterations_without_improvement as f64);
                 
                 // Log the contrast learning application with more detailed information
-                // println!("\n🔄 Applying enhanced contrast learning:");
-                // println!("   - Current run is {:.1}% worse than best", deterioration * PERCENT_CONVERSION);
+                if self.iterations_without_improvement % 100 == 0 {
+                    println!("\n🔄 Applying enhanced contrast learning:");
+                    println!("   - Current run is {:.1}% worse than best", deterioration * PERCENT_CONVERSION);
+                }
                 // println!("   - Dynamic threshold: {:.4}% (iterations: {})", dynamic_threshold * PERCENT_CONVERSION, self.iterations_without_improvement);
                 // println!("   - Iterations without improvement: {}", self.iterations_without_improvement);
                 // println!("   - Raw deterioration: {:.4}, Scaled: {:.4}", deterioration, scaled_deterioration);
@@ -195,7 +197,7 @@ impl ActionWeights {
                 
                 // Debug - show an example of penalty effect on a typical weight
                 let example_weight = 0.1;
-                let penalized_weight = (example_weight * penalty_factor).max(MIN_WEIGHT);
+                let _penalized_weight = (example_weight * penalty_factor).max(MIN_WEIGHT);
                 // println!("   - Example: Weight of 0.1 becomes {:.8} after penalty", penalized_weight);
                 
                 // Track how many weights are at minimum value
@@ -227,7 +229,7 @@ impl ActionWeights {
                         // Store which actions got boosted vs penalized for normalization
                         let mut penalized_actions = Vec::new();
                         let mut boosted_actions = Vec::new();
-                        let reward_actions: Vec<GridAction> = Vec::new();
+                        let _reward_actions: Vec<GridAction> = Vec::new();
                         
                         // First, STRONGLY boost all best actions, regardless of whether they appeared in current run
                         for best_action in &complete_best_actions {

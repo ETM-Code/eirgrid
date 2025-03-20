@@ -9,7 +9,7 @@ pub fn print_yearly_summary(metrics: &YearlyMetrics) {
     println!("  Usage: {:.2} MW", metrics.total_power_usage);
     println!("  Generation: {:.2} MW", metrics.total_power_generation);
     println!("  Balance: {:.2} MW", metrics.power_balance);
-    println!("  Reliability: {:.2}%", metrics.power_reliability * OPERATION_PERCENTAGE_SCALE);
+    println!("  Reliability: {:.2}%", metrics.power_reliability * 100.0);
     println!("Financial Metrics:");
     println!("  Yearly Capital Cost: €{:.2}", metrics.yearly_capital_cost);
     println!("  Total Capital Cost: €{:.2}", metrics.total_capital_cost);

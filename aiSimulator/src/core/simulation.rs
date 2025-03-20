@@ -235,8 +235,17 @@ pub fn run_simulation(
         // Collect yearly metrics for CSV export
         yearly_metrics_collection.push(metrics.clone());
         
-        // Update worst power reliability
-        worst_power_reliability = worst_power_reliability.min(metrics.power_reliability);
+        // Recalculate power reliability for this year directly from the map
+        let year_reliability = map.calc_power_reliability(year);
+        
+        // Log the recalculated power reliability if verbose logging is enabled
+        if verbose_logging {
+            println!("Year {}: Recalculated power reliability: {:.2}% (metrics show: {:.2}%)", 
+                     year, year_reliability * 100.0, metrics.power_reliability * 100.0);
+        }
+        
+        // Update worst power reliability with the directly calculated value
+        worst_power_reliability = worst_power_reliability.min(year_reliability);
          
         // Log yearly metrics to state log file if verbose logging is enabled
         if let Some(ref mut file) = state_log_file {
@@ -728,9 +737,16 @@ pub fn run_simulation_with_best_actions(
             previous_metrics
         );
         yearly_metrics_collection.push(metrics.clone());
-         
-        // Update worst power reliability
-        worst_power_reliability = worst_power_reliability.min(metrics.power_reliability);
+        
+        // Recalculate power reliability for this year directly from the map
+        let year_reliability = map.calc_power_reliability(year);
+        
+        // Log the recalculated power reliability for debugging
+        println!("Year {}: Recalculated power reliability: {:.2}% (metrics show: {:.2}%)", 
+                 year, year_reliability * 100.0, metrics.power_reliability * 100.0);
+        
+        // Update worst power reliability with the directly calculated value
+        worst_power_reliability = worst_power_reliability.min(year_reliability);
          
         crate::analysis::reporting::print_yearly_summary(&metrics);
          

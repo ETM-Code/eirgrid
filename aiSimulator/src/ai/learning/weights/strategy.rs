@@ -143,8 +143,8 @@ impl ActionWeights {
                 let reliability_change = metrics.power_reliability - best.power_reliability;
                 let reliability_emoji = if reliability_change >= ZERO_F64 { "✅" } else { "⚠️" };
                 println!("  {reliability_emoji} Power reliability: {:.1}% → {:.1}% ({:+.1}%)",
-                    best.power_reliability * PERCENT_CONVERSION,
-                    metrics.power_reliability * PERCENT_CONVERSION,
+                    best.worst_power_reliability * PERCENT_CONVERSION,
+                    metrics.worst_power_reliability * PERCENT_CONVERSION,
                     reliability_change * PERCENT_CONVERSION);
             } else {
                 // First successful strategy found - make this VERY visible too
@@ -280,6 +280,29 @@ impl ActionWeights {
 
     pub fn get_current_run_actions_for_year(&self, year: u32) -> Option<&Vec<GridAction>> {
         self.current_run_actions.get(&year)
+    }
+    
+    pub fn get_recorded_actions(&self) -> Vec<(u32, &GridAction)> {
+        let mut actions = Vec::new();
+        
+        // Collect actions from current run
+        for (year, year_actions) in &self.current_run_actions {
+            for action in year_actions {
+                actions.push((*year, action));
+            }
+        }
+        
+        // Also collect deficit actions
+        for (year, year_actions) in &self.current_deficit_actions {
+            for action in year_actions {
+                actions.push((*year, action));
+            }
+        }
+        
+        // Sort by year (important for correct simulation order)
+        actions.sort_by_key(|(year, _)| *year);
+        
+        actions
     }
 
     pub fn update_weights_from(&mut self, other: &ActionWeights) {

@@ -16,7 +16,7 @@ pub fn score_metrics(metrics: &SimulationMetrics, optimization_mode: Option<&str
     }
 
     // Tier 1: Power reliability up to 95% (score 0-0.8)
-    // Only consider power reliability in this tier
+    // Only consider worst power reliability in this tier
     if metrics.worst_power_reliability < 0.95 {
         // Scale power reliability to 0-0.8 range
         metrics.worst_power_reliability * 0.8 / 0.95

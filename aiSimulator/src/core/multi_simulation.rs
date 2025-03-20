@@ -298,13 +298,14 @@ pub fn run_multi_simulation(
                     - Emissions: {} ({:.1} tonnes)\n\
                     - Cost: {} (€{:.1}B accumulated)\n\
                     - Public Opinion: {:.1}%\n\
-                    - Power Reliability: {:.1}%",
+                    - Power Reliability: {:.1}% (Final Year), {:.1}% (Worst Year)",
                     emissions_status,
                     best.final_net_emissions,
                     cost_status,
                     best.total_cost / 1_000_000_000.0,
                     best.average_public_opinion * 100.0,
-                    best.power_reliability * 100.0)
+                    best.power_reliability * 100.0,
+                    best.worst_power_reliability * 100.0)
                 } else {
                     "\nMetrics Status: No data yet".to_string()
                 };
@@ -479,21 +480,23 @@ pub fn run_multi_simulation(
                         if let Some(best_metrics) = &best_metrics_after_update {
                             let best_score = crate::ai::score_metrics(best_metrics, optimization_mode);
                             println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
-                            println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%)",
+                            println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%, Worst Reliability: {:.1}%)",
                                 current_score,
                                 result.metrics.final_net_emissions,
                                 result.metrics.total_cost / 1_000_000_000.0,
                                 result.metrics.average_public_opinion * 100.0,
-                                result.metrics.power_reliability * 100.0);
-                            println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%)",
+                                result.metrics.power_reliability * 100.0,
+                                result.metrics.worst_power_reliability * 100.0);
+                            println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%, Worst Reliability: {:.1}%)",
                                 best_score,
                                 best_metrics.final_net_emissions,
                                 best_metrics.total_cost / 1_000_000_000.0,
                                 best_metrics.average_public_opinion * 100.0,
-                                best_metrics.power_reliability * 100.0);
+                                best_metrics.power_reliability * 100.0,
+                                best_metrics.worst_power_reliability * 100.0);
                             
                             // Determine and display the current tier
-                            let tier = if result.metrics.power_reliability < 0.95 {
+                            let tier = if result.metrics.worst_power_reliability < 0.95 {
                                 "Tier 1 (Power Reliability)"
                             } else if result.metrics.final_net_emissions > 0.0 {
                                 "Tier 2 (Emissions Reduction)"
@@ -503,16 +506,17 @@ pub fn run_multi_simulation(
                             println!("  Current Tier: {}", tier);
                         } else {
                             println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
-                            println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%)",
+                            println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%, Worst Reliability: {:.1}%)",
                                 current_score,
                                 result.metrics.final_net_emissions,
                                 result.metrics.total_cost / 1_000_000_000.0,
                                 result.metrics.average_public_opinion * 100.0,
-                                result.metrics.power_reliability * 100.0);
+                                result.metrics.power_reliability * 100.0,
+                                result.metrics.worst_power_reliability * 100.0);
                             println!("  Best result so far: No best result yet");
                             
                             // Determine and display the current tier
-                            let tier = if result.metrics.power_reliability < 0.95 {
+                            let tier = if result.metrics.worst_power_reliability < 0.95 {
                                 "Tier 1 (Power Reliability)"
                             } else if result.metrics.final_net_emissions > 0.0 {
                                 "Tier 2 (Emissions Reduction)"
@@ -749,18 +753,20 @@ pub fn run_multi_simulation(
                     if let Some(best_metrics) = &best_metrics_after_update {
                         let best_score = crate::ai::score_metrics(best_metrics, optimization_mode);
                         println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
-                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%)",
+                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%, Worst Reliability: {:.1}%)",
                             current_score,
                             result.metrics.final_net_emissions,
                             result.metrics.total_cost / 1_000_000_000.0,
                             result.metrics.average_public_opinion * 100.0,
-                            result.metrics.power_reliability * 100.0);
-                        println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%)",
+                            result.metrics.power_reliability * 100.0,
+                            result.metrics.worst_power_reliability * 100.0);
+                        println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%, Worst Reliability: {:.1}%)",
                             best_score,
                             best_metrics.final_net_emissions,
                             best_metrics.total_cost / 1_000_000_000.0,
                             best_metrics.average_public_opinion * 100.0,
-                            best_metrics.power_reliability * 100.0);
+                            best_metrics.power_reliability * 100.0,
+                            best_metrics.worst_power_reliability * 100.0);
                         
                         // Determine and display the current tier
                         let tier = if result.metrics.power_reliability < 0.95 {
@@ -773,12 +779,13 @@ pub fn run_multi_simulation(
                         println!("  Current Tier: {}", tier);
                     } else {
                         println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
-                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%)",
+                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%, Power Reliability: {:.1}%, Worst Reliability: {:.1}%)",
                             current_score,
                             result.metrics.final_net_emissions,
                             result.metrics.total_cost / 1_000_000_000.0,
                             result.metrics.average_public_opinion * 100.0,
-                            result.metrics.power_reliability * 100.0);
+                            result.metrics.power_reliability * 100.0,
+                            result.metrics.worst_power_reliability * 100.0);
                         println!("  Best result so far: No best result yet");
                         
                         // Determine and display the current tier
@@ -855,7 +862,9 @@ pub fn run_multi_simulation(
             println!("Total cost: €{:.2} billion accumulated ({})",
                 total_cost_billions, cost_status);
              
-            println!("Power reliability: {:.1}%", best.metrics.power_reliability * 100.0);
+            println!("Power reliability: {:.1}% (Final Year), {:.1}% (Worst Year)", 
+                best.metrics.power_reliability * 100.0, 
+                best.metrics.worst_power_reliability * 100.0);
             println!("{}", "=".repeat(80));
              
             // Use our enhanced CSV exporter for more detailed data export

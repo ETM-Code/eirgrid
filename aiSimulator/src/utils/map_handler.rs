@@ -40,7 +40,7 @@ use crate::config::constants::{
     OPINION_MIN, OPINION_MAX, OPINION_BASE_WEIGHT,
     // Power Reliability Constants
     RELIABILITY_THRESHOLD, LOW_SUPPLY_WEIGHT, LOW_SUPPLY_MIX_WEIGHT,
-    HIGH_SUPPLY_WEIGHT, HIGH_SUPPLY_MIX_WEIGHT
+    HIGH_SUPPLY_WEIGHT, HIGH_SUPPLY_MIX_WEIGHT, MAX_INTERMITTENT_PERCENTAGE, STORAGE_CAPACITY_FACTOR
 };
 use crate::config::const_funcs::is_point_inside_polygon;
 use crate::config::simulation_config::{SimulationConfig, GeneratorConstraints};
@@ -67,6 +67,8 @@ pub struct LocationAnalysis {
     remaining_spaces: HashMap<GeneratorType, usize>,
     #[serde(default)]
     exhausted_types: HashSet<GeneratorType>,
+    #[serde(default)]
+    type_to_locations: HashMap<GeneratorType, Vec<usize>>,
 }
 
 impl LocationAnalysis {
@@ -74,6 +76,7 @@ impl LocationAnalysis {
         let mut locations = Vec::new();
         let mut type_counts = HashMap::new();
         let mut multi_type_locations = Vec::new();
+        let mut type_to_locations: HashMap<GeneratorType, Vec<usize>> = HashMap::new();
 
         // Define grid step size for analysis (larger than normal grid size for efficiency)
         let step_size = GRID_CELL_SIZE * 2.0;
@@ -116,6 +119,11 @@ impl LocationAnalysis {
                         suitable_types.push(generator_type.clone());
                         suitability_scores.insert(generator_type.clone(), suitability);
                         *type_counts.entry(generator_type.clone()).or_insert(0) += 1;
+                        
+                        // Add to type_to_locations map
+                        type_to_locations.entry(generator_type.clone())
+                            .or_insert_with(Vec::new)
+                            .push(locations.len());
                     }
                 }
 
@@ -143,6 +151,7 @@ impl LocationAnalysis {
             multi_type_locations,
             remaining_spaces,
             exhausted_types: HashSet::new(),
+            type_to_locations,
         }
     }
 
@@ -257,7 +266,20 @@ impl LocationAnalysis {
         let cache_path = std::path::Path::new(cache_dir).join("location_analysis.json");
         if cache_path.exists() {
             let content = std::fs::read_to_string(cache_path)?;
-            let analysis: Self = serde_json::from_str(&content)?;
+            let mut analysis: Self = serde_json::from_str(&content)?;
+            
+            // If type_to_locations is empty (loaded from old cache), rebuild it
+            if analysis.type_to_locations.is_empty() {
+                // Rebuild type_to_locations from existing data
+                for (index, location) in analysis.locations.iter().enumerate() {
+                    for (generator_type, _) in &location.suitability_scores {
+                        analysis.type_to_locations.entry(generator_type.clone())
+                            .or_insert_with(Vec::new)
+                            .push(index);
+                    }
+                }
+            }
+            
             Ok(Some(analysis))
         } else {
             Ok(None)
@@ -296,12 +318,13 @@ impl Serialize for Map {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("Map", 5)?;
+        let mut state = serializer.serialize_struct("Map", 6)?;
         state.serialize_field("static_data", &*self.static_data)?;
         state.serialize_field("generators", &self.generators)?;
         state.serialize_field("settlements", &self.settlements)?;
         state.serialize_field("carbon_offsets", &self.carbon_offsets)?;
         state.serialize_field("grid_occupancy", &self.grid_occupancy)?;
+        state.serialize_field("location_analysis", &self.location_analysis)?;
         state.end()
     }
 }
@@ -319,23 +342,37 @@ impl<'de> Deserialize<'de> for Map {
             settlements: Vec<Settlement>,
             carbon_offsets: Vec<CarbonOffset>,
             grid_occupancy: HashMap<(i32, i32), f64>,
+            #[serde(default)]
+            location_analysis: Option<LocationAnalysis>,
         }
 
         let helper = Helper::deserialize(deserializer)?;
-        Ok(Map {
+        let metal_location_search = MetalLocationSearch::new().ok();
+        
+        // Create the map instance
+        let mut map = Map {
             static_data: Arc::new(helper.static_data),
             generators: helper.generators,
             settlements: helper.settlements,
             carbon_offsets: helper.carbon_offsets,
             grid_occupancy: helper.grid_occupancy,
             spatial_index: SpatialIndex::new(),
-            metal_location_search: None,
-            location_analysis: None,
+            metal_location_search,
+            location_analysis: helper.location_analysis,
             current_year: 2024,
             use_fast_simulation: true,
             storage_cache: Vec::new(),
             enable_construction_delays: ENABLE_CONSTRUCTION_DELAYS,
-        })
+        };
+
+        // If location_analysis is None, try to load it from cache
+        if map.location_analysis.is_none() {
+            if let Ok(Some(analysis)) = LocationAnalysis::load_cache("cache") {
+                map.location_analysis = Some(analysis);
+            }
+        }
+        
+        Ok(map)
     }
 }
 
@@ -687,27 +724,23 @@ impl Map {
         self.after_generator_modification();
     }
 
-    // New helper function to find a suitable location from the analysis results
+    // Modify find_suitable_location_from_analysis to use the optimized lookup
     fn find_suitable_location_from_analysis(&self, generator_type: &GeneratorType, generator_id: &str) -> Option<Coordinate> {
         if let Some(analysis) = &self.location_analysis {
-            // Get suitable locations for this generator type
-            let suitable_locations: Vec<&LocationSuitability> = analysis.locations.iter()
-                .filter(|loc| loc.suitability_scores.contains_key(generator_type))
-                .collect();
-            
-            if suitable_locations.is_empty() {
-                return None;
+            // Get the pre-indexed locations for this generator type
+            if let Some(location_indices) = analysis.type_to_locations.get(generator_type) {
+                if location_indices.is_empty() {
+                    return None;
+                }
+                
+                // Use the generator ID to deterministically select a location
+                let id_hash: u32 = generator_id.chars().fold(0, |acc, c| acc + c as u32);
+                let index = location_indices[id_hash as usize % location_indices.len()];
+                
+                // Get the selected location directly
+                return Some(analysis.locations[index].coordinate.clone());
             }
-            
-            // Use the generator ID to deterministically select a location
-            // This ensures consistent placement for the same generator ID
-            let id_hash: u32 = generator_id.chars().fold(0, |acc, c| acc + c as u32);
-            let index = (id_hash as usize) % suitable_locations.len();
-            
-            // Get the selected location
-            return Some(suitable_locations[index].coordinate.clone());
         }
-        
         None
     }
 
@@ -1049,7 +1082,7 @@ impl Map {
             OperationCategory::LocationSearch { subcategory: LocationSearchType::GeneratorPlacement });
         
         if self.use_fast_simulation {
-            // In fast simulation mode, return a well-distributed coordinate if space is available
+            // In fast simulation mode, just use the pre-analyzed locations
             if let Some(analysis) = &self.location_analysis {
                 if analysis.get_remaining_spaces(generator_type) > 0 {
                     // Get the current count of this generator type for distribution
@@ -1057,35 +1090,13 @@ impl Map {
                         .filter(|g| g.generator_type == *generator_type)
                         .count();
                     
-                    // Get the bounds of Ireland's grid
-                    let bounds = self.get_ireland_bounds();
-                    
-                    // Create a deterministic hash based on the generator type and count
-                    // Use different prime numbers for good distribution
-                    let type_hash = generator_type.to_string().chars().fold(0, |acc, c| acc + c as u32);
-                    let combined_hash = type_hash * 31 + type_count as u32 * 17;
-                    
-                    // Generate coordinates that fully utilize the map space
-                    let width = bounds.max.x - bounds.min.x;
-                    let height = bounds.max.y - bounds.min.y;
-                    
-                    // Use prime numbers for better distribution
-                    let x_offset = ((combined_hash * 127) % 90 + 5) as f64 / 100.0;
-                    let y_offset = ((combined_hash * 163) % 90 + 5) as f64 / 100.0;
-                    
-                    // Apply type-specific positioning bias based on generator characteristics
-                    let type_bias_x = match generator_type {
-                        GeneratorType::OffshoreWind => 0.8, // More towards the west coast
-                        GeneratorType::Nuclear => 0.5,     // More central/coastal
-                        GeneratorType::OnshoreWind => 0.4, // Widely distributed
-                        _ => 0.5, // Default - evenly distributed
-                    };
-                    
-                    // Calculate final position with some randomness but biased by type
-                    let x = bounds.min.x + width * (x_offset * 0.7 + type_bias_x * 0.3);
-                    let y = bounds.min.y + height * y_offset;
-                    
-                    return Some(Coordinate::new(x, y));
+                    // Use type_count as a pseudo-random seed to pick a location
+                    if let Some(location_indices) = analysis.type_to_locations.get(generator_type) {
+                        if !location_indices.is_empty() {
+                            let index = location_indices[type_count % location_indices.len()];
+                            return Some(analysis.locations[index].coordinate.clone());
+                        }
+                    }
                 }
                 return None;
             }
@@ -1406,12 +1417,32 @@ impl Map {
     }
 
     pub fn load_location_analysis(&mut self, cache_dir: &str) -> std::io::Result<bool> {
+        // If location_analysis is already set and valid, don't overwrite it
+        if let Some(analysis) = &self.location_analysis {
+            if !analysis.locations.is_empty() {
+                return Ok(true);
+            }
+        }
+        
         match LocationAnalysis::load_cache(cache_dir) {
             Ok(Some(analysis)) => {
-                self.location_analysis = Some(analysis);
-                Ok(true)
+                // Validate the loaded analysis
+                if !analysis.locations.is_empty() {
+                    self.location_analysis = Some(analysis);
+                    Ok(true)
+                } else {
+                    // If the loaded analysis is empty, generate a new one
+                    let analysis = self.analyze_locations(0.3); // Use default minimum suitability
+                    self.location_analysis = Some(analysis);
+                    Ok(false)
+                }
             }
-            Ok(None) => Ok(false),
+            Ok(None) => {
+                // If no cache exists, generate a new analysis
+                let analysis = self.analyze_locations(0.3); // Use default minimum suitability
+                self.location_analysis = Some(analysis);
+                Ok(false)
+            }
             Err(e) => Err(e),
         }
     }
@@ -1536,7 +1567,7 @@ impl Map {
         let _timing = logging::start_timing("calc_power_reliability", 
             OperationCategory::PowerCalculation { subcategory: PowerCalcType::Balance });
         
-        // Get active generators and storage systems
+        // Get active generators
         let active_generators: Vec<&Generator> = self.generators.iter()
             .filter(|g| g.is_active())
             .collect();
@@ -1544,86 +1575,88 @@ impl Map {
         // Get demand - always add a small non-zero value to avoid div by zero
         let demand = self.calc_total_power_usage(year).max(0.1);
         
-        // If we have no active generators or no power generation, reliability is 0
+        // If we have no active generators, reliability is 0
         if active_generators.is_empty() {
             return 0.0;
         }
         
         // Initialize trackers
-        let mut total_power = 0.0;
-        let mut total_reliable_power = 0.0;
-        let mut storage_capacity = 0.0;
-        let mut storage_power = 0.0;
-        let mut intermittent_power = 0.0;
-        let mut dispatchable_power = 0.0;
+        let mut reliable_power = 0.0;     // Power from reliable sources (dispatchable)
+        let mut unreliable_power = 0.0;   // Power from unreliable sources (intermittent)
+        let mut storage_capacity = 0.0;   // Total energy storage capacity
         
-        // Calculate power from generators and track storage capacity
+        // Calculate power from each generator type
         for generator in &self.generators {
             if generator.is_active() {
                 let gen_type = generator.get_generator_type();
                 let power_output = generator.get_current_power_output(None);
                 let operation_percentage = generator.get_operation_percentage() as f64;
                 
-                // Calculate effective power contribution 
+                // Calculate effective power contribution
                 let effective_power = power_output * (operation_percentage / OPERATION_PERCENTAGE_SCALE);
                 
-                // Only add power if it's positive (avoid numerical errors)
-                if effective_power > 0.0 {
-                    total_power += effective_power;
-                    
-                    // Track power by type
-                    if gen_type.is_storage() {
-                        storage_capacity += generator.get_storage_capacity();
-                        storage_power += effective_power;
-                    } else if gen_type.is_intermittent() {
-                        intermittent_power += effective_power;
-                    } else {
-                        dispatchable_power += effective_power;
-                    }
-                    
-                    // Calculate reliable power based on generator type
+                // Skip if not positive (avoid numerical errors)
+                if effective_power <= 0.0 {
+                    continue;
+                }
+                
+                // Track power by generator type
+                if gen_type.is_storage() {
+                    // Track storage capacity separately
+                    storage_capacity += generator.get_storage_capacity();
+                } else if gen_type.is_intermittent() {
+                    // Intermittent power (wind, solar, etc.)
+                    unreliable_power += effective_power;
+                } else {
+                    // Reliable power (nuclear, gas, coal, etc.)
+                    // Apply reliability factor to calculate effective reliable power
                     let reliability_factor = self.get_generator_reliability_factor(&gen_type);
-                    total_reliable_power += effective_power * reliability_factor;
+                    reliable_power += effective_power * reliability_factor;
                 }
             }
         }
         
-        // Special case: No power generation = 0% reliability
-        if total_power <= 0.0 {
-            return 0.0;
-        }
+        // Calculate max allowed intermittent power contribution without storage
+        let max_intermittent_without_storage = demand * MAX_INTERMITTENT_PERCENTAGE;
         
-        // Calculate reliability components
+        // Calculate how much intermittent power exceeds the threshold
+        let excess_intermittent = (unreliable_power - max_intermittent_without_storage).max(0.0);
         
-        // 1. Supply adequacy: what percentage of demand is met 
-        let supply_adequacy = ((total_reliable_power + intermittent_power.min(storage_capacity)) / demand).min(1.0);
+        // Calculate how much additional intermittent power can be supported by storage
+        // Each unit of storage capacity allows STORAGE_CAPACITY_FACTOR units of additional intermittent power
+        let storage_supported_intermittent = storage_capacity * STORAGE_CAPACITY_FACTOR;
         
-        // // 2. Calculate storage effectiveness
-        // let storage_factor = if storage_capacity > 0.0 {
-        //     // Calculate storage effectiveness based on:
-        //     // - How much of demand can be covered by storage
-        //     // - How much intermittent power we have that needs storage
-        //     let storage_demand_ratio = (storage_capacity / demand).min(0.5);
-        //     let intermittent_ratio = intermittent_power / total_power;
-            
-        //     // Storage is more valuable when we have more intermittent power
-        //     let storage_value = storage_demand_ratio * (1.0 + intermittent_ratio);
-        //     1.0 + (storage_value * 0.4).min(0.4) // Max 40% bonus
-        // } else {
-        //     1.0
-        // };
+        // Calculate usable intermittent power:
+        // 1. All intermittent power up to the threshold (MAX_INTERMITTENT_PERCENTAGE of demand)
+        // 2. Any excess intermittent power that can be backed by storage
+        let usable_intermittent = if unreliable_power <= max_intermittent_without_storage {
+            // All intermittent power is usable (below threshold)
+            unreliable_power
+        } else {
+            // Include up to the threshold, plus any excess backed by storage
+            max_intermittent_without_storage + excess_intermittent.min(storage_supported_intermittent)
+        };
         
-        // // 3. Calculate reliability mix
-        // let basic_reliability_mix = total_reliable_power / total_power;
+        // Calculate total usable power
+        let total_usable_power = reliable_power + usable_intermittent;
         
-        // // Apply storage factor to reliability mix
-        // let reliability_mix = (basic_reliability_mix * storage_factor).min(1.0);
+        // Calculate power reliability as the ratio of usable power to demand
+        let reliability = (total_usable_power / demand).min(1.0).max(0.0);
         
-        // // Calculate final score using weighted combinations
-        // let reliability_score = reliability_mix;
+        // Debug output for power reliability calculation
+        // println!("Power Reliability Calculation for year {}:", year);
+        // println!("  Demand: {:.2} MW", demand);
+        // println!("  Reliable Power: {:.2} MW", reliable_power);
+        // println!("  Unreliable Power: {:.2} MW", unreliable_power);
+        // println!("  Max Intermittent Without Storage: {:.2} MW", max_intermittent_without_storage);
+        // println!("  Excess Intermittent: {:.2} MW", excess_intermittent);
+        // println!("  Storage Capacity: {:.2} MW", storage_capacity);
+        // println!("  Storage Supported Intermittent: {:.2} MW", storage_supported_intermittent);
+        // println!("  Usable Intermittent: {:.2} MW", usable_intermittent);
+        // println!("  Total Usable Power: {:.2} MW", total_usable_power);
+        // println!("  Power Reliability: {:.2}%", reliability * 100.0);
         
-        // Cap the result between 0 and 1
-        supply_adequacy.max(0.0).min(1.0)
+        reliability
     }
 }
 

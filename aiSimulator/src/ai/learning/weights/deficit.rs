@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 use crate::models::generator::GeneratorType;
-use crate::models::carbon_offset::CarbonOffsetType;
 use crate::ai::actions::grid_action::GridAction;
 use crate::ai::learning::constants::*;
 use crate::config::constants::DEFAULT_COST_MULTIPLIER;
