@@ -14,3 +14,28 @@ pub enum GridAction {
     CloseGenerator(String),  // Generator ID
     DoNothing, // New no-op action
 }
+
+impl std::fmt::Display for GridAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GridAction::AddGenerator(gen_type, cost_multiplier) => {
+                write!(f, "AddGenerator({}, {}%)", gen_type, cost_multiplier)
+            },
+            GridAction::UpgradeEfficiency(id) => {
+                write!(f, "UpgradeEfficiency({})", id)
+            },
+            GridAction::AdjustOperation(id, percentage) => {
+                write!(f, "AdjustOperation({}, {}%)", id, percentage)
+            },
+            GridAction::AddCarbonOffset(offset_type, cost_multiplier) => {
+                write!(f, "AddCarbonOffset({}, {}%)", offset_type, cost_multiplier)
+            },
+            GridAction::CloseGenerator(id) => {
+                write!(f, "CloseGenerator({})", id)
+            },
+            GridAction::DoNothing => {
+                write!(f, "DoNothing")
+            },
+        }
+    }
+}

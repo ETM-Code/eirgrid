@@ -492,4 +492,51 @@ impl ActionWeights {
         })
     }
 
+    pub fn to_json(&self) -> serde_json::Value {
+        let mut json = serde_json::json!({
+            "weights": {},
+            "action_count_weights": {},
+            "learning_rate": self.learning_rate,
+            "iteration_count": self.iteration_count,
+            "iterations_without_improvement": self.iterations_without_improvement,
+            "exploration_rate": self.exploration_rate,
+            "force_best_actions": self.force_best_actions,
+            "deficit_weights": {},
+            "guaranteed_best_actions": self.guaranteed_best_actions,
+            "optimization_mode": self.optimization_mode,
+            "best_score": self.best_metrics.as_ref().map(|metrics| {
+                crate::ai::score_metrics(metrics, self.optimization_mode.as_deref())
+            }).unwrap_or(0.0)
+        });
+
+        // Convert weights to JSON
+        for (year, year_weights) in &self.weights {
+            let mut year_json = serde_json::json!({});
+            for (action, weight) in year_weights {
+                year_json[action.to_string()] = serde_json::json!(*weight);
+            }
+            json["weights"][year.to_string()] = year_json;
+        }
+
+        // Convert action count weights to JSON
+        for (year, count_weights) in &self.action_count_weights {
+            let mut year_json = serde_json::json!({});
+            for (count, weight) in count_weights {
+                year_json[count.to_string()] = serde_json::json!(*weight);
+            }
+            json["action_count_weights"][year.to_string()] = year_json;
+        }
+
+        // Convert deficit weights to JSON
+        for (year, year_weights) in &self.deficit_weights {
+            let mut year_json = serde_json::json!({});
+            for (action, weight) in year_weights {
+                year_json[action.to_string()] = serde_json::json!(*weight);
+            }
+            json["deficit_weights"][year.to_string()] = year_json;
+        }
+
+        json
+    }
+
 }

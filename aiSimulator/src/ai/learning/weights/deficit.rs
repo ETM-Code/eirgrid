@@ -31,8 +31,8 @@ impl ActionWeights {
             // Then copy over any deficit actions we actually have
             for (year, actions) in &self.current_deficit_actions {
                 if !actions.is_empty() {
-                    println!("DEBUG: Copying {} deficit actions for year {} to best_deficit_actions", 
-                             actions.len(), year);
+                    // println!("DEBUG: Copying {} deficit actions for year {} to best_deficit_actions", 
+                    //          actions.len(), year);
                     complete_deficit_actions.insert(*year, actions.clone());
                 }
             }

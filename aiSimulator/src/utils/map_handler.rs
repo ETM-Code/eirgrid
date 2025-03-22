@@ -53,6 +53,8 @@ pub struct LocationAnalysis {
     remaining_spaces: HashMap<GeneratorType, usize>,
     #[serde(default)]
     exhausted_types: HashSet<GeneratorType>,
+    #[serde(default)]
+    type_to_locations: HashMap<GeneratorType, Vec<usize>>,
 }
 
 impl LocationAnalysis {
@@ -60,6 +62,7 @@ impl LocationAnalysis {
         let mut locations = Vec::new();
         let mut type_counts = HashMap::new();
         let mut multi_type_locations = Vec::new();
+        let mut type_to_locations: HashMap<GeneratorType, Vec<usize>> = HashMap::new();
 
         // Define grid step size for analysis (larger than normal grid size for efficiency)
         let step_size = GRID_CELL_SIZE * 2.0;
@@ -102,6 +105,11 @@ impl LocationAnalysis {
                         suitable_types.push(generator_type.clone());
                         suitability_scores.insert(generator_type.clone(), suitability);
                         *type_counts.entry(generator_type.clone()).or_insert(0) += 1;
+                        
+                        // Add to type_to_locations map
+                        type_to_locations.entry(generator_type.clone())
+                            .or_insert_with(Vec::new)
+                            .push(locations.len());
                     }
                 }
 
@@ -129,6 +137,7 @@ impl LocationAnalysis {
             multi_type_locations,
             remaining_spaces,
             exhausted_types: HashSet::new(),
+            type_to_locations,
         }
     }
 
@@ -243,7 +252,20 @@ impl LocationAnalysis {
         let cache_path = std::path::Path::new(cache_dir).join("location_analysis.json");
         if cache_path.exists() {
             let content = std::fs::read_to_string(cache_path)?;
-            let analysis: Self = serde_json::from_str(&content)?;
+            let mut analysis: Self = serde_json::from_str(&content)?;
+            
+            // If type_to_locations is empty (loaded from old cache), rebuild it
+            if analysis.type_to_locations.is_empty() {
+                // Rebuild type_to_locations from existing data
+                for (index, location) in analysis.locations.iter().enumerate() {
+                    for (generator_type, _) in &location.suitability_scores {
+                        analysis.type_to_locations.entry(generator_type.clone())
+                            .or_insert_with(Vec::new)
+                            .push(index);
+                    }
+                }
+            }
+            
             Ok(Some(analysis))
         } else {
             Ok(None)
@@ -686,27 +708,23 @@ impl Map {
         self.after_generator_modification();
     }
 
-    // New helper function to find a suitable location from the analysis results
+    // Modify find_suitable_location_from_analysis to use the optimized lookup
     fn find_suitable_location_from_analysis(&self, generator_type: &GeneratorType, generator_id: &str) -> Option<Coordinate> {
         if let Some(analysis) = &self.location_analysis {
-            // Get suitable locations for this generator type
-            let suitable_locations: Vec<&LocationSuitability> = analysis.locations.iter()
-                .filter(|loc| loc.suitability_scores.contains_key(generator_type))
-                .collect();
-            
-            if suitable_locations.is_empty() {
-                return None;
+            // Get the pre-indexed locations for this generator type
+            if let Some(location_indices) = analysis.type_to_locations.get(generator_type) {
+                if location_indices.is_empty() {
+                    return None;
+                }
+                
+                // Use the generator ID to deterministically select a location
+                let id_hash: u32 = generator_id.chars().fold(0, |acc, c| acc + c as u32);
+                let index = location_indices[id_hash as usize % location_indices.len()];
+                
+                // Get the selected location directly
+                return Some(analysis.locations[index].coordinate.clone());
             }
-            
-            // Use the generator ID to deterministically select a location
-            // This ensures consistent placement for the same generator ID
-            let id_hash: u32 = generator_id.chars().fold(0, |acc, c| acc + c as u32);
-            let index = (id_hash as usize) % suitable_locations.len();
-            
-            // Get the selected location
-            return Some(suitable_locations[index].coordinate.clone());
         }
-        
         None
     }
 
@@ -935,6 +953,7 @@ impl Map {
             OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
         
         let generator_costs = self.generators.iter()
+            .filter(|g| !g.get_id().starts_with("Existing_")) // Exclude existing generators
             .map(|g| g.get_current_cost(year))
             .sum::<f64>();
 
@@ -950,9 +969,9 @@ impl Map {
         let _timing = logging::start_timing("calc_yearly_capital_cost", 
             OperationCategory::PowerCalculation { subcategory: PowerCalcType::Other });
         
-        // Only include generators that were added in the current year
+        // Only include generators that were added in the current year and are not existing generators
         let generator_costs = self.generators.iter()
-            .filter(|g| g.get_build_year() == year)
+            .filter(|g| g.get_build_year() == year && !g.get_id().starts_with("Existing_"))
             .map(|g| g.get_current_cost(year))
             .sum::<f64>();
 
@@ -1414,9 +1433,9 @@ impl Map {
     }
 
     pub fn set_simulation_mode(&mut self, use_fast: bool) {
-        if use_fast != self.use_fast_simulation {
-            println!("Switching simulation mode to: {}", if use_fast { "FAST" } else { "FULL" });
-        }
+        // if use_fast != self.use_fast_simulation {
+        //     println!("Switching simulation mode to: {}", if use_fast { "FAST" } else { "FULL" });
+        // }
         self.use_fast_simulation = use_fast;
         if let Some(analysis) = &mut self.location_analysis {
             analysis.reset_space_counts();
