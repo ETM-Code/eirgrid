@@ -187,14 +187,20 @@ impl ActionWeights {
             // Then copy over any actions we actually have
             for (year, actions) in &self.current_run_actions {
                 if !actions.is_empty() {
-                    println!("DEBUG: Copying {} actions for year {} to best_actions", actions.len(), year);
+                    // Only print debug messages every 100 iterations
+                    if self.iteration_count % 100 == 0 {
+                        println!("DEBUG: Copying {} actions for year {} to best_actions", actions.len(), year);
+                    }
                     complete_actions.insert(*year, actions.clone());
                 }
             }
             
             for (year, actions) in &self.current_deficit_actions {
                 if !actions.is_empty() {
-                    println!("DEBUG: Copying {} deficit actions for year {} to best_deficit_actions", actions.len(), year);
+                    // Only print debug messages every 100 iterations
+                    if self.iteration_count % 100 == 0 {
+                        println!("DEBUG: Copying {} deficit actions for year {} to best_deficit_actions", actions.len(), year);
+                    }
                     complete_deficit_actions.insert(*year, actions.clone());
                 }
             }
@@ -206,14 +212,14 @@ impl ActionWeights {
                     total_complete_actions, years_with_complete_actions);
             
             // More detailed per-year breakdown for complete_actions
-            println!("Complete actions per year (to be stored as best):");
-            for year in START_YEAR..=END_YEAR {
-                if let Some(actions) = complete_actions.get(&year) {
-                    if !actions.is_empty() {
-                        println!("  Year {}: {} actions", year, actions.len());
-                    }
-                }
-            }
+            // println!("Complete actions per year (to be stored as best):");
+            // for year in START_YEAR..=END_YEAR {
+            //     if let Some(actions) = complete_actions.get(&year) {
+            //         if !actions.is_empty() {
+            //             println!("  Year {}: {} actions", year, actions.len());
+            //         }
+            //     }
+            // }
             
             // Store the complete maps
             self.best_actions = Some(complete_actions);
@@ -244,10 +250,10 @@ impl ActionWeights {
             self.iterations_without_improvement += 1;
             
             // Occasionally log if we have many iterations without improvement
-            if self.iterations_without_improvement % SMALL_LOG_INTERVAL == ZERO_U32 {
-                println!("⏳ {} iterations without finding a better strategy", 
-                        self.iterations_without_improvement);
-            }
+            // if self.iterations_without_improvement % SMALL_LOG_INTERVAL == ZERO_U32 {
+            //     println!("⏳ {} iterations without finding a better strategy", 
+            //             self.iterations_without_improvement);
+            // }
         }
     }
 

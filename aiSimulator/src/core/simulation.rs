@@ -27,6 +27,7 @@ pub fn run_simulation(
     optimization_mode: Option<&str>,
     enable_energy_sales: bool,
     enable_construction_delays: bool,
+    iteration: usize,
 ) -> Result<(String, Vec<(u32, GridAction)>, Vec<YearlyMetrics>), Box<dyn Error + Send + Sync>> {
     let _timing = logging::start_timing("run_simulation", OperationCategory::Simulation);
      
@@ -75,11 +76,14 @@ pub fn run_simulation(
      
     // At the beginning of the simulation, diagnose best actions if we have them
     if let Some(weights) = &action_weights {
-        println!("\n=== STARTING SIMULATION ===");
-        if let Some(seed_value) = seed {
-            println!("Seed: {}", seed_value);
+        // Only print simulation start messages every 100 iterations
+        if iteration % 100 == 0 {
+            println!("\n=== STARTING SIMULATION ===");
+            if let Some(seed_value) = seed {
+                println!("Seed: {}", seed_value);
+            }
+            weights.diagnose_best_actions();
         }
-        weights.diagnose_best_actions();
     }
      
     for year in BASE_YEAR..=END_YEAR {
@@ -550,7 +554,7 @@ pub fn run_simulation_with_best_actions(
         weights.set_rng(rng);
     }
      
-    println!("\nReplaying best strategy from previous runs with 100% probability");
+    // println!("\nReplaying best strategy from previous runs with 100% probability");
      
     // Hard-code the year range to 2025..=2050 rather than using constants
     for year in 2025..=2050 {

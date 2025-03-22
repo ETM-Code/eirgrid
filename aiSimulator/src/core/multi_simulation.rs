@@ -33,6 +33,7 @@ use crate::core::action_weights::SimulationMetrics;
 use crate::config::simulation_config::SimulationConfig;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
+use serde_json;
 
 const FULL_RUN_PERCENTAGE: usize = 10;
 const REPLAY_BEST_STRATEGY_IN_FULL_RUNS: bool = true;
@@ -108,6 +109,7 @@ pub fn run_multi_simulation(
     enable_csv_export: bool,
     debug_weights: bool,
     enable_construction_delays: bool,
+    track_weight_history: bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     // Configure debug weights output
     crate::ai::learning::constants::set_debug_weights(debug_weights);
@@ -155,6 +157,55 @@ pub fn run_multi_simulation(
         let completed_iterations = Arc::new(AtomicUsize::new(0));
         let start_time = Instant::now();
          
+        // Create timestamp directory after loading weights
+        let now = Local::now();
+        let timestamp = format!("2024{}", now.format("%m%d_%H%M%S"));
+        let run_dir = format!("{}/{}", checkpoint_dir, timestamp);
+        std::fs::create_dir_all(&run_dir)?;
+        
+        // Create weight history file if tracking is enabled
+        let weight_history_path = if track_weight_history {
+            let history_path = Path::new(&run_dir).join("weight_history.json");
+            if !history_path.exists() {
+                let mut file = File::create(&history_path)?;
+                file.write_all(b"[]")?;
+            }
+            Some(history_path)
+        } else {
+            None
+        };
+
+        // Function to save weight history
+        let save_weight_history = |weights: &ActionWeights, iteration: usize| -> Result<(), Box<dyn Error + Send + Sync>> {
+            if let Some(history_path) = &weight_history_path {
+                let mut history: Vec<serde_json::Value> = if history_path.exists() {
+                    let contents = std::fs::read_to_string(history_path)?;
+                    if contents.trim().is_empty() {
+                        Vec::new()
+                    } else {
+                        serde_json::from_str(&contents)?
+                    }
+                } else {
+                    Vec::new()
+                };
+                
+                // Create a snapshot of the current weights
+                let snapshot = serde_json::json!({
+                    "iteration": iteration,
+                    "timestamp": Local::now().to_rfc3339(),
+                    "weights": weights.to_json(),
+                    "best_score": weights.get_best_metrics().map(|(score, _)| score).unwrap_or(0.0),
+                });
+                
+                history.push(snapshot);
+                
+                // Write back to file
+                let mut file = File::create(history_path)?;
+                file.write_all(serde_json::to_string_pretty(&history)?.as_bytes())?;
+            }
+            Ok(())
+        };
+
         // Load or create initial weights
         let initial_weights = if continue_from_checkpoint {
             // Try to find the most recent checkpoint
@@ -238,12 +289,6 @@ pub fn run_multi_simulation(
             ActionWeights::new()
         };
 
-        // Create timestamp directory after loading weights
-        let now = Local::now();
-        let timestamp = format!("2024{}", now.format("%m%d_%H%M%S"));
-        let run_dir = format!("{}/{}", checkpoint_dir, timestamp);
-        std::fs::create_dir_all(&run_dir)?;
-        
         // Create a clone of initial weights for later use in sequential mode
         let initial_weights_clone = initial_weights.clone();
          
@@ -403,10 +448,10 @@ pub fn run_multi_simulation(
                     // Set simulation mode
                     map_clone.set_simulation_mode(!is_full_run);
                      
-                    if total_completed == num_iterations.saturating_sub(final_full_sim_count) {
-                        println!("\nSwitching to full simulation mode for final {} iterations ({:.1}% of total)",
-                            final_full_sim_count, FULL_RUN_PERCENTAGE as f64);
-                    }
+                    // if total_completed == num_iterations.saturating_sub(final_full_sim_count) {
+                    //     println!("\nSwitching to full simulation mode for final {} iterations ({:.1}% of total)",
+                    //         final_full_sim_count, FULL_RUN_PERCENTAGE as f64);
+                    // }
                      
                     // Create local weights and immediately drop the read lock
                     let mut local_weights = {
@@ -420,9 +465,9 @@ pub fn run_multi_simulation(
                         local_weights.has_best_actions();
                      
                     // Log if we're replaying the best strategy
-                    if replay_best_strategy {
-                        println!("🔁 Iteration {} is replaying the best strategy for thorough analysis", i + 1);
-                    }
+                    // if replay_best_strategy {
+                    //     println!("🔁 Iteration {} is replaying the best strategy for thorough analysis", i + 1);
+                    // }
                      
                     let result = run_iteration(i, &mut map_clone, &mut local_weights, replay_best_strategy, seed, verbose_logging, optimization_mode, enable_energy_sales, enable_construction_delays)?;
                      
@@ -467,25 +512,29 @@ pub fn run_multi_simulation(
                     let thread_id = rayon::current_thread_index().unwrap_or(0);
                     if let Some(best_metrics) = &best_metrics_after_update {
                         let best_score = crate::ai::score_metrics(best_metrics, optimization_mode);
-                        println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
-                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
-                            current_score,
-                            result.metrics.final_net_emissions,
-                            result.metrics.total_cost / 1_000_000_000.0,
-                            result.metrics.average_public_opinion * 100.0);
-                        println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
-                            best_score,
-                            best_metrics.final_net_emissions,
-                            best_metrics.total_cost / 1_000_000_000.0,
-                            best_metrics.average_public_opinion * 100.0);
+                        if (i + 1) % 100 == 0 {  // Only print every 100 iterations
+                            println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
+                            println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
+                                current_score,
+                                result.metrics.final_net_emissions,
+                                result.metrics.total_cost / 1_000_000_000.0,
+                                result.metrics.average_public_opinion * 100.0);
+                            println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
+                                best_score,
+                                best_metrics.final_net_emissions,
+                                best_metrics.total_cost / 1_000_000_000.0,
+                                best_metrics.average_public_opinion * 100.0);
+                        }
                     } else {
-                        println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
-                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
-                            current_score,
-                            result.metrics.final_net_emissions,
-                            result.metrics.total_cost / 1_000_000_000.0,
-                            result.metrics.average_public_opinion * 100.0);
-                        println!("  Best result so far: No best result yet");
+                        if (i + 1) % 100 == 0 {  // Only print every 100 iterations
+                            println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
+                            println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
+                                current_score,
+                                result.metrics.final_net_emissions,
+                                result.metrics.total_cost / 1_000_000_000.0,
+                                result.metrics.average_public_opinion * 100.0);
+                            println!("  Best result so far: No best result yet");
+                        }
                     }
                      
                     // Increment completed iterations counter
@@ -505,11 +554,16 @@ pub fn run_multi_simulation(
                         let checkpoint_path = Path::new(&run_dir).join("latest_weights.json");
                         weights.save_to_file(checkpoint_path.to_str().unwrap())?;
                          
+                        // Save weight history if enabled
+                        if track_weight_history {
+                            save_weight_history(&weights, i)?;
+                        }
+                         
                         // Save iteration number
                         let iteration_path = Path::new(&run_dir).join("checkpoint_iteration.txt");
                         std::fs::write(iteration_path, (i + 1).to_string())?;
                          
-                        println!("Saved checkpoint at iteration {} in {} (thread {})", i + 1, run_dir, thread_id);
+                        // println!("Saved checkpoint at iteration {} in {} (thread {})", i + 1, run_dir, thread_id);
                     }
                      
                     // Check if we need to prompt the user about continuing with full simulations
@@ -612,10 +666,10 @@ pub fn run_multi_simulation(
                 // Set simulation mode
                 map_clone.set_simulation_mode(!is_full_run);
                  
-                if total_completed == num_iterations.saturating_sub(final_full_sim_count) {
-                    println!("\nSwitching to full simulation mode for final {} iterations ({:.1}% of total)",
-                        final_full_sim_count, FULL_RUN_PERCENTAGE as f64);
-                }
+                // if total_completed == num_iterations.saturating_sub(final_full_sim_count) {
+                //     println!("\nSwitching to full simulation mode for final {} iterations ({:.1}% of total)",
+                //         final_full_sim_count, FULL_RUN_PERCENTAGE as f64);
+                // }
                  
                 // Create local weights and immediately drop the read lock
                 let mut local_weights = {
@@ -628,10 +682,10 @@ pub fn run_multi_simulation(
                     REPLAY_BEST_STRATEGY_IN_FULL_RUNS &&
                     local_weights.has_best_actions();
                  
-                // Log if we're replaying the best strategy
-                if replay_best_strategy {
-                    println!("🔁 Iteration {} is replaying the best strategy for thorough analysis", i + 1);
-                }
+                // // Log if we're replaying the best strategy
+                // if replay_best_strategy {
+                //     println!("🔁 Iteration {} is replaying the best strategy for thorough analysis", i + 1);
+                // }
                  
                 let result = run_iteration(i, &mut map_clone, &mut local_weights, replay_best_strategy, seed, verbose_logging, optimization_mode, enable_energy_sales, enable_construction_delays)?;
                 
@@ -699,29 +753,32 @@ pub fn run_multi_simulation(
                 
                 // Print iteration results at the end of the iteration
                 let current_score = crate::ai::score_metrics(&result.metrics, optimization_mode);
-                // In sequential mode, thread is always 0
-                let thread_id = 0;
+                let thread_id = 0;  // In sequential mode, thread is always 0
                 if let Some(best_metrics) = &best_metrics_after_update {
                     let best_score = crate::ai::score_metrics(best_metrics, optimization_mode);
-                    println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
-                    println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
-                        current_score,
-                        result.metrics.final_net_emissions,
-                        result.metrics.total_cost / 1_000_000_000.0,
-                        result.metrics.average_public_opinion * 100.0);
-                    println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
-                        best_score,
-                        best_metrics.final_net_emissions,
-                        best_metrics.total_cost / 1_000_000_000.0,
-                        best_metrics.average_public_opinion * 100.0);
+                    if (i + 1) % 100 == 0 {  // Only print every 100 iterations
+                        println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
+                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
+                            current_score,
+                            result.metrics.final_net_emissions,
+                            result.metrics.total_cost / 1_000_000_000.0,
+                            result.metrics.average_public_opinion * 100.0);
+                        println!("  Best result so far: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
+                            best_score,
+                            best_metrics.final_net_emissions,
+                            best_metrics.total_cost / 1_000_000_000.0,
+                            best_metrics.average_public_opinion * 100.0);
+                    }
                 } else {
-                    println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
-                    println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
-                        current_score,
-                        result.metrics.final_net_emissions,
-                        result.metrics.total_cost / 1_000_000_000.0,
-                        result.metrics.average_public_opinion * 100.0);
-                    println!("  Best result so far: No best result yet");
+                    if (i + 1) % 100 == 0 {  // Only print every 100 iterations
+                        println!("\n🔄 Iteration {} completed (Thread {}): ", i + 1, thread_id);
+                        println!("  Current result: Score {:.6} (Emissions: {:.1} tonnes, Cost: €{:.1}B, Opinion: {:.1}%)",
+                            current_score,
+                            result.metrics.final_net_emissions,
+                            result.metrics.total_cost / 1_000_000_000.0,
+                            result.metrics.average_public_opinion * 100.0);
+                        println!("  Best result so far: No best result yet");
+                    }
                 }
                  
                 // Store each result for later comparison
@@ -738,13 +795,18 @@ pub fn run_multi_simulation(
                     {
                         let weights = action_weights.write();
                         weights.save_to_file(checkpoint_path.to_str().unwrap())?;
+                        
+                        // Save weight history if enabled
+                        if track_weight_history {
+                            save_weight_history(&weights, i)?;
+                        }
                     }
                      
                     // Save iteration number
                     let iteration_path = Path::new(&run_dir).join("checkpoint_iteration.txt");
                     std::fs::write(iteration_path, (i + 1).to_string())?;
                      
-                    println!("Saved checkpoint at iteration {} in {}", i + 1, run_dir);
+                    // println!("Saved checkpoint at iteration {} in {}", i + 1, run_dir);
                 }
                  
                 // Check if this result is better than our best result
@@ -1161,6 +1223,7 @@ pub fn run_multi_simulation(
                             enable_csv_export,
                             debug_weights,
                             enable_construction_delays,
+                            track_weight_history,
                         );
                     }
                 }

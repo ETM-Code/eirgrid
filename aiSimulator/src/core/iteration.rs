@@ -49,7 +49,8 @@ pub fn run_iteration(
         verbose_logging, 
         optimization_mode, 
         enable_energy_sales,
-        enable_construction_delays
+        enable_construction_delays,
+        __iteration,
     )?;
     
     // Calculate metrics from the last yearly metrics instead of relying on weights

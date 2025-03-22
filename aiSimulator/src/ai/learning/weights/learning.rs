@@ -173,29 +173,18 @@ impl ActionWeights {
                 // Enhanced adaptive learning rate based on stagnation and performance degradation
                 let adaptive_learning_rate = self.learning_rate * (ONE_F64 + ADAPTIVE_LEARNING_RATE_FACTOR * self.iterations_without_improvement as f64);
                 
-                // Log the contrast learning application with more detailed information
-                println!("\n🔄 Applying enhanced contrast learning:");
-                println!("   - Current run is {:.1}% worse than best", deterioration * PERCENT_CONVERSION);
-                println!("   - Dynamic threshold: {:.4}% (iterations: {})", dynamic_threshold * PERCENT_CONVERSION, self.iterations_without_improvement);
-                println!("   - Iterations without improvement: {}", self.iterations_without_improvement);
-                println!("   - Raw deterioration: {:.4}, Scaled: {:.4}", deterioration, scaled_deterioration);
-                println!("   - Stagnation factor: {:.2}x", stagnation_factor);
-                println!("   - Combined penalty multiplier: {:.4}", combined_penalty);
-                println!("   - Adaptive learning rate: {:.4} (base: {:.4})", adaptive_learning_rate, self.learning_rate);
-                
                 // Calculate the penalty factor - more severe for worse runs and after more stagnation
                 let penalty_factor = ONE_F64 / (ONE_F64 + adaptive_learning_rate * PENALTY_MULTIPLIER * combined_penalty);
                 
                 // Calculate the boost factor for best actions - increases with stagnation
                 let best_boost_factor = ONE_F64 + (adaptive_learning_rate * BOOST_MULTIPLIER * stagnation_factor);
                 
-                println!("   - Penalty factor: {:.8}", penalty_factor);
-                println!("   - Best action boost factor: {:.8}", best_boost_factor);
-                
-                // Debug - show an example of penalty effect on a typical weight
-                let example_weight = 0.1;
-                let penalized_weight = (example_weight * penalty_factor).max(MIN_WEIGHT);
-                println!("   - Example: Weight of 0.1 becomes {:.8} after penalty", penalized_weight);
+                // Only print debug messages every 100 iterations
+                if self.iteration_count % 100 == 0 {
+                    println!("   - Penalty factor: {:.8}", penalty_factor);
+                    println!("   - Best boost factor: {:.8}", best_boost_factor);
+                    println!("   - Applied enhanced contrast learning to deficit handling actions");
+                }
                 
                 // Track how many weights are at minimum value
                 let mut min_weight_count = 0;
@@ -262,20 +251,13 @@ impl ActionWeights {
                                 }
                             }
                         }
-                        
-                        // Log a summary of changes for this year
-                        if !penalized_actions.is_empty() || !boosted_actions.is_empty() {
-                            println!("   Year {}: Penalized {} actions, boosted {} actions, rewarded {} actions", 
-                                    year, penalized_actions.len(), boosted_actions.len(), reward_actions.len());
-                        }
                     }
                 }
                 
-                // Log summary information about the weight changes
-                println!("   - Applied enhanced contrast learning to deficit handling actions");
-
                 // Show stats on how many weights were affected
-                if total_weights > 0 {
+                if total_weights > 0 && self.iteration_count % 100 == 0 {
+                    let total_curr_actions = self.current_run_actions.values().map(|v| v.len()).sum::<usize>();
+                    println!("DEBUG: Current run has {} actions recorded", total_curr_actions);
                     println!("   - {}/{} weights ({:.1}%) reduced to minimum value", 
                             min_weight_count, total_weights, (min_weight_count as f64 / total_weights as f64) * PERCENT_CONVERSION);
                 }
@@ -283,8 +265,8 @@ impl ActionWeights {
                 // If we've been stagnating for a very long time, also apply some randomization
                 // to break out of local optima
                 if self.iterations_without_improvement > ITERATIONS_FOR_RANDOMIZATION {
-                    println!("   - Applying weight randomization to break stagnation after {} iterations", 
-                            self.iterations_without_improvement);
+                    // println!("   - Applying weight randomization to break stagnation after {} iterations", 
+                    //         self.iterations_without_improvement);
                     
                     let randomization_factor = RANDOMIZATION_FACTOR; // 10% random variation
                     let mut rng = rand::thread_rng();
@@ -335,22 +317,18 @@ impl ActionWeights {
                 // Calculate adaptive learning rate as in regular contrast learning
                 let adaptive_learning_rate = self.learning_rate * (ONE_F64 + ADAPTIVE_LEARNING_RATE_FACTOR * self.iterations_without_improvement as f64);
                 
-                // Log the contrast learning application with more detailed information
-                println!("\n🔄 Applying enhanced contrast learning to deficit handling actions:");
-                println!("   - Dynamic threshold: {:.4}% (iterations: {})", dynamic_threshold * PERCENT_CONVERSION, self.iterations_without_improvement);
-                println!("   - Iterations without improvement: {}", self.iterations_without_improvement);
-                println!("   - Proxy deterioration: {:.4}, Scaled: {:.4}", deterioration, scaled_deterioration);
-                println!("   - Stagnation factor: {:.2}x", stagnation_factor);
-                println!("   - Combined penalty multiplier: {:.4}", combined_penalty);
-                
                 // Calculate the penalty factor - more severe for worse runs and after more stagnation
                 let penalty_factor = ONE_F64 / (ONE_F64 + adaptive_learning_rate * PENALTY_MULTIPLIER * combined_penalty);
                 
                 // Use a more aggressive boost factor for deficit actions since they're critical
                 let best_boost_factor = ONE_F64 + (adaptive_learning_rate * BOOST_MULTIPLIER * stagnation_factor * DEFICIT_BOOST_MULTIPLIER);
                 
-                println!("   - Penalty factor: {:.8}", penalty_factor);
-                println!("   - Best boost factor: {:.8}", best_boost_factor);
+                // Only print debug messages every 100 iterations
+                if self.iteration_count % 100 == 0 {
+                    println!("   - Penalty factor: {:.8}", penalty_factor);
+                    println!("   - Best boost factor: {:.8}", best_boost_factor);
+                    println!("   - Applied enhanced contrast learning to deficit handling actions");
+                }
                 
                 // For each year, compare deficit actions with the best deficit actions
                 for (year, best_year_actions) in best_deficit_actions {
@@ -375,14 +353,11 @@ impl ActionWeights {
                     }
                 }
                 
-                // Log summary information about the weight changes
-                println!("   - Applied enhanced contrast learning to deficit handling actions");
-
                 // If we've been stagnating for a very long time, also apply some randomization
                 // to break out of local optima
                 if self.iterations_without_improvement > ITERATIONS_FOR_RANDOMIZATION {
-                    println!("   - Applying weight randomization to deficit weights after {} iterations", 
-                            self.iterations_without_improvement);
+                    // println!("   - Applying weight randomization to deficit weights after {} iterations", 
+                    //         self.iterations_without_improvement);
                     
                     let mut rng = rand::thread_rng();
                     

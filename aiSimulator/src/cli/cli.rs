@@ -51,8 +51,11 @@ pub struct Args {
     #[arg(long, help = "Enable detailed weights debugging output", default_value_t = false)]
     debug_weights: bool,
     
-    #[arg(long, help = "Enable construction delays for generators and carbon offsets", default_value_t = true)]
+    #[arg(long, help = "Enable construction delays for generators and carbon offsets", default_value_t = false)]
     enable_construction_delays: bool,
+
+    #[arg(long, help = "Track and save weight history over time", default_value_t = false)]
+    track_weight_history: bool,
 }
 
 // Add getter methods for all fields
@@ -123,5 +126,9 @@ impl Args {
 
     pub fn enable_construction_delays(&self) -> bool {
         self.enable_construction_delays
+    }
+
+    pub fn track_weight_history(&self) -> bool {
+        self.track_weight_history
     }
 }
