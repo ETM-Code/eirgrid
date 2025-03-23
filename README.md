@@ -270,6 +270,7 @@ This software is licensed under the following terms:
 
 **Prohibited Uses:**
 - Commercial use of any kind without explicit written permission
+- Use for practical applications without explicit written permission
 - Redistribution, in whole or in part, on any public repository or platform
 - Modification and redistribution as a derivative work
 - Use in production environments or for commercial policy decision-making
