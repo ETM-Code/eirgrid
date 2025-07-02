@@ -21,3 +21,4 @@ simulation_output
 oldCheckpoints
 *.txt
 *.mp4
+.env
